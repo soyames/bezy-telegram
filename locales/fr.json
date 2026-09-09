@@ -1,0 +1,32 @@
+{
+  "language_name": "Français",
+  "app": {
+    "tagline": "Rencontrez quelqu’un qui mérite d’être connu.",
+    "discover": "Découvrir",
+    "matches": "Matchs",
+    "messages": "Messages",
+    "profile": "Profil",
+    "for_you": "Pour vous",
+    "filters": "Filtres",
+    "pass": "Passer",
+    "super": "Super",
+    "like": "J’aime",
+    "your_matches": "Vos matchs",
+    "protected_by_bezy": "Protégé par Bezy",
+    "view_membership": "Voir l’abonnement",
+    "unlock_premium": "Débloquer Premium",
+    "privacy": "Confidentialité",
+    "terms": "Conditions",
+    "settings": "Paramètres",
+    "no_conversations": "Vos conversations apparaîtront ici après un match réciproque.",
+    "private_by_design": "Conçu pour la confidentialité · Messagerie contrôlée par le bot",
+    "discover_intro": "De vraies personnes. Un intérêt réciproque. Des conversations qui restent sur Telegram."
+  },
+  "profile": {
+    "edit": "Modifier le profil",
+    "my_profile": "Mon profil",
+    "language": "Langue",
+    "french": "Français",
+    "english": "English"
+  }
+}
