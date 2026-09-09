@@ -106,8 +106,19 @@ async function handleDiscover(req, res, user) {
     return res.status(200).json({ ok: true, profiles: [], needsProfile: true });
   }
 
-  const actionSnap = await currentRef.collection('actions').get();
-  const excluded = new Set(actionSnap.docs.map((doc) => doc.id));
+  // Excluded: everyone already decided on, everyone this user blocked, and everyone who
+  // blocked this user. Blocks are filtered in both directions so neither party can reach
+  // the other through discovery.
+  const [actionSnap, blocksSnap, blockedBySnap] = await Promise.all([
+    currentRef.collection('actions').get(),
+    currentRef.collection('blocks').get(),
+    currentRef.collection('blockedBy').get()
+  ]);
+  const excluded = new Set([
+    ...actionSnap.docs.map((doc) => doc.id),
+    ...blocksSnap.docs.map((doc) => doc.id),
+    ...blockedBySnap.docs.map((doc) => doc.id)
+  ]);
   const candidatesSnap = await db().collection('users').where('discoverable', '==', true).limit(100).get();
 
   const preferences = readPreferences(currentData.preferences);

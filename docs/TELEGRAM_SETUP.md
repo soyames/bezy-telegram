@@ -72,6 +72,23 @@ pre-checkout rejection, idempotency, renewal and entitlement. It does **not** pr
 Telegram's live Stars rail works end to end, because that requires a real bot, a real Telegram
 client and a real Stars balance.
 
+### Live verification status
+
+| Step | Status |
+| --- | --- |
+| 1–4 Open Bezy, profile, Premium screen, select plan | **Verified live** on Android |
+| 5 `createInvoiceLink` against the real Bot API | **Verified live** — a real invoice link was issued |
+| 6 Native Telegram Stars sheet opens | **Verified live** — "Confirm Your Purchase: Bezy Premium · Monthly in Bezy for 250 stars" |
+| — Price shown matches the server-derived plan price | **Verified live** — 250 ⭐, not a client value |
+| — Cancelling the sheet | **Verified live** — the Mini App reported "Payment cancelled." and granted nothing |
+| 7 Paying with Stars | **Not yet done** |
+| 8–9 `pre_checkout_query` and `answerPreCheckoutQuery` | **Not yet exercised live** |
+| 10–16 `successful_payment`, activation, confirmation | **Not yet exercised live** |
+| 17 Refund idempotency, 18–20 refund and revocation | **Not yet exercised live** |
+
+To complete the remaining steps the buying account needs a Stars balance; the observed balance
+was 0. Stars can be topped up in Telegram under Settings → My Stars.
+
 #### Before you start
 
 | Requirement | How to confirm |

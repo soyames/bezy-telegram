@@ -57,13 +57,25 @@ export default async function handler(req, res) {
       const targetSnap = await tx.get(targetRef);
       const reciprocalSnap = await tx.get(reciprocalRef);
       const existingMatch = await tx.get(matchRef);
+      const blockedEitherWay = await tx.get(userRef.collection('blocks').doc(targetId));
+      const blockedByTarget = await tx.get(userRef.collection('blockedBy').doc(targetId));
       const currentData = currentSnap.exists ? currentSnap.data() : {};
       // Liking, super-liking and matching are all 18+ actions. The declaration is checked
       // here as well as in the profile endpoint so a direct API call cannot bypass the gate.
       // It is evaluated before anything about the target is considered, so an ineligible
       // caller learns nothing — not even whether a given profile exists.
       if (currentData.ageEligibilityConfirmed !== true) throw new Error('AGE_CONFIRMATION_REQUIRED');
-      if (!targetSnap.exists) throw new Error('TARGET_NOT_FOUND');
+
+      // Anti-enumeration: "no account", "not discoverable" and "blocked in either
+      // direction" all return the identical error. Otherwise anyone holding valid initData
+      // could probe arbitrary Telegram ids and learn who has a Bezy dating account — which
+      // for a dating service is exactly the kind of disclosure that must not be possible.
+      const targetData = targetSnap.exists ? targetSnap.data() : null;
+      const reachable = Boolean(targetData)
+        && targetData.profileComplete === true
+        && !blockedEitherWay.exists
+        && !blockedByTarget.exists;
+      if (!reachable) throw new Error('TARGET_NOT_FOUND');
 
       const isPremium = isPremiumActive(currentData);
 

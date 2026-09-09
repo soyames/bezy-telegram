@@ -91,6 +91,58 @@ asked to declare rather than being silently grandfathered in.
 Separately, the profile's numeric `age` field is still validated at 18–100; the declaration
 does not replace it.
 
+## Safety boundary: Telegram protects Telegram, Bezy protects Bezy
+
+Telegram already provides account blocking, message reporting, anti-spam, platform moderation
+and account restrictions. Bezy must **not** rebuild any of that. Telegram also states that
+Mini Apps are operated independently by their developers, so the safety of the *Bezy service*
+is Bezy's own responsibility.
+
+| Concern | Owner |
+| --- | --- |
+| Blocking/reporting a Telegram account or message, spam, platform abuse, account bans, message delivery, identity | **Telegram** |
+| Bezy profile blocking and reporting, exclusion from discovery and matching, unmatch, account deletion, GDPR rights, profile content policy, Premium refunds | **Bezy** |
+
+The distinction is concrete: if Alice blocks Bob on Telegram, Telegram stops Bob contacting
+her there — but Bezy still has to know that Bob must not appear in Alice's deck, like her, or
+match with her. That is application logic Telegram cannot provide.
+
+Implemented in `api/relationship.js`, all server-enforced:
+
+- **Block** — mutual exclusion from discovery (filtered in both directions), like/match refused
+  in both directions, any existing match ended, pending likes withdrawn. The blocked user is
+  never told. Reversible via unblock.
+- **Report** — reason, optional description, reporter, target, status. Reporting also blocks.
+  No profile snapshot is stored, so an erasure request leaves no residue in the report.
+- **Unmatch** — ends the match for both sides and records a pass in both directions, so the
+  pair cannot resurface or re-establish contact through Bezy.
+
+Moderation review is `scripts/list-reports.mjs`, gated by the Firebase service account. There
+is deliberately no admin HTTP route and no moderation console: Bezy needs *visibility* of
+reports, not a moderation platform. Bezy does not promise 24/7 human moderation or a response
+time, and the UI does not claim otherwise.
+
+Conversations remain entirely on Telegram, so Telegram's own messaging safety applies to them.
+
+## Privacy and data protection
+
+`docs/DATA_PROCESSING_MAP.md` records every category of personal data, where it is stored,
+the plausible legal basis, retention behaviour, processors and international transfers.
+`docs/DPIA_ASSESSMENT.md` screens the processing against the Art. 35 criteria.
+
+Both are engineering documents, not legal opinions. Items marked **LEGAL REVIEW REQUIRED** —
+most importantly whether `gender` + `seeking` constitute Art. 9 special-category data, and the
+consequences of a Benin-established controller serving EU users — must be resolved by a
+qualified adviser before a public launch. Having a Privacy Policy does not make Bezy compliant.
+
+Implemented data-subject rights (`api/account.js`):
+
+- **Access / portability** — `action: 'export'` returns the user's own data as JSON. Likes
+  received are a count, never other people's profiles; reports about the user are excluded.
+- **Erasure** — `action: 'delete'` requires a typed confirmation, removes the profile, actions,
+  likes, blocks and their mirrors on other accounts, and ends every match. Payment records and
+  reports filed by others are retained, and the user is told so before confirming.
+
 ## Explicit non-goals
 
 - No separate Bezy mobile application.
