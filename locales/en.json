@@ -116,7 +116,15 @@
     "error_session": "Your Telegram session could not be verified. Please reopen Bezy.",
     "error_database": "Bezy could not reach its database. Please try again.",
     "error_profile_missing": "Complete your profile to start discovering people.",
-    "error_target_missing": "That profile is no longer available."
+    "error_target_missing": "That profile is no longer available.",
+    "age_gate_title": "Bezy is only available to people aged 18 and over.",
+    "age_gate_body": "By continuing, I confirm that I am 18 or older.",
+    "age_confirm": "I am 18 or older",
+    "age_deny": "I am under 18",
+    "age_note": "Bezy does not verify identity or age. This is your own declaration.",
+    "age_blocked_title": "Bezy is for adults aged 18 and over.",
+    "age_blocked_body": "You cannot create a Bezy profile, discover people or match. Thank you for being honest.",
+    "error_age_required": "Please confirm you are 18 or older to continue."
   },
   "profile": {
     "edit": "Edit profile",

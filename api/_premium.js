@@ -53,17 +53,23 @@ export function toMillis(value) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-// A membership is active only while it has not expired. An `active: true` flag with a
-// past `expiresAt` must behave exactly like Free — expiry is evaluated, never trusted.
+// A membership is active only while it has not expired AND has not been revoked.
+//
+// Expiration and refund are different states: expiry is time running out, a refund is the
+// purchase being undone. A refund revokes entitlement immediately, even when `expiresAt`
+// is still in the future, so `revokedAt` is checked independently of the clock.
 export function premiumState(userData = {}, now = new Date()) {
   const membership = userData?.bezyPremium || {};
   const expiresAtMs = toMillis(membership.expiresAt);
-  const active = membership.active === true && expiresAtMs > now.getTime();
+  const revoked = Boolean(membership.revokedAt);
+  const active = membership.active === true && !revoked && expiresAtMs > now.getTime();
   return {
     active,
     planId: active ? membership.planId || null : null,
     expiresAt: expiresAtMs ? new Date(expiresAtMs).toISOString() : null,
-    daysRemaining: active ? Math.ceil((expiresAtMs - now.getTime()) / 86400000) : 0
+    daysRemaining: active ? Math.ceil((expiresAtMs - now.getTime()) / 86400000) : 0,
+    revoked,
+    revocationReason: revoked ? membership.revocationReason || null : null
   };
 }
 
@@ -81,12 +87,98 @@ export function addMonths(date, months) {
   return result;
 }
 
-// Renewal must never destroy time the user already paid for: an active membership is
-// extended from its current expiry, an expired one restarts from now.
+// Renewal must never destroy time the user already paid for: an entitled membership is
+// extended from its current expiry, anything else restarts from now.
+//
+// This keys off effective entitlement rather than the raw `expiresAt`, so a refunded
+// membership that still carries a future expiry cannot be stacked on by a new purchase —
+// that would silently hand back the time that was just refunded.
 export function nextExpiry(userData, plan, now = new Date()) {
-  const current = toMillis(userData?.bezyPremium?.expiresAt);
-  const base = current > now.getTime() ? new Date(current) : now;
+  const entitled = premiumState(userData, now).active;
+  const base = entitled ? new Date(toMillis(userData.bezyPremium.expiresAt)) : now;
   return addMonths(base, plan.durationMonths);
+}
+
+export const REFUND_STATUS = { NONE: 'none', PENDING: 'pending', REFUNDED: 'refunded', FAILED: 'failed' };
+
+/**
+ * Records a Telegram Stars refund and revokes the user's Bezy Premium entitlement.
+ *
+ * This is the single revocation path. It is called both by the webhook when Telegram
+ * pushes `refunded_payment`, and by the admin refund script after `refundStarPayment`
+ * returns — so a refund initiated anywhere (Bezy, Telegram support, the owner's own
+ * script) converges on identical state.
+ *
+ * Everything happens in one transaction keyed on the payment document, so concurrent or
+ * repeated refunds cannot revoke twice, double-notify, or corrupt the record. Historical
+ * purchase data (plan, amount, purchase date, charge id, original expiry) is preserved;
+ * only entitlement is withdrawn.
+ *
+ * `firestore` is injected so this module stays free of the Admin SDK singleton and can be
+ * driven from a local script as easily as from a serverless function.
+ *
+ * @returns {Promise<{outcome: 'refunded'|'already_refunded'|'unknown_payment', ...}>}
+ */
+export async function applyRefund(firestore, chargeId, { source = 'telegram_webhook', now = new Date() } = {}) {
+  const id = String(chargeId || '');
+  if (!id) return { outcome: 'unknown_payment', chargeId: id };
+
+  const paymentRef = firestore.collection('bezyPayments').doc(id);
+
+  return firestore.runTransaction(async (tx) => {
+    const paymentSnap = await tx.get(paymentRef);
+    // A refund for a charge Bezy never recorded is not something we can act on. It is
+    // reported rather than silently written, so it shows up in the logs.
+    if (!paymentSnap.exists) return { outcome: 'unknown_payment', chargeId: id };
+
+    const payment = paymentSnap.data() || {};
+    const telegramUserId = String(payment.telegramUserId || '');
+
+    if (payment.refundStatus === REFUND_STATUS.REFUNDED) {
+      return { outcome: 'already_refunded', chargeId: id, telegramUserId, planId: payment.planId || null };
+    }
+
+    const userRef = telegramUserId ? firestore.collection('users').doc(telegramUserId) : null;
+    const userSnap = userRef ? await tx.get(userRef) : null;
+    const userData = userSnap?.exists ? userSnap.data() : {};
+    const before = premiumState(userData, now);
+
+    tx.set(paymentRef, {
+      refundStatus: REFUND_STATUS.REFUNDED,
+      refundedAt: now,
+      refundSource: source,
+      status: 'refunded'
+    }, { merge: true });
+
+    // The membership keeps its full history and simply stops granting access. Setting
+    // active:false plus revokedAt is what premiumState() reads, so every Premium-gated
+    // endpoint sees the user as Free on its very next call.
+    const membership = userData.bezyPremium || {};
+    const revoked = before.active;
+    if (userRef && revoked) {
+      tx.set(userRef, {
+        bezyPremium: {
+          ...membership,
+          active: false,
+          revokedAt: now,
+          revocationReason: 'refund',
+          refundedChargeId: id,
+          updatedAt: now
+        }
+      }, { merge: true });
+    }
+
+    return {
+      outcome: 'refunded',
+      chargeId: id,
+      telegramUserId,
+      planId: payment.planId || null,
+      stars: payment.stars ?? null,
+      revoked,
+      previousState: before.active ? 'active' : 'inactive',
+      newState: 'inactive'
+    };
+  });
 }
 
 const PAYLOAD_PREFIX = 'bezy_premium';

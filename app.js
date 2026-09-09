@@ -38,6 +38,8 @@ function applyLocale() {
   if ($('interests')) $('interests').placeholder = t('app.interests_placeholder');
   setText('premium-title', t('app.premium_title')); setText('premium-back', t('app.discover'));
   setText('premium-card-title', `✨ ${t('app.premium_title')}`); setText('matches-premium-title', `💎 ${t('app.more_connections')}`);
+  setText('age-title', t('app.age_gate_title')); setText('age-body', t('app.age_gate_body'));
+  setText('age-confirm', t('app.age_confirm')); setText('age-deny', t('app.age_deny')); setText('age-note', t('app.age_note'));
   // Accessible names are user-facing too, so they follow the selected language.
   document.documentElement.lang = state.lang;
   $('settingsBtn')?.setAttribute('aria-label', t('app.settings'));
@@ -60,7 +62,8 @@ const ERROR_KEYS = {
   PREMIUM_REQUIRED: 'app.premium_required',
   DISCOVERY_LIMIT_REACHED: 'app.discovery_limit',
   SUPER_LIKE_LIMIT_REACHED: 'app.super_like_limit',
-  PREMIUM_UNAVAILABLE: 'app.payment_failed'
+  PREMIUM_UNAVAILABLE: 'app.payment_failed',
+  AGE_CONFIRMATION_REQUIRED: 'app.error_age_required'
 };
 function errorText(error) {
   const key = ERROR_KEYS[error?.error];
@@ -139,7 +142,9 @@ async function api(path, options = {}) {
 function openTelegramLink(url) { if (!url) return; if (tg?.openTelegramLink && url.startsWith('https://t.me/')) tg.openTelegramLink(url); else if (tg?.openLink) tg.openLink(url); else window.open(url, '_blank', 'noopener'); }
 
 function showView(view) {
-  const validViews = new Set(['discover', 'matches', 'messages', 'profile', 'premium']);
+  const validViews = new Set(['discover', 'matches', 'messages', 'profile', 'premium', 'age']);
+  // Bezy is 18+ only: until the declaration is made, no other view is reachable.
+  if (state.needsAgeConfirmation && view !== 'age') view = 'age';
   state.view = validViews.has(view) ? view : 'discover';
   document.querySelectorAll('.view').forEach((node) => node.classList.toggle('active', node.id === `${state.view}-view`));
   // Premium is reached from in-app entry points rather than the bottom bar, so no tab is
@@ -423,7 +428,41 @@ async function saveProfile(event) {
   try { const data = await api(API.profile, { body: { profile } }); state.account = data.profile; renderAccount(); showToast(t('app.profile_saved')); if (state.account.profileComplete && state.account.discoverable) showView('discover'); }
   catch (error) { showToast(errorText(error)); }
 }
-async function loadAccount() { const data = await api(API.profile); state.account = data.profile; renderAccount(); return data; }
+async function loadAccount() {
+  const data = await api(API.profile);
+  state.account = data.profile;
+  state.needsAgeConfirmation = data.needsAgeConfirmation === true;
+  document.body.classList.toggle('age-gated', state.needsAgeConfirmation);
+  renderAccount();
+  return data;
+}
+
+// The declaration must be an explicit affirmative action: nothing is pre-selected, and the
+// user cannot proceed without choosing. This is a self-declaration, not age verification.
+async function confirmAge() {
+  const button = $('age-confirm');
+  if (button) button.disabled = true;
+  try {
+    const data = await api(API.profile, { body: { ageEligibilityConfirmed: true } });
+    state.account = data.profile;
+    state.needsAgeConfirmation = data.needsAgeConfirmation === true;
+    document.body.classList.remove('age-gated');
+    renderAccount();
+    showView(state.account?.profileComplete ? 'discover' : 'profile');
+  } catch (error) {
+    showToast(errorText(error));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+// Declining is terminal for the session: no profile, no discovery, no matching.
+function denyAge() {
+  const host = document.querySelector('#age-view .age-gate');
+  if (!host) return;
+  document.body.classList.add('age-gated');
+  host.innerHTML = `<div class="age-badge">18+</div><h2>${escapeHtml(t('app.age_blocked_title'))}</h2><p>${escapeHtml(t('app.age_blocked_body'))}</p>`;
+}
 
 function bindEvents() {
   if (bindEvents.done) return;
@@ -440,6 +479,8 @@ function bindEvents() {
   if ($('profile-form')) $('profile-form').addEventListener('submit', saveProfile);
   if ($('profile-refresh')) $('profile-refresh').onclick = async () => { try { await loadAccount(); showToast(t('app.profile_saved')); } catch (error) { showToast(errorText(error)); } };
   if ($('filterBtn')) $('filterBtn').onclick = openFilters;
+  if ($('age-confirm')) $('age-confirm').onclick = confirmAge;
+  if ($('age-deny')) $('age-deny').onclick = denyAge;
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeSheet(); });
   document.querySelectorAll('[data-language]').forEach((button) => button.addEventListener('click', async () => { try { await loadLocale(button.dataset.language); renderAccount(); } catch { showToast(t('app.error_generic')); } }));
 }
@@ -470,7 +511,8 @@ async function init() {
       tagline: 'Meet someone worth knowing.', discover: 'Discover', matches: 'Matches', messages: 'Messages', profile: 'Profile', for_you: 'For you', filters: 'Filters', pass: 'Pass', super: 'Super', like: 'Like', your_matches: 'Your matches', protected_by_bezy: 'Protected by Bezy', view_membership: 'View membership', unlock_premium: 'Unlock Premium', privacy: 'Privacy', terms: 'Terms', settings: 'Settings', no_conversations: 'Your conversations will appear here after a mutual match.', discover_intro: 'Real people. Mutual interest. Conversations that stay on Telegram.', discover_title: 'Find your kind of connection.', premium_copy: 'See who liked you, unlock advanced discovery and get more ways to connect.', matches_premium_copy: 'Premium members get more discovery options and can see who already liked them.', people_nearby: 'people nearby', best_match: 'best match', new_today: 'new today', loading: 'Loading…', refresh: 'Refresh', open_chat: 'Open Telegram chat', no_matches: 'No matches yet. Keep discovering — your next connection could be here.', no_profiles: 'No more profiles right now. Check back soon.', complete_profile: 'Complete your profile to start discovering people.', profile_saved: 'Your profile has been saved.', match_created: 'It’s a match! 💜', error_generic: 'Something went wrong. Please try again.', premium_soon: 'Bezy Premium is coming soon.', adults_only: 'Bezy is for adults aged 18 and over.', show_profile: 'Show my profile in Discover', legal_privacy: 'Legal & privacy', language: 'Language', edit_profile: 'Edit profile', display_name: 'Display name', age: 'Age', city: 'City', gender: 'I am', seeking: 'Looking for', interests: 'Interests', interests_placeholder: 'Travel, music, books', bio: 'About me', woman: 'Woman', man: 'Man', non_binary: 'Non-binary', prefer_not_to_say: 'Prefer not to say', women: 'Women', men: 'Men', everyone: 'Everyone', save_profile: 'Save profile', my_profile: 'My profile',
       people_available: 'people to discover', match_score: 'match', min_age: 'Minimum age', max_age: 'Maximum age', any_city: 'Any city', same_city_only: 'Only show people in my city', apply_filters: 'Apply filters', reset_filters: 'Reset filters', filters_applied: 'Filters applied.', filters_note: 'Filters are saved to your account and applied every time you open Discover.', conversation_hint: 'Matched — your conversation continues in Telegram.', profile_live: 'Your profile is live in Discover.', profile_hidden: 'Your profile is saved but hidden from Discover.',
       premium_title: 'Bezy Premium', premium_intro: 'Unlock more ways to discover meaningful connections.', premium_active_intro: "You're a Premium member. Thank you for supporting Bezy.", benefit_who_liked_you: 'See who liked you', benefit_advanced_discovery: 'Advanced discovery', benefit_more_super_likes: 'More Super Likes', benefit_increased_visibility: 'Increased visibility', benefit_unlimited_discovery: 'Unlimited discovery', choose_plan: 'Choose your plan', plan: 'Plan', plan_monthly: 'Monthly', plan_quarterly: 'Quarterly', plan_yearly: 'Yearly', months_count: '{n} months of Premium', best_value: 'Best value', subscribe_with_stars: 'Subscribe with Telegram Stars', renew_with_stars: 'Renew with Telegram Stars', renew: 'Renew or extend', active_until: 'Active until', days_remaining: 'Days remaining', stars_note: 'Payment is handled inside Telegram with Stars. Bezy never sees your card details.', who_liked_you: 'Who liked you', who_liked_you_locked: 'Premium members can see everyone who already liked them, and match instantly.', likes_waiting: '{n} people already liked you', no_likes_yet: 'No one is waiting yet. Keep discovering.', preparing_checkout: 'Preparing checkout…', payment_cancelled: 'Payment cancelled.', payment_failed: "We couldn't start the payment. Please try again.", payment_received: 'Payment received. Activating your Bezy Premium…', payment_pending: 'Your payment is still processing.', payment_processing: 'Your payment is being processed. Premium will activate shortly.', payment_unsupported: 'Please update Telegram to pay with Stars.', premium_active: '💎 Bezy Premium is active.', premium_required: 'This is a Premium feature.', premium_expired: 'Your Bezy Premium has expired.', discovery_limit: "You've reached today's discovery limit. Premium removes it.", super_like_limit: "You've used today's Super Likes. Premium gives you more.",
-      more_connections: 'More connections', navigation: 'Bezy navigation', close: 'Close', bezy_member: 'Bezy member', meta_description: 'Bezy — meet someone worth knowing, entirely inside Telegram.', error_session: 'Your Telegram session could not be verified. Please reopen Bezy.', error_database: 'Bezy could not reach its database. Please try again.', error_profile_missing: 'Complete your profile to start discovering people.', error_target_missing: 'That profile is no longer available.'
+      more_connections: 'More connections', navigation: 'Bezy navigation', close: 'Close', bezy_member: 'Bezy member', meta_description: 'Bezy — meet someone worth knowing, entirely inside Telegram.', error_session: 'Your Telegram session could not be verified. Please reopen Bezy.', error_database: 'Bezy could not reach its database. Please try again.', error_profile_missing: 'Complete your profile to start discovering people.', error_target_missing: 'That profile is no longer available.',
+      age_gate_title: 'Bezy is only available to people aged 18 and over.', age_gate_body: 'By continuing, I confirm that I am 18 or older.', age_confirm: 'I am 18 or older', age_deny: 'I am under 18', age_note: 'Bezy does not verify identity or age. This is your own declaration.', age_blocked_title: 'Bezy is for adults aged 18 and over.', age_blocked_body: 'You cannot create a Bezy profile, discover people or match. Thank you for being honest.', error_age_required: 'Please confirm you are 18 or older to continue.'
     }};
     document.documentElement.lang = 'en';
     applyLocale();
@@ -478,8 +520,10 @@ async function init() {
 
   try {
     const account = await loadAccount();
-    const requestedView = new URLSearchParams(location.search).get('view') || (account.needsProfile ? 'profile' : 'discover');
-    if (!state.userNavigated) showView(requestedView);
+    const requestedView = account.needsAgeConfirmation
+      ? 'age'
+      : new URLSearchParams(location.search).get('view') || (account.needsProfile ? 'profile' : 'discover');
+    if (!state.userNavigated || account.needsAgeConfirmation) showView(requestedView);
   } catch (error) {
     console.error('[Bezy] Account initialization failed:', error);
     showToast(errorText(error));

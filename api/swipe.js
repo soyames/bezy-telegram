@@ -57,9 +57,14 @@ export default async function handler(req, res) {
       const targetSnap = await tx.get(targetRef);
       const reciprocalSnap = await tx.get(reciprocalRef);
       const existingMatch = await tx.get(matchRef);
+      const currentData = currentSnap.exists ? currentSnap.data() : {};
+      // Liking, super-liking and matching are all 18+ actions. The declaration is checked
+      // here as well as in the profile endpoint so a direct API call cannot bypass the gate.
+      // It is evaluated before anything about the target is considered, so an ineligible
+      // caller learns nothing — not even whether a given profile exists.
+      if (currentData.ageEligibilityConfirmed !== true) throw new Error('AGE_CONFIRMATION_REQUIRED');
       if (!targetSnap.exists) throw new Error('TARGET_NOT_FOUND');
 
-      const currentData = currentSnap.exists ? currentSnap.data() : {};
       const isPremium = isPremiumActive(currentData);
 
       // Daily allowances are enforced here, inside the transaction, so the counter cannot
@@ -120,6 +125,7 @@ export default async function handler(req, res) {
     // Only the expected, user-meaningful case is surfaced; internal database errors
     // must not leak their text to the Mini App.
     if (error.message === 'TARGET_NOT_FOUND') return res.status(404).json({ error: error.message });
+    if (error.message === 'AGE_CONFIRMATION_REQUIRED') return res.status(403).json({ error: error.message });
     if (error.quota) return res.status(403).json({ error: error.quota.reason, limits: error.quota.limits, isPremium: error.quota.isPremium });
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }

@@ -25,6 +25,7 @@ const PROFILES = {
 
 async function seed(page, key) {
   const users = await (await page.request.get('/__test-users')).json();
+  await page.request.post('/api/profile/me', { data: { initData: users[key].initData, ageEligibilityConfirmed: true } });
   await page.request.post('/api/profile/me', { data: { initData: users[key].initData, profile: PROFILES[key] } });
   return users;
 }
@@ -61,6 +62,67 @@ test.beforeEach(async ({ page }) => {
   await seed(page, 'd');
 });
 test.afterAll(async () => { await cleanup(); });
+
+test('new user is gated behind an explicit 18+ declaration', async ({ page }) => {
+  // Wipe the declaration so this account looks brand new.
+  await db.recursiveDelete(db.collection('users').doc(ADA));
+
+  await page.goto('/?as=a');
+  await expect(page.locator('html')).toHaveAttribute('data-bezy-ready', 'true');
+
+  await expect(page.locator('#age-view')).toHaveClass(/active/);
+  await expect(page.locator('#age-title')).toHaveText('Bezy is only available to people aged 18 and over.');
+  await expect(page.locator('#age-body')).toHaveText('By continuing, I confirm that I am 18 or older.');
+  // No pre-selected consent anywhere, and no way past the gate without choosing.
+  await expect(page.locator('#age-view input[type=checkbox]')).toHaveCount(0);
+  await expect(page.locator('.bottom')).toBeHidden();
+  await expect(page.locator('#discover-view')).not.toHaveClass(/active/);
+  await expect(page.locator('#profile-view')).not.toHaveClass(/active/);
+  // The app must not claim it verifies anything.
+  await expect(page.locator('#age-note')).toContainText('does not verify');
+
+  await page.locator('#age-confirm').click();
+  await expect(page.locator('#age-view')).not.toHaveClass(/active/);
+  await expect(page.locator('.bottom')).toBeVisible();
+
+  const status = await (await page.request.post('/api/profile/me', {
+    data: { initData: (await (await page.request.get('/__test-users')).json()).a.initData }
+  })).json();
+  expect(status.needsAgeConfirmation).toBe(false);
+  expect(status.ageEligibility.method).toBe('self_declaration');
+});
+
+test('declaring under 18 blocks access entirely', async ({ page }) => {
+  await db.recursiveDelete(db.collection('users').doc(ADA));
+
+  await page.goto('/?as=a');
+  await expect(page.locator('html')).toHaveAttribute('data-bezy-ready', 'true');
+  await page.locator('#age-deny').click();
+
+  await expect(page.locator('.age-gate')).toContainText('Bezy is for adults aged 18 and over.');
+  await expect(page.locator('#age-confirm')).toHaveCount(0);
+  await expect(page.locator('.bottom')).toBeHidden();
+  await expect(page.locator('#discover-view')).not.toHaveClass(/active/);
+
+  // Nothing was recorded and the backend still refuses the account.
+  const status = await (await page.request.post('/api/profile/me', {
+    data: { initData: (await (await page.request.get('/__test-users')).json()).a.initData }
+  })).json();
+  expect(status.needsAgeConfirmation).toBe(true);
+  expect(status.profile.profileComplete).toBeFalsy();
+});
+
+test('age gate is localized in French', async ({ page }) => {
+  await db.recursiveDelete(db.collection('users').doc(ADA));
+  await page.addInitScript(() => window.localStorage.setItem('bezy-language', 'fr'));
+  await page.goto('/?as=a');
+  await expect(page.locator('html')).toHaveAttribute('data-bezy-ready', 'true');
+
+  await expect(page.locator('#age-title')).toHaveText('Bezy est réservé aux personnes âgées de 18 ans et plus.');
+  await expect(page.locator('#age-body')).toHaveText('En continuant, je confirme avoir 18 ans ou plus.');
+  await expect(page.locator('#age-confirm')).toHaveText('J’ai 18 ans ou plus');
+  await expect(page.locator('#age-deny')).toHaveText('J’ai moins de 18 ans');
+});
 
 test('bottom navigation switches every view', async ({ page }) => {
   await openApp(page);

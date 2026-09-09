@@ -4,7 +4,7 @@
 //
 //   BEZY_SERVICE_ACCOUNT=<path to service-account.json> node tests/backend.test.mjs
 import { startHarness, makeInitData, TEST_USERS } from './harness.mjs';
-import { premiumPlans, parseInvoicePayload, addMonths, nextExpiry, premiumState, checkSwipeQuota, LIMITS } from '../api/_premium.js';
+import { premiumPlans, parseInvoicePayload, addMonths, nextExpiry, premiumState, checkSwipeQuota, LIMITS, applyRefund, REFUND_STATUS } from '../api/_premium.js';
 import { db } from '../api/_firebase.js';
 
 let pass = 0, fail = 0;
@@ -58,8 +58,12 @@ const PROFILES = {
   c: { displayName: 'Cy', age: 45, city: 'Lyon', gender: 'man', seeking: 'women', interests: ['hiking'], bio: 'Salut.', discoverable: true },
   d: { displayName: 'Dee', age: 28, city: 'Paris', gender: 'man', seeking: 'everyone', interests: ['books'], bio: 'Hi.', discoverable: true }
 };
+// Bezy is 18+ only, so seeding must make the explicit declaration exactly as onboarding does.
 async function seedAll() {
-  for (const key of ['a', 'b', 'c', 'd']) await call('/api/profile/me', key, { profile: PROFILES[key] });
+  for (const key of ['a', 'b', 'c', 'd']) {
+    await call('/api/profile/me', key, { ageEligibilityConfirmed: true });
+    await call('/api/profile/me', key, { profile: PROFILES[key] });
+  }
 }
 
 await cleanup();
@@ -276,6 +280,68 @@ try {
   r = await call('/api/swipe', 'a', { targetId: '900000004', action: 'like' });
   check('a normal like still works at the super-like cap', r.status === 200);
 
+  // ------------------------------------------------------------------ 18+ gate
+  section('18+ age eligibility (self-declaration)');
+  await cleanup();
+
+  // A brand-new account has made no declaration.
+  r = await call('/api/profile/me', 'a');
+  check('new account needs the age declaration', r.data.needsAgeConfirmation === true, JSON.stringify(r.data.needsAgeConfirmation));
+  check('new account is not marked confirmed', r.data.ageEligibility?.confirmed === false);
+  check('nothing is silently confirmed on creation',
+    (await firestore.collection('users').doc('900000001').get()).data()?.ageEligibilityConfirmed === undefined);
+
+  // Server-side enforcement: a client that skips the gate still cannot become discoverable.
+  r = await call('/api/profile/me', 'a', { profile: PROFILES.a });
+  check('profile cannot complete without the declaration', r.data.profile?.profileComplete === false, JSON.stringify(r.data.profile?.profileComplete));
+  check('profile cannot become discoverable without it', r.data.profile?.discoverable === false);
+  r = await call('/api/discover', 'a');
+  check('discover serves no deck before the declaration', (r.data.profiles || []).length === 0 && r.data.needsAgeConfirmation === true);
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('swipe rejected with AGE_CONFIRMATION_REQUIRED', r.status === 403 && r.data.error === 'AGE_CONFIRMATION_REQUIRED', JSON.stringify(r.data));
+
+  // A falsy or non-boolean value must never count as a declaration.
+  for (const bogus of [false, 'true', 1, null]) {
+    await call('/api/profile/me', 'a', { ageEligibilityConfirmed: bogus });
+  }
+  check('only an explicit boolean true is accepted',
+    (await firestore.collection('users').doc('900000001').get()).data()?.ageEligibilityConfirmed === undefined);
+
+  // The affirmative action.
+  r = await call('/api/profile/me', 'a', { ageEligibilityConfirmed: true });
+  check('declaration accepted', r.data.needsAgeConfirmation === false, JSON.stringify(r.data.needsAgeConfirmation));
+  let ageDoc = (await firestore.collection('users').doc('900000001').get()).data();
+  check('ageEligibilityConfirmed stored', ageDoc.ageEligibilityConfirmed === true);
+  check('ageEligibilityConfirmedAt stored', Boolean(ageDoc.ageEligibilityConfirmedAt));
+  check('method recorded as self_declaration', ageDoc.ageEligibilityMethod === 'self_declaration', ageDoc.ageEligibilityMethod);
+  check('no "verifiedAge" field is created', ageDoc.verifiedAge === undefined && ageDoc.ageVerified === undefined);
+  const declaredAt = ageDoc.ageEligibilityConfirmedAt.toMillis();
+
+  // Re-declaring must not re-date the original record.
+  await call('/api/profile/me', 'a', { ageEligibilityConfirmed: true });
+  check('existing declaration is not re-dated',
+    (await firestore.collection('users').doc('900000001').get()).data().ageEligibilityConfirmedAt.toMillis() === declaredAt);
+
+  r = await call('/api/profile/me', 'a', { profile: PROFILES.a });
+  check('profile completes once declared', r.data.profile?.profileComplete === true);
+  r = await call('/api/discover', 'a');
+  check('discover works after the declaration', r.data.needsAgeConfirmation === undefined);
+
+  // The numeric age field remains enforced independently of the declaration.
+  r = await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, age: 17 } });
+  check('declared adult still cannot save an under-18 age', r.data.profile?.profileComplete === false);
+  await call('/api/profile/me', 'a', { profile: PROFILES.a });
+
+  // Existing accounts created before the gate are asked, not grandfathered in.
+  await firestore.collection('users').doc('900000002').set({
+    telegramId: 900000002, profile: PROFILES.b, profileComplete: true, discoverable: true, createdAt: new Date()
+  });
+  r = await call('/api/profile/me', 'b');
+  check('pre-existing account is asked to declare', r.data.needsAgeConfirmation === true);
+  check('pre-existing account not silently confirmed', r.data.ageEligibility?.confirmed === false);
+  r = await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  check('pre-existing account cannot swipe until it declares', r.status === 403 && r.data.error === 'AGE_CONFIRMATION_REQUIRED');
+
   // ------------------------------------------------------------------ launch checks
   section('Firestore record structure');
   await cleanup();
@@ -361,6 +427,180 @@ try {
   check('Telegram Premium user keeps free quota', r.data.quota?.limits?.discoveryActions === LIMITS.free.discoveryActions);
   check('isPremiumTelegram is still stored as informational',
     (await firestore.collection('users').doc('900000001').get()).data().isPremiumTelegram === true);
+
+  // ------------------------------------------------------------------ refunds
+  // Helper: buy a plan for user A and return the charge id backing the membership.
+  async function purchase(planId, chargeId, who = 'a', userId = '900000001') {
+    await call('/api/premium', who, { action: 'invoice', planId });
+    const payload = (await sent()).filter((c) => c.method === 'createInvoiceLink').pop().body.payload;
+    await webhook({
+      message: {
+        chat: { id: Number(userId) }, from: { id: Number(userId), language_code: who === 'b' ? 'fr' : 'en' },
+        successful_payment: {
+          currency: 'XTR', total_amount: PLANS[planId].stars, invoice_payload: payload,
+          telegram_payment_charge_id: chargeId, provider_payment_charge_id: `prov_${chargeId}`
+        }
+      }
+    });
+    return payload;
+  }
+  const refundUpdate = (chargeId, payload, stars, userId = '900000001', lang = 'en') => ({
+    message: {
+      chat: { id: Number(userId) }, from: { id: Number(userId), language_code: lang },
+      refunded_payment: {
+        currency: 'XTR', total_amount: stars, invoice_payload: payload,
+        telegram_payment_charge_id: chargeId, provider_payment_charge_id: `prov_${chargeId}`
+      }
+    }
+  });
+  const userDocOf = async (id = '900000001') => (await firestore.collection('users').doc(id).get()).data() || {};
+  const payDocOf = async (id) => (await firestore.collection('bezyPayments').doc(id).get()).data() || {};
+
+  section('Refund A: successful refund revokes Premium');
+  await cleanup();
+  await seedAll();
+  await resetCalls();
+  const refPayload = await purchase('monthly', 'charge_refund_1');
+  let doc = await userDocOf();
+  check('membership active before refund', premiumState(doc).active === true);
+  const originalPlan = doc.bezyPremium.planId;
+  const originalPurchasedAt = doc.bezyPremium.purchasedAt.toMillis();
+  const originalExpiry = doc.bezyPremium.expiresAt.toMillis();
+  check('membership expiry is in the future', originalExpiry > Date.now());
+
+  await resetCalls();
+  const refRes = await webhook(refundUpdate('charge_refund_1', refPayload, PLANS.monthly.stars));
+  check('refunded_payment update returns 200', refRes.status === 200);
+
+  doc = await userDocOf();
+  check('membership no longer active', doc.bezyPremium.active === false, JSON.stringify(doc.bezyPremium).slice(0, 200));
+  check('premiumState evaluates as Free', premiumState(doc).active === false);
+  check('revokedAt recorded', Boolean(doc.bezyPremium.revokedAt));
+  check('revocationReason is refund', doc.bezyPremium.revocationReason === 'refund', doc.bezyPremium.revocationReason);
+  check('refundedChargeId links to the refunded payment', doc.bezyPremium.refundedChargeId === 'charge_refund_1');
+
+  let pay = await payDocOf('charge_refund_1');
+  check('payment marked refunded', pay.refundStatus === REFUND_STATUS.REFUNDED, pay.refundStatus);
+  check('payment status flipped to refunded', pay.status === 'refunded');
+  check('refundedAt timestamp recorded', Boolean(pay.refundedAt));
+  check('refund source recorded', pay.refundSource === 'telegram_webhook', pay.refundSource);
+
+  r = await call('/api/premium', 'a');
+  check('/api/premium reports Free after refund', r.data.premium?.active === false, JSON.stringify(r.data.premium));
+  check('/api/premium exposes revoked state', r.data.premium?.revoked === true);
+  r = await call('/api/likes', 'a');
+  check('Premium-only likes endpoint rejects refunded user', r.status === 403 && r.data.error === 'PREMIUM_REQUIRED');
+  await call('/api/profile/me', 'a', { preferences: { minAge: 18, maxAge: 100, city: 'Lyon', sameCityOnly: false } });
+  r = await call('/api/discover', 'a');
+  check('advanced discovery filters no longer applied', (r.data.profiles || []).some((p) => p.city !== 'Lyon') || (r.data.profiles || []).length === 0);
+  check('discover reports isPremium=false', r.data.isPremium === false);
+  check('free discovery quota restored', r.data.quota?.limits?.discoveryActions === LIMITS.free.discoveryActions);
+  check('free super-like quota restored', r.data.quota?.limits?.superLikes === LIMITS.free.superLikes);
+  await call('/api/profile/me', 'a', { preferences: { minAge: 18, maxAge: 100, city: '', sameCityOnly: false } });
+
+  const refundNotice = (await sent()).filter((c) => c.method === 'sendMessage').pop();
+  check('refund confirmation sent to the user', /refunded/i.test(refundNotice?.body?.text || ''), refundNotice?.body?.text?.slice(0, 90));
+
+  section('Refund H: historical purchase data preserved');
+  check('original plan retained', doc.bezyPremium.planId === originalPlan);
+  check('original purchase date retained', doc.bezyPremium.purchasedAt.toMillis() === originalPurchasedAt);
+  check('original expiry retained for audit', doc.bezyPremium.expiresAt.toMillis() === originalExpiry);
+  check('original charge id retained', doc.bezyPremium.telegramPaymentChargeId === 'charge_refund_1');
+  check('payment retains plan and amount', pay.planId === 'monthly' && pay.stars === PLANS.monthly.stars);
+  check('payment retains currency and payload', pay.currency === 'XTR' && pay.invoicePayload === refPayload);
+  check('payment retains provider charge id', pay.providerPaymentChargeId === 'prov_charge_refund_1');
+  check('payment retains original processedAt', Boolean(pay.processedAt));
+
+  section('Refund C: duplicate refund is idempotent');
+  const revokedAtFirst = doc.bezyPremium.revokedAt.toMillis();
+  const paymentsBefore = (await firestore.collection('bezyPayments').get()).size;
+  await resetCalls();
+  const dupRes = await webhook(refundUpdate('charge_refund_1', refPayload, PLANS.monthly.stars));
+  check('replayed refund returns 200', dupRes.status === 200);
+  check('no duplicate confirmation sent', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+  doc = await userDocOf();
+  check('revokedAt unchanged on replay', doc.bezyPremium.revokedAt.toMillis() === revokedAtFirst);
+  check('membership still inactive (not reactivated)', premiumState(doc).active === false);
+  check('no extra payment document created', (await firestore.collection('bezyPayments').get()).size === paymentsBefore);
+  const dupDirect = await applyRefund(firestore, 'charge_refund_1', { source: 'admin_script' });
+  check('applyRefund reports already_refunded', dupDirect.outcome === 'already_refunded', dupDirect.outcome);
+  check('replay did not overwrite the original refund source', (await payDocOf('charge_refund_1')).refundSource === 'telegram_webhook');
+
+  section('Refund: repurchase after refund does not restore refunded time');
+  await resetCalls();
+  await purchase('monthly', 'charge_after_refund');
+  doc = await userDocOf();
+  check('new purchase reactivates Premium', premiumState(doc).active === true);
+  check('new expiry starts from now, not the refunded expiry',
+    Math.abs(doc.bezyPremium.expiresAt.toMillis() - addMonths(new Date(), 1).getTime()) < 2 * 86400000,
+    `refunded expiry ${new Date(originalExpiry).toISOString()} -> new ${doc.bezyPremium.expiresAt.toDate().toISOString()}`);
+  check('revocation markers cleared by the new purchase', !doc.bezyPremium.revokedAt);
+
+  section('Refund B: failed Telegram refund does not revoke');
+  await firestore.collection('bezyPayments').doc('charge_after_refund').set({
+    refundStatus: REFUND_STATUS.FAILED, refundFailedAt: new Date(), refundFailureReason: 'CHARGE_NOT_FOUND'
+  }, { merge: true });
+  doc = await userDocOf();
+  check('membership still active after a failed refund', premiumState(doc).active === true);
+  check('no revocation markers written', !doc.bezyPremium.revokedAt && doc.bezyPremium.active === true);
+  r = await call('/api/premium', 'a');
+  check('/api/premium still reports Premium', r.data.premium?.active === true);
+  r = await call('/api/likes', 'a');
+  check('Premium endpoint still accessible', r.status === 200);
+  check('failure reason recorded for diagnosis', (await payDocOf('charge_after_refund')).refundFailureReason === 'CHARGE_NOT_FOUND');
+
+  section('Refund D: refund before expiration revokes immediately');
+  await resetCalls();
+  const yearPayload = await purchase('yearly', 'charge_year_1');
+  doc = await userDocOf();
+  const yearExpiry = doc.bezyPremium.expiresAt.toMillis();
+  check('yearly membership expires far in the future', yearExpiry > Date.now() + 300 * 86400000);
+  await webhook(refundUpdate('charge_year_1', yearPayload, PLANS.yearly.stars));
+  doc = await userDocOf();
+  check('long-dated membership revoked immediately', premiumState(doc).active === false);
+  check('future expiresAt preserved but powerless', doc.bezyPremium.expiresAt.toMillis() === yearExpiry);
+  r = await call('/api/likes', 'a');
+  check('access denied despite unexpired date', r.status === 403);
+
+  section('Refund E: refund after expiration still records');
+  await resetCalls();
+  const latePayload = await purchase('monthly', 'charge_expired_1');
+  await setPremium('900000001', { active: true, planId: 'monthly', expiresAt: new Date(Date.now() - 86400000), telegramPaymentChargeId: 'charge_expired_1' });
+  doc = await userDocOf();
+  check('membership already expired before refund', premiumState(doc).active === false);
+  await resetCalls();
+  const lateRes = await webhook(refundUpdate('charge_expired_1', latePayload, PLANS.monthly.stars));
+  check('refund of an expired membership returns 200', lateRes.status === 200);
+  check('payment still marked refunded', (await payDocOf('charge_expired_1')).refundStatus === REFUND_STATUS.REFUNDED);
+  doc = await userDocOf();
+  check('membership remains Free', premiumState(doc).active === false);
+  check('no confirmation sent when nothing was revoked', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+
+  section('Refund F: Telegram Premium cannot resurrect a refunded membership');
+  await firestore.collection('users').doc('900000001').set({ isPremiumTelegram: true }, { merge: true });
+  doc = await userDocOf();
+  check('Telegram Premium flag set', doc.isPremiumTelegram === true);
+  check('Bezy Premium still Free after refund', premiumState(doc).active === false);
+  r = await call('/api/premium', 'a');
+  check('/api/premium still reports inactive', r.data.premium?.active === false);
+  r = await call('/api/likes', 'a');
+  check('Premium-only endpoint still refuses', r.status === 403);
+
+  section('Refund G: refunds are not publicly reachable');
+  check('no /api/premium/refund route exists', (await fetch(`${BASE}/api/premium/refund`, { method: 'POST' })).status === 404);
+  r = await call('/api/premium', 'a', { action: 'refund', telegramPaymentChargeId: 'charge_year_1' });
+  check('refund is not an accepted /api/premium action', r.status === 400 && r.data.error === 'INVALID_ACTION', JSON.stringify(r.data));
+  r = await call('/api/premium', 'b', { action: 'invoice', planId: 'monthly' });
+  check('another user cannot act on someone else\'s payment through the API', r.status === 200 && parseInvoicePayload((await sent()).filter((c) => c.method === 'createInvoiceLink').pop().body.payload).telegramUserId === '900000002');
+  const unknown = await applyRefund(firestore, 'charge_does_not_exist', { source: 'admin_script' });
+  check('refunding an unrecorded charge is refused', unknown.outcome === 'unknown_payment', unknown.outcome);
+  check('unrecorded charge writes no payment document', (await firestore.collection('bezyPayments').doc('charge_does_not_exist').get()).exists === false);
+
+  section('Refund: webhook robustness');
+  check('refunded_payment without a charge id returns 200', (await webhook({
+    message: { chat: { id: 900000001 }, from: { id: 900000001, language_code: 'en' }, refunded_payment: { currency: 'XTR', total_amount: 1 } }
+  })).status === 200);
+  check('refund for an unknown charge returns 200 and changes nothing', (await webhook(refundUpdate('charge_never_seen', 'x', 1))).status === 200);
 
   // ------------------------------------------------------------------ regression
   section('Regression: existing dating flow');

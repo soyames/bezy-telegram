@@ -39,7 +39,10 @@ async function cleanup() {
 }
 async function seed(page) {
   const users = await (await page.request.get('/__test-users')).json();
-  for (const key of ['a', 'b']) await page.request.post('/api/profile/me', { data: { initData: users[key].initData, profile: PROFILES[key] } });
+  for (const key of ['a', 'b']) {
+    await page.request.post('/api/profile/me', { data: { initData: users[key].initData, ageEligibilityConfirmed: true } });
+    await page.request.post('/api/profile/me', { data: { initData: users[key].initData, profile: PROFILES[key] } });
+  }
   return users;
 }
 async function openFrench(page) {
