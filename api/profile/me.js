@@ -1,29 +1,50 @@
-import crypto from 'node:crypto';
 import { db } from '../_firebase.js';
+import { requirePost, requireTelegramUser } from '../_telegram.js';
 
-function telegramUser(initData) {
-  const params = new URLSearchParams(initData || '');
-  const hash = params.get('hash');
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!hash || !token) return null;
-  params.delete('hash');
-  const check = [...params.entries()].sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => `${k}=${v}`).join('\n');
-  const secret = crypto.createHmac('sha256', 'WebAppData').update(token).digest();
-  const calculated = crypto.createHmac('sha256', secret).update(check).digest('hex');
-  if (calculated.length !== hash.length || !crypto.timingSafeEqual(Buffer.from(calculated), Buffer.from(hash))) return null;
-  const authDate = Number(params.get('auth_date'));
-  if (!Number.isFinite(authDate) || Date.now()/1000 - authDate > 86400 || Date.now()/1000 - authDate < -60) return null;
-  try { return JSON.parse(params.get('user') || 'null'); } catch { return null; }
+const ALLOWED_GENDERS = new Set(['woman', 'man', 'non_binary', 'prefer_not_to_say']);
+const ALLOWED_SEEKING = new Set(['women', 'men', 'everyone']);
+
+function cleanText(value, max) {
+  return String(value ?? '').trim().slice(0, max);
+}
+
+function normalizeProfile(input = {}) {
+  const age = Number(input.age);
+  const interests = Array.isArray(input.interests)
+    ? [...new Set(input.interests.map((value) => cleanText(value, 32)).filter(Boolean))].slice(0, 12)
+    : [];
+  const gender = ALLOWED_GENDERS.has(input.gender) ? input.gender : '';
+  const seeking = ALLOWED_SEEKING.has(input.seeking) ? input.seeking : 'everyone';
+  const displayName = cleanText(input.displayName, 60);
+  const city = cleanText(input.city, 80);
+  const bio = cleanText(input.bio, 500);
+  const discoverable = Boolean(input.discoverable);
+  const complete = Boolean(displayName && Number.isInteger(age) && age >= 18 && age <= 100 && city && gender);
+
+  return {
+    displayName,
+    age: Number.isInteger(age) ? age : null,
+    gender,
+    seeking,
+    city,
+    bio,
+    interests,
+    discoverable: complete && discoverable,
+    profileComplete: complete
+  };
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  const user = telegramUser(req.body?.initData);
-  if (!user?.id) return res.status(401).json({ error: 'Invalid Telegram session' });
+  if (!requirePost(req, res)) return;
+  const user = requireTelegramUser(req, res);
+  if (!user) return;
 
   const ref = db().collection('users').doc(String(user.id));
   const snap = await ref.get();
-  const profileData = {
+  const current = snap.exists ? snap.data() : {};
+  const now = new Date();
+
+  const baseData = {
     telegramId: user.id,
     firstName: user.first_name || '',
     lastName: user.last_name || '',
@@ -31,15 +52,35 @@ export default async function handler(req, res) {
     languageCode: user.language_code || '',
     photoUrl: user.photo_url || '',
     isPremiumTelegram: Boolean(user.is_premium),
-    updatedAt: new Date()
+    updatedAt: now
   };
 
+  let nextProfile = current.profile || {};
+  if (req.body?.profile && typeof req.body.profile === 'object') {
+    nextProfile = normalizeProfile(req.body.profile);
+    baseData.profile = nextProfile;
+    baseData.profileComplete = nextProfile.profileComplete;
+    baseData.discoverable = nextProfile.discoverable;
+  }
+
   if (!snap.exists) {
-    await ref.set({ ...profileData, createdAt: new Date() });
+    await ref.set({
+      ...baseData,
+      profile: nextProfile,
+      profileComplete: Boolean(nextProfile.profileComplete),
+      discoverable: Boolean(nextProfile.discoverable),
+      createdAt: now
+    });
   } else {
-    await ref.update(profileData);
+    await ref.update(baseData);
   }
 
   const latest = await ref.get();
-  return res.status(200).json({ ok: true, userId: String(user.id), profile: latest.data() });
+  const data = latest.data() || {};
+  return res.status(200).json({
+    ok: true,
+    userId: String(user.id),
+    profile: data,
+    needsProfile: !data.profileComplete
+  });
 }
