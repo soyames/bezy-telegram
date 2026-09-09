@@ -30,10 +30,10 @@ async function cleanup() {
   for (const doc of (await db.collection('users').get()).docs) {
     if (/^9000000\d\d$/.test(doc.id)) await db.recursiveDelete(doc.ref);
   }
-  for (const col of ['matches', 'bezyPayments', 'bezyInvoices']) {
+  for (const col of ['matches', 'bezyPayments', 'bezyInvoices', 'reports']) {
     for (const doc of (await db.collection(col).get()).docs) {
       const d = doc.data();
-      if ((d.participants || []).some((p) => /^9000000\d\d$/.test(p)) || /^9000000\d\d$/.test(String(d.telegramUserId))) await doc.ref.delete();
+      if ((d.participants || []).some((p) => /^9000000\d\d$/.test(p)) || /^9000000\d\d$/.test(String(d.telegramUserId)) || /^9000000\d\d$/.test(String(d.reporterId)) || /^9000000\d\d$/.test(String(d.targetId))) await doc.ref.delete();
     }
   }
 }

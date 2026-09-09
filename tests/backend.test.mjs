@@ -41,10 +41,11 @@ async function cleanup() {
   for (const doc of (await firestore.collection('users').get()).docs) {
     if (isTestId(doc.id)) await firestore.recursiveDelete(doc.ref);
   }
-  for (const col of ['matches', 'bezyPayments', 'bezyInvoices']) {
+  for (const col of ['matches', 'bezyPayments', 'bezyInvoices', 'reports']) {
     for (const doc of (await firestore.collection(col).get()).docs) {
       const d = doc.data();
-      const touchesTest = (d.participants || []).some(isTestId) || isTestId(d.telegramUserId);
+      const touchesTest = (d.participants || []).some(isTestId) || isTestId(d.telegramUserId)
+        || isTestId(d.reporterId) || isTestId(d.targetId);
       if (touchesTest) await doc.ref.delete();
     }
   }
@@ -601,6 +602,165 @@ try {
     message: { chat: { id: 900000001 }, from: { id: 900000001, language_code: 'en' }, refunded_payment: { currency: 'XTR', total_amount: 1 } }
   })).status === 200);
   check('refund for an unknown charge returns 200 and changes nothing', (await webhook(refundUpdate('charge_never_seen', 'x', 1))).status === 200);
+
+  // ------------------------------------------------------------------ safety & rights
+  section('Block');
+  await cleanup();
+  await seedAll();
+  r = await call('/api/relationship', 'a', { action: 'block', targetId: '900000002' });
+  check('block accepted', r.status === 200 && r.data.blocked === true, JSON.stringify(r.data));
+  check('block recorded for the blocker',
+    (await firestore.collection('users').doc('900000001').collection('blocks').doc('900000002').get()).exists);
+  check('mirror recorded under the blocked user',
+    (await firestore.collection('users').doc('900000002').collection('blockedBy').doc('900000001').get()).exists);
+  r = await call('/api/discover', 'a');
+  check('blocked user removed from blocker deck', !(r.data.profiles || []).some((p) => p.id === '900000002'), (r.data.profiles || []).map((p) => p.id).join(','));
+  r = await call('/api/discover', 'b');
+  check('blocker removed from blocked user deck', !(r.data.profiles || []).some((p) => p.id === '900000001'), (r.data.profiles || []).map((p) => p.id).join(','));
+  r = await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  check('blocked user cannot like the blocker', r.status === 404, JSON.stringify(r.data));
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('blocker cannot like the blocked user', r.status === 404);
+  r = await call('/api/relationship', 'a', { action: 'list_blocks', targetId: 'none' });
+  check('blocked list returns the block', (r.data.blocked || []).some((b) => b.id === '900000002'), JSON.stringify(r.data.blocked));
+  r = await call('/api/relationship', 'a', { action: 'unblock', targetId: '900000002' });
+  check('unblock accepted', r.status === 200 && r.data.blocked === false);
+  check('block document removed',
+    (await firestore.collection('users').doc('900000001').collection('blocks').doc('900000002').get()).exists === false);
+  check('mirror removed',
+    (await firestore.collection('users').doc('900000002').collection('blockedBy').doc('900000001').get()).exists === false);
+
+  section('Block ends an existing match');
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  r = await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  check('match created for the block test', r.data.matched === true);
+  await call('/api/relationship', 'a', { action: 'block', targetId: '900000002' });
+  r = await call('/api/matches', 'a');
+  check('match gone for the blocker', (r.data.matches || []).length === 0, JSON.stringify(r.data.matches));
+  r = await call('/api/matches', 'b');
+  check('match gone for the blocked user too', (r.data.matches || []).length === 0);
+
+  section('Report');
+  await cleanup();
+  await seedAll();
+  r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000002', reason: 'harassment', details: 'Test report.' });
+  check('report accepted', r.status === 200 && r.data.reported === true, JSON.stringify(r.data));
+  const reportSnap = await firestore.collection('reports').doc(r.data.reportId).get();
+  const reportData = reportSnap.data() || {};
+  check('report stores reporter, target, reason and status',
+    reportData.reporterId === '900000001' && reportData.targetId === '900000002' && reportData.reason === 'harassment' && reportData.status === 'open',
+    JSON.stringify(reportData).slice(0, 160));
+  check('report stores no profile snapshot', reportData.profile === undefined && reportData.displayName === undefined);
+  check('reporting also blocks',
+    (await firestore.collection('users').doc('900000001').collection('blocks').doc('900000002').get()).exists);
+  r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000003', reason: 'not_a_real_reason' });
+  check('unknown reason normalized to other', (await firestore.collection('reports').doc(r.data.reportId).get()).data().reason === 'other');
+  r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000004', details: 'x'.repeat(5000) });
+  check('report details truncated', (await firestore.collection('reports').doc(r.data.reportId).get()).data().details.length === 1000);
+
+  section('Unmatch');
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  r = await call('/api/relationship', 'a', { action: 'unmatch', targetId: '900000002' });
+  check('unmatch accepted', r.status === 200 && r.data.unmatched === true, JSON.stringify(r.data));
+  check('match no longer listed for either side',
+    (await call('/api/matches', 'a')).data.matches.length === 0 && (await call('/api/matches', 'b')).data.matches.length === 0);
+  r = await call('/api/discover', 'a');
+  check('unmatched person does not return to the deck', !(r.data.profiles || []).some((p) => p.id === '900000002'));
+  r = await call('/api/relationship', 'a', { action: 'unmatch', targetId: '900000003' });
+  check('unmatch with no match is a safe no-op', r.status === 200 && r.data.unmatched === false, JSON.stringify(r.data));
+
+  section('Relationship authorization');
+  r = await call('/api/relationship', 'user=%7B%22id%22%3A1%7D&hash=deadbeef', { action: 'block', targetId: '900000002' });
+  check('unauthenticated relationship call rejected', r.status === 401);
+  r = await call('/api/relationship', 'a', { action: 'block', targetId: '900000001' });
+  check('cannot block yourself', r.status === 400 && r.data.error === 'INVALID_TARGET');
+  r = await call('/api/relationship', 'a', { action: 'nonsense', targetId: '900000002' });
+  check('unknown relationship action rejected', r.status === 400 && r.data.error === 'INVALID_ACTION');
+  check('GET on relationship rejected', (await fetch(`${BASE}/api/relationship`)).status === 405);
+
+  section('User enumeration protection');
+  await cleanup();
+  await seedAll();
+  const unknownRes = await call('/api/swipe', 'a', { targetId: '900000099', action: 'like' });
+  await call('/api/relationship', 'a', { action: 'block', targetId: '900000003' });
+  const blockedRes = await call('/api/swipe', 'a', { targetId: '900000003', action: 'like' });
+  check('non-existent and blocked targets are indistinguishable',
+    unknownRes.status === blockedRes.status && JSON.stringify(unknownRes.data) === JSON.stringify(blockedRes.data),
+    `${unknownRes.status}:${JSON.stringify(unknownRes.data)} vs ${blockedRes.status}:${JSON.stringify(blockedRes.data)}`);
+
+  section('Data export (GDPR access / portability)');
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  await call('/api/relationship', 'a', { action: 'block', targetId: '900000003' });
+  r = await call('/api/account', 'a', { action: 'export' });
+  const exported = r.data.data || {};
+  check('export returns the account', r.status === 200 && exported.account?.telegramId === 900000001, JSON.stringify(exported.account).slice(0, 120));
+  check('export includes the profile', exported.profile?.displayName === 'Ada');
+  check('export includes the age declaration', exported.ageEligibility?.confirmed === true && exported.ageEligibility?.method === 'self_declaration');
+  check('export includes own decisions', (exported.decisions || []).some((d) => d.targetTelegramId === '900000002'));
+  check('export includes blocks', (exported.blocked || []).some((b) => b.targetTelegramId === '900000003'));
+  check('export includes matches', (exported.matches || []).length === 1);
+  check('likes received are a count, not other people\'s profiles', typeof exported.likesReceivedCount === 'number' && exported.likes === undefined);
+  check('export does not disclose reports filed about the user', exported.reportsAboutYou === undefined);
+  check('export explains that conversations live in Telegram', (exported.notes || []).some((n) => /Telegram/.test(n)));
+  r = await call('/api/account', 'user=%7B%22id%22%3A1%7D&hash=deadbeef', { action: 'export' });
+  check('unauthenticated export rejected', r.status === 401);
+
+  section('Account deletion (GDPR erasure)');
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  await call('/api/relationship', 'a', { action: 'block', targetId: '900000003' });
+  await purchase('monthly', 'charge_delete_1');
+
+  r = await call('/api/account', 'a', { action: 'delete' });
+  check('deletion requires explicit confirmation', r.status === 400 && r.data.error === 'CONFIRMATION_REQUIRED', JSON.stringify(r.data));
+  r = await call('/api/account', 'a', { action: 'delete', confirm: 'yes' });
+  check('wrong confirmation rejected', r.status === 400);
+  check('account still present before confirmed deletion',
+    (await firestore.collection('users').doc('900000001').get()).exists);
+
+  r = await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
+  check('deletion succeeds with confirmation', r.status === 200 && r.data.deleted === true, JSON.stringify(r.data));
+  check('user document removed', (await firestore.collection('users').doc('900000001').get()).exists === false);
+  check('actions subcollection removed',
+    (await firestore.collection('users').doc('900000001').collection('actions').get()).size === 0);
+  check('blocks subcollection removed',
+    (await firestore.collection('users').doc('900000001').collection('blocks').get()).size === 0);
+  check('mirror under the blocked user cleaned up',
+    (await firestore.collection('users').doc('900000003').collection('blockedBy').doc('900000001').get()).exists === false);
+  check('like mirror removed from the other user',
+    (await firestore.collection('users').doc('900000002').collection('likesReceived').doc('900000001').get()).exists === false);
+  check('matches ended for the counterpart', (await call('/api/matches', 'b')).data.matches.length === 0);
+  check('deleted user is not discoverable',
+    !((await call('/api/discover', 'b')).data.profiles || []).some((p) => p.id === '900000001'));
+  check('payment record retained for accounting',
+    (await firestore.collection('bezyPayments').doc('charge_delete_1').get()).exists);
+  check('retained counts reported to the user', r.data.retained?.payments === 1, JSON.stringify(r.data.retained));
+
+  r = await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
+  check('deletion is idempotent', r.status === 200 && r.data.alreadyDeleted === true, JSON.stringify(r.data));
+  r = await call('/api/account', 'a', { action: 'export' });
+  check('export after deletion returns no account', r.data.data?.account === null, JSON.stringify(r.data.data).slice(0, 120));
+
+  // Reopening the Mini App creates a brand-new account. It must carry nothing over.
+  r = await call('/api/profile/me', 'a');
+  check('returning user must re-declare age', r.data.needsAgeConfirmation === true);
+  const reborn = (await firestore.collection('users').doc('900000001').get()).data() || {};
+  check('returning user has no previous profile', !reborn.profile?.displayName, JSON.stringify(reborn.profile));
+  check('returning user has no previous membership', premiumState(reborn).active === false);
+  check('returning user has no previous decisions',
+    (await firestore.collection('users').doc('900000001').collection('actions').get()).size === 0);
+  check('returning user has no previous blocks',
+    (await firestore.collection('users').doc('900000001').collection('blocks').get()).size === 0);
 
   // ------------------------------------------------------------------ regression
   section('Regression: existing dating flow');

@@ -1,5 +1,5 @@
 const tg = window.Telegram?.WebApp;
-const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes' };
+const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account' };
 const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false };
 const $ = (id) => document.getElementById(id);
 
@@ -38,6 +38,8 @@ function applyLocale() {
   if ($('interests')) $('interests').placeholder = t('app.interests_placeholder');
   setText('premium-title', t('app.premium_title')); setText('premium-back', t('app.discover'));
   setText('premium-card-title', `✨ ${t('app.premium_title')}`); setText('matches-premium-title', `💎 ${t('app.more_connections')}`);
+  setText('safety-title', t('app.safety_title')); setText('safety-intro', t('app.safety_intro')); setText('rights-note', t('app.rights_note'));
+  setText('blocked-list-btn', t('app.blocked_people')); setText('export-data-btn', t('app.export_data')); setText('delete-account-btn', t('app.delete_account'));
   setText('age-title', t('app.age_gate_title')); setText('age-body', t('app.age_gate_body'));
   setText('age-confirm', t('app.age_confirm')); setText('age-deny', t('app.age_deny')); setText('age-note', t('app.age_note'));
   // Accessible names are user-facing too, so they follow the selected language.
@@ -239,9 +241,15 @@ function renderMatches() {
   grid.innerHTML = state.matches.map((match) => {
     const initial = (match.displayName || 'B').charAt(0).toUpperCase(); const image = match.photoUrl ? `<img src="${escapeHtml(match.photoUrl)}" alt="">` : escapeHtml(initial);
     const button = match.username ? `<button class="match-open" data-chat="${escapeHtml(match.username)}" type="button">${escapeHtml(t('app.open_chat'))}</button>` : `<button class="match-open" data-nochat="1" type="button">${escapeHtml(t('app.open_chat'))}</button>`;
-    return `<article class="match-card"><div class="match-photo">${image}</div><div class="match-info"><b>${escapeHtml(match.displayName || t('app.bezy_member'))}${match.age ? `, ${escapeHtml(match.age)}` : ''}</b><span>${escapeHtml(match.city || '')}</span>${button}</div></article>`;
+    return `<article class="match-card"><div class="match-photo">${image}</div><div class="match-info"><b>${escapeHtml(match.displayName || t('app.bezy_member'))}${match.age ? `, ${escapeHtml(match.age)}` : ''}</b><span>${escapeHtml(match.city || '')}</span>${button}<button class="match-open" data-actions="${escapeHtml(match.id)}" type="button">${escapeHtml(t('app.safety_actions'))}</button></div></article>`;
   }).join('');
   grid.querySelectorAll('[data-chat]').forEach((button) => button.onclick = () => openTelegramLink(`https://t.me/${button.dataset.chat}`));
+  grid.querySelectorAll('[data-actions]').forEach((button) => {
+    button.onclick = () => {
+      const match = state.matches.find((m) => m.id === button.dataset.actions);
+      if (match) openMatchActions(match);
+    };
+  });
   grid.querySelectorAll('[data-nochat]').forEach((button) => button.onclick = () => showToast(t('app.open_chat')));
   conversations.innerHTML = state.matches.map((match) => {
     const initial = (match.displayName || 'B').charAt(0).toUpperCase(); const avatar = match.photoUrl ? `<img src="${escapeHtml(match.photoUrl)}" alt="">` : escapeHtml(initial);
@@ -420,6 +428,127 @@ async function refreshPremiumUntilActive(attempts = 5) {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Safety and privacy: block, report, unmatch, data export, account deletion.
+// Every one of these is enforced by the API; the UI is only the entry point.
+// ---------------------------------------------------------------------------
+
+function openMatchActions(match) {
+  openSheet(match.displayName || t('app.bezy_member'), `
+    <button class="ghost-btn" data-act="chat">${escapeHtml(t('app.open_chat'))}</button>
+    <button class="ghost-btn" data-act="unmatch">${escapeHtml(t('app.unmatch'))}</button>
+    <button class="ghost-btn" data-act="block">${escapeHtml(t('app.block'))}</button>
+    <button class="ghost-btn" data-act="report" style="color:var(--danger)">${escapeHtml(t('app.report'))}</button>
+    <p class="filter-note">${escapeHtml(t('app.safety_sheet_note'))}</p>
+  `, (host) => {
+    host.querySelector('[data-act="chat"]').onclick = () => {
+      closeSheet();
+      if (match.username) openTelegramLink(`https://t.me/${match.username}`); else showToast(t('app.open_chat'));
+    };
+    host.querySelector('[data-act="unmatch"]').onclick = () => confirmAction('unmatch', match);
+    host.querySelector('[data-act="block"]').onclick = () => confirmAction('block', match);
+    host.querySelector('[data-act="report"]').onclick = () => openReportSheet(match);
+  });
+}
+
+function confirmAction(action, match) {
+  openSheet(t(`app.${action}`), `
+    <p class="filter-note" style="font-size:13px;margin-bottom:14px">${escapeHtml(t(`app.${action}_confirm`).replace('{name}', match.displayName || t('app.bezy_member')))}</p>
+    <button class="save-btn" data-act="confirm">${escapeHtml(t(`app.${action}`))}</button>
+    <button class="ghost-btn" data-sheet-close>${escapeHtml(t('app.cancel'))}</button>
+  `, (host) => {
+    host.querySelector('[data-act="confirm"]').onclick = async () => {
+      try {
+        await api(API.relationship, { body: { action, targetId: match.id } });
+        closeSheet();
+        showToast(t(`app.${action}_done`));
+        await loadMatches();
+      } catch (error) { showToast(errorText(error)); }
+    };
+  });
+}
+
+function openReportSheet(match) {
+  const reasons = ['harassment', 'spam', 'scam', 'fake_profile', 'inappropriate_content', 'underage', 'other'];
+  openSheet(t('app.report'), `
+    <div class="field"><label for="report-reason">${escapeHtml(t('app.report_reason'))}</label>
+      <select id="report-reason">${reasons.map((r) => `<option value="${r}">${escapeHtml(t(`app.reason_${r}`))}</option>`).join('')}</select></div>
+    <div class="field"><label for="report-details">${escapeHtml(t('app.report_details'))}</label>
+      <textarea id="report-details" maxlength="1000"></textarea></div>
+    <button class="save-btn" id="report-send" type="button">${escapeHtml(t('app.report_send'))}</button>
+    <p class="filter-note">${escapeHtml(t('app.report_note'))}</p>
+  `, () => {
+    $('report-send').onclick = async () => {
+      try {
+        await api(API.relationship, { body: { action: 'report', targetId: match.id, reason: $('report-reason').value, details: $('report-details').value } });
+        closeSheet();
+        showToast(t('app.report_done'));
+        await loadMatches();
+      } catch (error) { showToast(errorText(error)); }
+    };
+  });
+}
+
+async function openBlockedList() {
+  try {
+    const data = await api(API.relationship, { body: { action: 'list_blocks', targetId: 'none' } });
+    const blocked = data.blocked || [];
+    openSheet(t('app.blocked_people'), blocked.length
+      ? blocked.map((b) => `<div class="conversation"><div class="conv-main"><b>${escapeHtml(b.displayName || t('app.bezy_member'))}</b></div><button class="match-open" data-unblock="${escapeHtml(b.id)}" type="button">${escapeHtml(t('app.unblock'))}</button></div>`).join('')
+      : `<div class="empty">${escapeHtml(t('app.no_blocked'))}</div>`,
+    (host) => {
+      host.querySelectorAll('[data-unblock]').forEach((button) => {
+        button.onclick = async () => {
+          try {
+            await api(API.relationship, { body: { action: 'unblock', targetId: button.dataset.unblock } });
+            closeSheet();
+            showToast(t('app.unblock_done'));
+          } catch (error) { showToast(errorText(error)); }
+        };
+      });
+    });
+  } catch (error) { showToast(errorText(error)); }
+}
+
+// GDPR access/portability: the export is produced by the backend and handed to the user as
+// a JSON file they can keep.
+async function exportMyData() {
+  try {
+    showToast(t('app.export_preparing'));
+    const { data } = await api(API.account, { body: { action: 'export' } });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `bezy-my-data-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    showToast(t('app.export_ready'));
+  } catch (error) { showToast(errorText(error)); }
+}
+
+// Erasure is irreversible, so it requires an explicit typed confirmation.
+function openDeleteAccount() {
+  openSheet(t('app.delete_account'), `
+    <p class="filter-note" style="font-size:13px;margin-bottom:12px">${escapeHtml(t('app.delete_explain'))}</p>
+    <p class="filter-note" style="font-size:13px;margin-bottom:12px">${escapeHtml(t('app.delete_retained'))}</p>
+    <div class="field"><label for="delete-confirm">${escapeHtml(t('app.delete_type'))}</label><input id="delete-confirm" autocomplete="off" placeholder="DELETE"></div>
+    <button class="save-btn" id="delete-go" type="button" style="background:var(--danger)">${escapeHtml(t('app.delete_account'))}</button>
+    <button class="ghost-btn" data-sheet-close>${escapeHtml(t('app.cancel'))}</button>
+  `, () => {
+    $('delete-go').onclick = async () => {
+      if ($('delete-confirm').value.trim().toUpperCase() !== 'DELETE') { showToast(t('app.delete_type')); return; }
+      try {
+        await api(API.account, { body: { action: 'delete', confirm: 'DELETE' } });
+        closeSheet();
+        document.body.innerHTML = `<main style="padding:48px 24px;font-family:system-ui;text-align:center"><h2>${escapeHtml(t('app.delete_done_title'))}</h2><p style="color:#77727f;line-height:1.5">${escapeHtml(t('app.delete_done_body'))}</p></main>`;
+      } catch (error) { showToast(errorText(error)); }
+    };
+  });
+}
+
 async function loadMatches(messagesView = false) { try { const data = await api(API.matches); state.matches = data.matches || []; renderMatches(); } catch (error) { if (messagesView) showToast(errorText(error)); } }
 
 async function saveProfile(event) {
@@ -479,6 +608,9 @@ function bindEvents() {
   if ($('profile-form')) $('profile-form').addEventListener('submit', saveProfile);
   if ($('profile-refresh')) $('profile-refresh').onclick = async () => { try { await loadAccount(); showToast(t('app.profile_saved')); } catch (error) { showToast(errorText(error)); } };
   if ($('filterBtn')) $('filterBtn').onclick = openFilters;
+  if ($('blocked-list-btn')) $('blocked-list-btn').onclick = openBlockedList;
+  if ($('export-data-btn')) $('export-data-btn').onclick = exportMyData;
+  if ($('delete-account-btn')) $('delete-account-btn').onclick = openDeleteAccount;
   if ($('age-confirm')) $('age-confirm').onclick = confirmAge;
   if ($('age-deny')) $('age-deny').onclick = denyAge;
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeSheet(); });
