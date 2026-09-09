@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f8f7fb">
+  <title>Bezy — Terms</title>
+  <style>
+    :root{--bg:#f8f7fb;--card:#fff;--text:#17151c;--muted:#6f6877;--accent:#7c3aed;--line:#e8e3ec}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6}.wrap{width:min(100% - 28px,760px);margin:0 auto;padding:28px 0 60px}.brand{display:flex;align-items:center;gap:10px;margin-bottom:24px}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#8b5cf6,#ec4899);display:grid;place-items:center;color:#fff;font-weight:900;font-size:22px}.brand b{font-size:24px}.brand span{display:block;color:var(--muted);font-size:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:0 12px 35px rgba(31,23,43,.07)}h1{font-size:30px;letter-spacing:-.8px;margin:0 0 6px}h2{font-size:19px;margin:28px 0 8px}p,li{font-size:14px}small,.updated{color:var(--muted)}a{color:var(--accent)}.notice{background:#f1ebff;border-radius:16px;padding:14px;font-size:13px;margin:18px 0}.lang{display:flex;gap:8px;margin:0 0 18px}.lang a{padding:7px 11px;border-radius:999px;background:#f1ebff;text-decoration:none;font-size:12px;font-weight:700}.footer{margin-top:18px;text-align:center;color:var(--muted);font-size:12px}
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <div class="brand"><div class="logo">B</div><div><b>Bezy</b><span>Meet someone worth knowing.</span></div></div>
+  <div class="lang"><a href="?lang=en">English</a><a href="?lang=fr">Français</a></div>
+  <article class="card" id="content"></article>
+  <div class="footer">Bezy · <a href="/privacy">Privacy</a></div>
+</main>
+<script>
+const isFr=new URLSearchParams(location.search).get('lang')==='fr'||(navigator.language||'').toLowerCase().startsWith('fr');
+const en={title:'Terms of Service',date:'Effective date: 9 September 2026',intro:'Please read these terms before using Bezy. Bezy is an adult social and dating service delivered through Telegram.',sections:[
+['1. Acceptance','By opening or using Bezy, you agree to these Terms and our Privacy Policy. If you do not agree, do not use the service.'],
+['2. Eligibility','Bezy is for people aged 18 or older. You must be legally able to enter into an agreement in your jurisdiction. You may not use Bezy if doing so would violate applicable law.'],
+['3. Telegram account','Bezy uses Telegram as its user-facing platform and identity layer. Your use of Telegram remains subject to Telegram’s own terms and policies. Bezy does not provide a separate password-based account.'],
+['4. Profiles and authenticity','You are responsible for the information and content you provide. Do not impersonate another person, use another person’s photos without permission, create deceptive profiles, or intentionally provide materially false information. Bezy may require verification or remove profiles that appear unsafe, fraudulent or misleading.'],
+['5. Respect and safety','Do not harass, threaten, stalk, exploit, discriminate against, scam, sexually exploit, or otherwise abuse other users. Do not request or distribute illegal content. Report suspicious or harmful behaviour through the available Bezy reporting flow.'],
+['6. Matching and messaging','Bezy may recommend profiles based on information and preferences. A match does not guarantee compatibility, identity, safety or any particular outcome. You are responsible for your interactions and should use appropriate caution when meeting someone offline.'],
+['7. Content','You retain responsibility for content you submit. By submitting content to Bezy, you grant Bezy the limited rights needed to host, process, display and operate that content as part of the service. Do not upload content you do not have the right to use.'],
+['8. Moderation','To protect users and the service, Bezy may review reports, restrict features, suspend or remove accounts, or take other reasonable safety measures. We may act without prior notice where necessary to address serious abuse, fraud, security risks or legal requirements.'],
+['9. Premium and Telegram Stars','Bezy may offer optional paid features through Telegram Stars. Prices, availability and purchase flows are presented in Telegram. Purchases are subject to the applicable Telegram payment terms and any mandatory consumer rights. Paid features do not change Bezy’s safety or conduct rules.'],
+['10. Availability','We aim to keep Bezy available and reliable, but the service may be interrupted for maintenance, security, third-party outages or other reasons. We do not guarantee uninterrupted or error-free operation.'],
+['11. Privacy','Our collection and use of personal data is described in the Bezy Privacy Policy.'],
+['12. Termination','You may stop using Bezy at any time. Bezy may suspend or terminate access when reasonably necessary for safety, fraud prevention, legal compliance, security or violation of these Terms.'],
+['13. Disclaimers','Bezy is a platform for discovering and communicating with other people. We do not guarantee that profiles are genuine, that another user will behave safely, or that a match will lead to a relationship. Take reasonable precautions and never send money or sensitive credentials to someone you met through Bezy.'],
+['14. Changes','We may update these Terms as Bezy evolves or legal requirements change. Continued use after an effective update means you accept the updated Terms, to the extent permitted by law.'],
+['15. Contact','For legal, safety or account questions, contact <strong>[SUPPORT EMAIL]</strong>. Replace this placeholder before public launch.']
+]};
+const fr={title:'Conditions d’utilisation',date:'Date d’entrée en vigueur : 9 septembre 2026',intro:'Veuillez lire ces conditions avant d’utiliser Bezy. Bezy est un service social et de rencontre réservé aux adultes et accessible via Telegram.',sections:[
+['1. Acceptation','En ouvrant ou en utilisant Bezy, vous acceptez les présentes Conditions et notre Politique de confidentialité. Si vous n’êtes pas d’accord, n’utilisez pas le service.'],
+['2. Conditions d’accès','Bezy est réservé aux personnes âgées de 18 ans ou plus. Vous devez être juridiquement capable de conclure un contrat dans votre pays. Vous ne pouvez pas utiliser Bezy si cela viole la loi applicable.'],
+['3. Compte Telegram','Bezy utilise Telegram comme plateforme utilisateur et couche d’identité. Votre utilisation de Telegram reste soumise aux conditions et politiques de Telegram. Bezy ne fournit pas de compte séparé avec mot de passe.'],
+['4. Profils et authenticité','Vous êtes responsable des informations et contenus que vous fournissez. N’usurpez pas l’identité d’une autre personne, n’utilisez pas ses photos sans autorisation, ne créez pas de profil trompeur et ne fournissez pas intentionnellement de fausses informations importantes. Bezy peut demander une vérification ou supprimer les profils qui semblent dangereux, frauduleux ou trompeurs.'],
+['5. Respect et sécurité','Il est interdit de harceler, menacer, traquer, exploiter, discriminer, escroquer, exploiter sexuellement ou maltraiter d’une autre manière les utilisateurs. Ne demandez pas et ne diffusez pas de contenu illégal. Signalez les comportements suspects ou dangereux via les mécanismes disponibles dans Bezy.'],
+['6. Matching et messagerie','Bezy peut recommander des profils selon les informations et préférences disponibles. Un match ne garantit ni compatibilité, ni identité, ni sécurité, ni résultat particulier. Vous êtes responsable de vos interactions et devez rester prudent lors de toute rencontre hors ligne.'],
+['7. Contenus','Vous restez responsable des contenus que vous transmettez. En soumettant un contenu à Bezy, vous accordez à Bezy les droits limités nécessaires pour l’héberger, le traiter, l’afficher et faire fonctionner le service. Ne transmettez pas de contenu que vous n’avez pas le droit d’utiliser.'],
+['8. Modération','Pour protéger les utilisateurs et le service, Bezy peut examiner les signalements, limiter des fonctionnalités, suspendre ou supprimer des comptes et prendre d’autres mesures raisonnables de sécurité. Nous pouvons agir sans préavis lorsque cela est nécessaire pour traiter des abus graves, une fraude, des risques de sécurité ou des obligations légales.'],
+['9. Premium et Telegram Stars','Bezy peut proposer des fonctionnalités payantes via Telegram Stars. Les prix, la disponibilité et le parcours d’achat sont présentés dans Telegram. Les achats sont soumis aux conditions de paiement applicables de Telegram et aux droits impératifs des consommateurs.'],
+['10. Disponibilité','Nous cherchons à maintenir Bezy disponible et fiable, mais le service peut être interrompu pour maintenance, sécurité, panne d’un tiers ou autre raison. Nous ne garantissons pas un fonctionnement continu ou sans erreur.'],
+['11. Confidentialité','La collecte et l’utilisation des données personnelles sont décrites dans la Politique de confidentialité de Bezy.'],
+['12. Fin du service','Vous pouvez arrêter d’utiliser Bezy à tout moment. Bezy peut suspendre ou mettre fin à l’accès lorsque cela est raisonnablement nécessaire pour la sécurité, la prévention de la fraude, le respect de la loi, la sécurité technique ou la violation des présentes Conditions.'],
+['13. Avertissements','Bezy est une plateforme permettant de découvrir et de communiquer avec d’autres personnes. Nous ne garantissons pas que les profils sont authentiques, qu’un autre utilisateur se comportera de manière sûre ou qu’un match aboutira à une relation. Soyez prudent et n’envoyez jamais d’argent ou d’identifiants sensibles à une personne rencontrée via Bezy.'],
+['14. Modifications','Nous pouvons mettre à jour ces Conditions lorsque Bezy évolue ou lorsque les exigences légales changent. La poursuite de l’utilisation après l’entrée en vigueur d’une mise à jour vaut acceptation dans la mesure permise par la loi.'],
+['15. Contact','Pour toute question juridique, de sécurité ou de compte, contactez <strong>[EMAIL SUPPORT]</strong>. Remplacez cet élément avant le lancement public.']
+]};
+const d=isFr?fr:en;document.documentElement.lang=isFr?'fr':'en';document.getElementById('content').innerHTML=`<h1>${d.title}</h1><div class="updated">${d.date}</div><div class="notice">${d.intro}</div>${d.sections.map(s=>`<section><h2>${s[0]}</h2><p>${s[1]}</p></section>`).join('')}`;
+</script>
+</body>
+</html>
