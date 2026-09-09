@@ -12,6 +12,35 @@ Bezy is a Telegram-native product. Telegram is the user-facing application, iden
 - **Firebase Cloud Firestore**: server-side persistent database only.
 - **Telegram Stars**: future paid membership/digital goods inside Telegram; not implemented in the current matching flow.
 
+## Telegram-Native Communication Principle
+
+Bezy does not replicate Telegram's communication features. Once two users are permitted to
+connect, Bezy hands communication back to Telegram: private messaging, voice calls, video
+calls, media sharing and Telegram-native profile/story experiences all happen in Telegram.
+
+**Bezy controls** who you discover, who you like or super-like, who is allowed to match with
+you, discovery filters, profile completeness, dating preferences, safety, blocking, reporting,
+verification, match lifecycle and premium dating features.
+
+**Telegram provides** identity, the user account and profile, chat, voice calls, video calls,
+stories, notifications, media sharing, contacts, privacy settings and transport encryption.
+
+This is an architectural rule, not a preference. It exists to prevent work such as: building a
+Bezy chat system, adding WebRTC or TURN servers, storing messages, call metadata or story media
+in Firestore, or mirroring Telegram stories into Bezy.
+
+Practical consequences:
+
+- A match hands off to the Telegram conversation. Voice and video calls are started by the users
+  from Telegram's own call controls; the Bot API cannot initiate a call on a user's behalf
+  (`phone.requestCall` is a user-only MTProto method), so Bezy must never present a button that
+  claims to place a call.
+- Stories are not copied into Firestore. Where Bezy uses stories at all, it uses Telegram's
+  native share-to-story flow from the Mini App rather than hosting story media.
+- Premium must not paywall functionality Telegram already gives users for free. Premium unlocks
+  Bezy's matchmaking value — discovery volume, seeing who liked you, advanced filters, super
+  likes, priority and visibility — never Telegram's own chat or call features.
+
 ## Explicit non-goals
 
 - No separate Bezy mobile application.
@@ -34,9 +63,15 @@ The browser/Mini App must not connect directly to Firestore. `firestore.rules` t
 
 ## Current data model
 
-- `users/{telegramId}` — Telegram identity metadata and the user's Bezy dating profile.
+- `users/{telegramId}` — Telegram identity metadata, the user's Bezy dating profile and their
+  saved discovery `preferences` (`minAge`, `maxAge`, `city`, `sameCityOnly`).
 - `users/{telegramId}/actions/{targetTelegramId}` — the current user's like, super-like or pass decision for a target.
 - `matches/{sortedTelegramIdPair}` — a mutual like between two users.
+
+Planned, not yet implemented: `users/{uid}/blocks`, `users/{uid}/reports`, `subscriptions/{uid}`.
+
+Deliberately absent, and must stay absent under the Telegram-Native Communication Principle:
+any collection for messages, conversations, calls, call metadata, story media or story views.
 
 The Mini App never receives Firestore credentials and never performs direct Firestore reads or writes.
 
@@ -46,7 +81,12 @@ The Mini App never receives Firestore credentials and never performs direct Fire
 - `POST /api/discover` — return eligible profiles after excluding the current user's previous actions.
 - `POST /api/swipe` — record pass/like/super and atomically create a match when interest is mutual; the Vercel function sends Telegram match notifications.
 - `POST /api/matches` — return the current user's matches.
-- `POST /api/telegram/webhook` — process localized bot commands and provide Mini App entry points.
+- `POST /api/premium` — `action: 'status'` returns membership, plans, limits and usage;
+  `action: 'invoice'` issues a Telegram Stars invoice link for a plan.
+- `POST /api/likes` — Premium-only: people who liked the current user. Free members receive
+  `403 PREMIUM_REQUIRED` with a count only.
+- `POST /api/telegram/webhook` — process localized bot commands, `pre_checkout_query` and
+  `successful_payment`, and provide Mini App entry points.
 
 ## Matching and conversation flow
 
@@ -90,9 +130,111 @@ The Mini App links to `/privacy` and `/terms` from Profile/Settings. The links c
 
 The initial approach is to use the Telegram profile photo URL when Telegram makes it available. Bezy should not create a separate photo storage system until there is a clear product requirement and privacy/security review.
 
-## Premium boundary
+## Bezy Premium
 
-Premium UI is present only as a placeholder at this stage. Telegram Stars integration is deliberately deferred until the core profile → discovery → like/pass → mutual match → Telegram conversation flow is stable and tested.
+### Bezy Premium is not Telegram Premium
+
+`users/{id}.isPremiumTelegram` records whether the user pays Telegram for *Telegram* Premium.
+It is informational only and must never grant a Bezy entitlement. Bezy Premium lives in its own
+field, `users/{id}.bezyPremium`, and is granted solely by a verified Telegram Stars payment.
+
+### Payment provider
+
+Bezy Premium is a digital service sold inside Telegram, so it is paid for with **Telegram Stars
+(`XTR`)** through the Bot API. There is no external checkout page, no card form, and no
+third-party payment provider in the Premium path. A Smart Glocal account exists for the bot at
+the Telegram/BotFather level, but it is **not used by Bezy Premium** and no Smart Glocal code
+exists in this repository; Stars require an empty `provider_token`.
+
+Premium must never paywall Telegram's own features. Messaging, voice and video calls between
+matched users stay free per the Telegram-Native Communication Principle above.
+
+### Plans
+
+Prices and durations are resolved server-side in `api/_premium.js`. The Mini App only renders
+what `/api/premium` returns, so a client can never influence what it is charged.
+
+| Plan | Duration | Price |
+| --- | --- | --- |
+| `monthly` | 1 month | 250 ⭐ |
+| `quarterly` | 3 months | 600 ⭐ |
+| `yearly` | 12 months | 1900 ⭐ |
+
+Each price can be overridden per environment with `BEZY_PREMIUM_STARS_MONTHLY`,
+`BEZY_PREMIUM_STARS_QUARTERLY` and `BEZY_PREMIUM_STARS_YEARLY`.
+
+### Membership and payment model
+
+```text
+users/{telegramId}.bezyPremium
+    active                     boolean
+    planId                     monthly | quarterly | yearly
+    expiresAt                  Timestamp — authoritative; expiry is evaluated, never trusted
+    purchasedAt, updatedAt     Timestamp
+    source                     telegram_stars
+    telegramPaymentChargeId    string
+
+users/{telegramId}.usage       { day, discoveryActions, superLikes }  daily quota counters
+users/{telegramId}/likesReceived/{fromId}   reverse index of an existing action
+
+bezyInvoices/{nonce}           pending invoice issued by the backend
+bezyPayments/{telegramPaymentChargeId}      processed payment — document id is the idempotency key
+```
+
+There is no `subscriptions` collection: a single authoritative membership state lives on the
+user document, which discovery and swipe already read, so entitlement costs no extra reads.
+
+### Payment flow
+
+```text
+Mini App (choose plan)
+    ↓ POST /api/premium { action: 'invoice', planId }
+Vercel validates initData → resolves plan + price server-side → writes bezyInvoices/{nonce}
+    ↓ createInvoiceLink (currency XTR, provider_token "")
+Telegram native Stars checkout   ← Mini App opens it with tg.openInvoice()
+    ↓ pre_checkout_query
+Vercel webhook re-derives plan, price, buyer and invoice from Firestore → answerPreCheckoutQuery
+    ↓ successful_payment
+Vercel webhook → Firestore transaction keyed on telegram_payment_charge_id
+    ↓
+Bezy Premium active → Telegram confirmation → Mini App re-reads /api/premium
+```
+
+Premium is granted by exactly one event: a validated `successful_payment`. Creating an invoice,
+opening the payment sheet, or passing pre-checkout grants nothing, and the Mini App never marks
+itself Premium — it re-reads authoritative state after checkout closes.
+
+### Idempotency
+
+Telegram can redeliver payment updates. Activation runs in a Firestore transaction that first
+reads `bezyPayments/{telegram_payment_charge_id}`; if that document exists the update is a
+duplicate and returns without extending the membership or re-sending a confirmation. The
+provider charge id is stored so a future refund can call `refundStarPayment`.
+
+### Renewal
+
+An active membership is extended from its existing `expiresAt`; an expired one restarts from
+now. Buying a month on 20 September while active until 15 October yields 15 November — purchased
+time is never destroyed.
+
+### Entitlements, enforced server-side
+
+| Capability | Free | Premium |
+| --- | --- | --- |
+| Discovery actions per day | 30 | 500 (anti-abuse ceiling) |
+| Super Likes per day | 1 | 5 |
+| See who liked you | ✗ `403 PREMIUM_REQUIRED` | ✓ |
+| Advanced discovery (city, same-city-only) | ✗ | ✓ |
+| Visibility in others' discovery | normal | +6 ranking boost |
+
+Every restriction is enforced by the API, not by hiding UI. `/api/likes` returns only a
+non-identifying count to free members — no profile, name or photo is sent. Quotas are consumed
+inside the swipe transaction, so a client that ignores the UI or races requests cannot exceed
+them. The visibility boost only reorders real candidates; it never fabricates profiles or
+guarantees a match.
+
+`api/_premium.js` is the single source of truth for plans, membership state and quotas, so
+entitlement cannot drift between endpoints.
 
 ## Future Telegram Serverless evaluation
 

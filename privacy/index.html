@@ -8,19 +8,20 @@
   <style>
     :root{--bg:#f8f7fb;--card:#fff;--text:#17151c;--muted:#6f6877;--accent:#7c3aed;--line:#e8e3ec}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6}.wrap{width:min(100% - 28px,760px);margin:0 auto;padding:28px 0 60px}.brand{display:flex;align-items:center;gap:10px;margin-bottom:24px}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#8b5cf6,#ec4899);display:grid;place-items:center;color:#fff;font-weight:900;font-size:22px}.brand b{font-size:24px}.brand span{display:block;color:var(--muted);font-size:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:0 12px 35px rgba(31,23,43,.07)}h1{font-size:30px;letter-spacing:-.8px;margin:0 0 6px}h2{font-size:19px;margin:28px 0 8px}p,li{font-size:14px}small,.updated{color:var(--muted)}a{color:var(--accent)}.notice{background:#f1ebff;border-radius:16px;padding:14px;font-size:13px;margin:18px 0}.lang{display:flex;gap:8px;margin:0 0 18px}.lang a{padding:7px 11px;border-radius:999px;background:#f1ebff;text-decoration:none;font-size:12px;font-weight:700}.footer{margin-top:18px;text-align:center;color:var(--muted);font-size:12px}
-  </style>
+  .logo{position:relative;overflow:hidden}.logo img{position:absolute;left:-112%;top:-25%;width:327%;height:218%;max-width:none;display:block}
+</style>
 </head>
 <body>
 <main class="wrap">
-  <div class="brand"><div class="logo">B</div><div><b>Bezy</b><span>Meet someone worth knowing.</span></div></div>
+  <div class="brand"><div class="logo"><img src="/assets/bezy-icon.png" alt="Bezy"></div><div><b>Bezy</b><span id="tagline">Meet someone worth knowing.</span></div></div>
   <div class="lang"><a href="?lang=en">English</a><a href="?lang=fr">Français</a></div>
   <article class="card" id="content"></article>
-  <div class="footer">Bezy · <a href="/terms">Terms</a></div>
+  <div class="footer">Bezy · <a id="other-link" href="/terms">Terms</a></div>
 </main>
 <script>
 const isFr=new URLSearchParams(location.search).get('lang')==='fr'||(navigator.language||'').toLowerCase().startsWith('fr');
 const en={title:'Privacy Policy',date:'Effective date: 9 September 2026',intro:'Bezy is a Telegram-native service. The Bezy Mini App runs inside Telegram, while Bezy services are operated through Vercel and a server-side Cloud Firestore database.',sections:[
-['1. Who is responsible for your data?','Bezy is operated by <strong>[LEGAL OPERATOR NAME]</strong>, with registered address <strong>[ADDRESS]</strong>. Replace these placeholders with the final legal operator details before public launch. You can contact us at <strong>[PRIVACY EMAIL]</strong>.'],
+['1. Who is responsible for your data?','Bezy is operated by <strong>Yao Amevi A. Sossou</strong>, with registered address <strong>[ADDRESS]</strong>. Replace these placeholders with the final legal operator details before public launch. You can contact us at <strong>[PRIVACY EMAIL]</strong>.'],
 ['2. What information we collect','When you use Bezy through Telegram, we may process your Telegram user ID, first name, last name, username, language preference and profile photo URL when Telegram makes it available. We also process information you choose to provide in your Bezy profile, such as age, gender, location or approximate distance, interests, relationship preferences and profile text. We may process likes, passes, matches, membership status, reports and moderation information needed to operate and protect the service.'],
 ['3. Messages','Bezy is designed so that conversations take place through Telegram. Bezy does not need to create a separate external messaging account. We will only store message content when a specific feature requires it and the purpose is clearly explained.'],
 ['4. Why we use your information','We use information to authenticate you through Telegram, create and maintain your Bezy profile, provide discovery and matching, operate matches and notifications, provide paid features, prevent abuse and fraud, enforce our rules, improve reliability, and comply with legal obligations.'],
@@ -34,7 +35,7 @@ const en={title:'Privacy Policy',date:'Effective date: 9 September 2026',intro:'
 ['12. Changes','We may update this policy when Bezy changes or when legal requirements change. The effective date at the top will identify the current version. Material changes will be communicated through Bezy or the Telegram bot where appropriate.']
 ]};
 const fr={title:'Politique de confidentialité',date:'Date d’entrée en vigueur : 9 septembre 2026',intro:'Bezy est un service conçu pour Telegram. La Mini App Bezy fonctionne dans Telegram, tandis que les services Bezy sont hébergés via Vercel et utilisent Cloud Firestore comme base de données côté serveur.',sections:[
-['1. Responsable du traitement','Bezy est exploité par <strong>[NOM DE L’OPÉRATEUR LÉGAL]</strong>, dont l’adresse est <strong>[ADRESSE]</strong>. Remplacez ces éléments avant le lancement public. Contact : <strong>[EMAIL CONFIDENTIALITÉ]</strong>.'],
+['1. Responsable du traitement','Bezy est exploité par <strong>Yao Amevi A. Sossou</strong>, dont l’adresse est <strong>[ADRESSE]</strong>. Remplacez ces éléments avant le lancement public. Contact : <strong>[EMAIL CONFIDENTIALITÉ]</strong>.'],
 ['2. Données que nous collectons','Lorsque vous utilisez Bezy via Telegram, nous pouvons traiter votre identifiant Telegram, prénom, nom, nom d’utilisateur, préférence linguistique et URL de photo de profil lorsque Telegram la rend disponible. Nous traitons également les informations que vous choisissez de fournir dans votre profil Bezy, comme l’âge, le genre, la localisation ou distance approximative, les centres d’intérêt, les préférences relationnelles et la présentation. Nous pouvons traiter les likes, passages, matchs, statut d’abonnement, signalements et informations de modération nécessaires au fonctionnement et à la sécurité du service.'],
 ['3. Messages','Bezy est conçu pour que les conversations aient lieu via Telegram. Bezy n’a pas besoin de créer un compte de messagerie externe séparé. Nous ne conserverons le contenu des messages que lorsqu’une fonctionnalité précise l’exige et que cette finalité est clairement indiquée.'],
 ['4. Pourquoi nous utilisons vos données','Nous utilisons les données pour vous authentifier via Telegram, créer et gérer votre profil Bezy, proposer la découverte et le matching, gérer les matchs et notifications, fournir les fonctionnalités payantes, lutter contre les abus et la fraude, appliquer nos règles, améliorer la fiabilité et respecter nos obligations légales.'],
@@ -47,7 +48,7 @@ const fr={title:'Politique de confidentialité',date:'Date d’entrée en vigueu
 ['11. Sécurité','Nous appliquons des mesures techniques et organisationnelles raisonnables pour protéger les données Bezy. Les données d’identité de la Mini App Telegram sont validées côté serveur avant d’être considérées comme fiables. L’accès direct de la Mini App à Firestore est refusé ; l’accès serveur utilise des identifiants administratifs protégés dans les variables d’environnement Vercel.'],
 ['12. Modifications','Nous pouvons mettre à jour cette politique lorsque Bezy évolue ou lorsque les exigences légales changent. La date d’entrée en vigueur indique la version actuelle. Les changements importants pourront être communiqués via Bezy ou le bot Telegram lorsque cela est approprié.']
 ]};
-const d=isFr?fr:en;document.documentElement.lang=isFr?'fr':'en';document.getElementById('content').innerHTML=`<h1>${d.title}</h1><div class="updated">${d.date}</div><div class="notice">${d.intro}</div>${d.sections.map(s=>`<section><h2>${s[0]}</h2><p>${s[1]}</p></section>`).join('')}`;
+const d=isFr?fr:en;document.documentElement.lang=isFr?'fr':'en';document.title=isFr?'Bezy — Confidentialité':'Bezy — Privacy';document.getElementById('tagline').textContent=isFr?'Rencontrez quelqu’un qui mérite d’être connu.':'Meet someone worth knowing.';const other=document.getElementById('other-link');other.textContent=isFr?'Conditions':'Terms';other.href='/terms?lang='+(isFr?'fr':'en');document.getElementById('content').innerHTML=`<h1>${d.title}</h1><div class="updated">${d.date}</div><div class="notice">${d.intro}</div>${d.sections.map(s=>`<section><h2>${s[0]}</h2><p>${s[1]}</p></section>`).join('')}`;
 </script>
 </body>
 </html>
