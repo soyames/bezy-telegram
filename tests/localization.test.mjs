@@ -1,0 +1,206 @@
+// Localization and machine-identifier integrity.
+//
+// Two jobs, and the second matters as much as the first:
+//   1. every user-visible string exists in English AND French;
+//   2. localization can never reach a machine identifier — API routes, JSON keys, Firestore
+//      collection names, error codes, environment variables or Telegram links.
+//
+// Pure static analysis of the source. No network, no Firestore, no credentials.
+//
+//   node tests/localization.test.mjs
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
+
+let pass = 0, fail = 0;
+const failures = [];
+function check(name, ok, detail = '') {
+  if (ok) { pass++; console.log(`  PASS  ${name}`); }
+  else { fail++; failures.push(name); console.log(`  FAIL  ${name}${detail ? `  -> ${String(detail).slice(0, 300)}` : ''}`); }
+}
+const section = (t) => console.log(`\n== ${t} ==`);
+
+const app = read('app.js');
+const en = JSON.parse(read('locales/en.json')).app;
+const fr = JSON.parse(read('locales/fr.json')).app;
+const LOCALES = { en, fr };
+
+// ---------------------------------------------------------------- catalogue health
+section('Catalogue integrity');
+check('English and French define exactly the same keys',
+  JSON.stringify(Object.keys(en).sort()) === JSON.stringify(Object.keys(fr).sort()),
+  `only in en: ${Object.keys(en).filter((k) => !(k in fr))} | only in fr: ${Object.keys(fr).filter((k) => !(k in en))}`);
+
+for (const [lang, cat] of Object.entries(LOCALES)) {
+  const empty = Object.entries(cat).filter(([, v]) => typeof v !== 'string' || !v.trim()).map(([k]) => k);
+  check(`no empty or non-string values in ${lang}`, empty.length === 0, empty.join(','));
+}
+
+// A French catalogue that simply copies the English string is a silent fallback.
+const identical = Object.keys(en).filter((k) => en[k] === fr[k]);
+// Words that are legitimately identical in both languages.
+const ALLOWED_IDENTICAL = new Set(['messages', 'super', 'premium_title', 'plan', 'language_name', 'reason_spam']);
+const suspicious = identical.filter((k) => !ALLOWED_IDENTICAL.has(k));
+check('no French string silently duplicates the English one', suspicious.length === 0,
+  suspicious.map((k) => `${k}="${en[k]}"`).join(' | '));
+
+// ---------------------------------------------------------------- usage coverage
+section('Every referenced key exists in both languages');
+const staticKeys = [...app.matchAll(/t\('app\.([a-z0-9_]+)'\)/g)].map((m) => m[1]);
+const missing = { en: [], fr: [] };
+for (const key of new Set(staticKeys)) {
+  if (!(key in en)) missing.en.push(key);
+  if (!(key in fr)) missing.fr.push(key);
+}
+check('no statically referenced key is missing in English', missing.en.length === 0, missing.en.join(','));
+check('no statically referenced key is missing in French', missing.fr.length === 0, missing.fr.join(','));
+check('a meaningful number of keys are actually used', new Set(staticKeys).size > 100, String(new Set(staticKeys).size));
+
+// Keys built at runtime, e.g. t(`app.${action}`) and t(`app.reason_${r}`). Each family is
+// enumerated explicitly so a new member cannot be added without a translation.
+section('Dynamically built key families are complete');
+const FAMILIES = {
+  'plan_': ['monthly', 'quarterly', 'yearly'],
+  'reason_': ['harassment', 'spam', 'scam', 'fake_profile', 'inappropriate_content', 'underage', 'other'],
+  '': ['block', 'unmatch', 'block_confirm', 'unmatch_confirm', 'block_done', 'unmatch_done']
+};
+for (const [prefix, members] of Object.entries(FAMILIES)) {
+  for (const member of members) {
+    const key = `${prefix}${member}`;
+    check(`dynamic key "${key}" exists in both languages`, Boolean(en[key]) && Boolean(fr[key]),
+      `en=${Boolean(en[key])} fr=${Boolean(fr[key])}`);
+  }
+}
+
+// ---------------------------------------------------------------- error codes
+section('Every user-reachable error code renders in both languages');
+const errorBlock = /const ERROR_KEYS = \{([\s\S]*?)\};/.exec(app)?.[1] || '';
+const mapped = Object.fromEntries([...errorBlock.matchAll(/([A-Z_]{4,}):\s*'app\.([a-z0-9_]+)'/g)].map((m) => [m[1], m[2]]));
+const USER_REACHABLE = [
+  'RATE_LIMITED', 'PREMIUM_REQUIRED', 'AGE_CONFIRMATION_REQUIRED', 'TARGET_NOT_FOUND',
+  'DATABASE_UNAVAILABLE', 'INVALID_SESSION', 'PROFILE_NOT_FOUND',
+  'DISCOVERY_LIMIT_REACHED', 'SUPER_LIKE_LIMIT_REACHED'
+];
+for (const code of USER_REACHABLE) {
+  const key = mapped[code];
+  check(`${code} renders in both languages`, Boolean(key) && Boolean(en[key]) && Boolean(fr[key]),
+    `key=${key || 'UNMAPPED'}`);
+}
+check('the typed delete confirmation stays the literal DELETE in every language',
+  Object.values(LOCALES).every((cat) => /DELETE/.test(cat.delete_type)),
+  `en="${en.delete_type}" fr="${fr.delete_type}"`);
+check('the long-wait rate-limit variant keeps its {n} placeholder',
+  en.rate_limited_minutes?.includes('{n}') && fr.rate_limited_minutes?.includes('{n}'));
+
+// ---------------------------------------------------------------- feature coverage
+section('Feature areas are covered in both languages');
+const AREAS = {
+  'age gate': ['age_gate_title', 'age_gate_body', 'age_confirm', 'age_deny', 'age_note', 'age_blocked_title', 'age_blocked_body'],
+  premium: ['premium_intro', 'choose_plan', 'subscribe_with_stars', 'active_until', 'days_remaining', 'premium_active', 'stars_note', 'stars_needed', 'not_telegram_premium'],
+  payment: ['preparing_checkout', 'payment_cancelled', 'payment_failed', 'payment_received', 'payment_pending', 'payment_processing'],
+  deletion: ['delete_account', 'delete_explain', 'delete_retained', 'delete_type', 'delete_done_title', 'delete_done_body'],
+  export: ['export_data', 'export_preparing', 'export_ready'],
+  safety: ['block', 'unblock', 'report', 'unmatch', 'report_reason', 'report_send', 'report_note', 'blocked_people', 'no_blocked'],
+  'empty and loading states': ['loading', 'no_matches', 'no_profiles', 'no_conversations', 'no_likes_yet', 'complete_profile'],
+  'rate limiting': ['rate_limited', 'rate_limited_minutes']
+};
+for (const [area, keys] of Object.entries(AREAS)) {
+  const gaps = keys.filter((k) => !en[k] || !fr[k]);
+  check(`${area} is fully localized`, gaps.length === 0, gaps.join(','));
+}
+
+// ---------------------------------------------------------------- machine identifiers
+section('Localization never reaches a machine identifier');
+
+// Nothing in a translation may look like a route, a URL, a JSON key or a code.
+const FORBIDDEN_IN_VALUES = [
+  [/\/api\//, 'an API path'],
+  [/https?:\/\//, 'a URL'],
+  [/tg:\/\//, 'a Telegram deep link'],
+  // `delete_type` is exempt on purpose: the word DELETE is a literal the user must type,
+  // and the API compares it exactly, so translating it would break the confirmation.
+  [/\b[A-Z][A-Z_]{3,}\b/, 'a machine error code', ['delete_type']],
+  [/\bTELEGRAM_BOT_TOKEN|FIREBASE_[A-Z_]+|BEZY_MINI_APP_URL\b/, 'an environment variable']
+];
+for (const [lang, cat] of Object.entries(LOCALES)) {
+  for (const [pattern, what, exempt = []] of FORBIDDEN_IN_VALUES) {
+    const hits = Object.entries(cat)
+      .filter(([k, v]) => !exempt.includes(k) && pattern.test(v))
+      .map(([k, v]) => `${k}="${v}"`);
+    check(`${lang} contains no ${what}`, hits.length === 0, hits.join(' | '));
+  }
+}
+
+// The API surface is one stable machine interface with canonical English paths.
+const CANONICAL_ROUTES = ['/api/profile/me', '/api/discover', '/api/swipe', '/api/matches', '/api/premium', '/api/likes', '/api/relationship', '/api/account'];
+const apiConst = /const API = \{([^}]*)\}/.exec(app)?.[1] || '';
+for (const route of CANONICAL_ROUTES) {
+  check(`API constant still points at ${route}`, apiConst.includes(`'${route}'`), apiConst.slice(0, 200));
+}
+check('the API constant contains no localized route', !/decouvrir|matchs|profil['"]|compte|abonnement/.test(apiConst), apiConst.slice(0, 200));
+
+// Route files on disk must stay language-neutral.
+const apiFiles = [];
+(function walk(dir) {
+  for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) walk(rel);
+    else if (entry.name.endsWith('.js')) apiFiles.push(rel);
+  }
+})('api');
+const localizedRouteFiles = apiFiles.filter((f) => /decouvrir|matchs|profil\.js|compte|abonnement|parametres/.test(f));
+check('no localized API route file exists on disk', localizedRouteFiles.length === 0, localizedRouteFiles.join(','));
+check('the expected route files are all present',
+  CANONICAL_ROUTES.every((r) => apiFiles.includes(`${r.slice(1)}.js`)),
+  CANONICAL_ROUTES.filter((r) => !apiFiles.includes(`${r.slice(1)}.js`)).join(',') || 'all present');
+
+// JSON keys crossing the API boundary are language-neutral by contract.
+section('API contract fields stay language-neutral');
+const CONTRACT_FIELDS = ['telegramId', 'username', 'firstName', 'photoUrl', 'profileComplete', 'discoverable', 'createdAt', 'updatedAt'];
+const apiSource = apiFiles.map((f) => read(f)).join('\n');
+for (const field of CONTRACT_FIELDS) {
+  check(`contract field ${field} is present and unlocalized`, apiSource.includes(field), '');
+}
+const FIRESTORE_COLLECTIONS = ['users', 'matches', 'actions', 'likesReceived', 'bezyPremium', 'usage', 'bezyInvoices', 'bezyPayments', 'reports', 'blocks', 'rateLimits'];
+for (const col of FIRESTORE_COLLECTIONS) {
+  check(`Firestore identifier "${col}" still used verbatim`, apiSource.includes(col), '');
+}
+
+// Telegram links are built from the stored handle, never from a translated string.
+section('Telegram links are built from data, not from translations');
+check('the t.me link is a literal template over the username',
+  /https:\/\/t\.me\/\$\{[a-zA-Z.]*username\}/.test(app) || /https:\/\/t\.me\/\$\{button\.dataset\.chat\}/.test(app),
+  'no literal t.me template found');
+check('no translation is interpolated into a link', !/href="\$\{t\(/.test(app) && !/t\.me\/\$\{t\(/.test(app));
+check('legal links carry the language as a query parameter, not a translated path',
+  /\/privacy\?lang=\$\{state\.lang\}/.test(app) && /\/terms\?lang=\$\{state\.lang\}/.test(app));
+
+// ---------------------------------------------------------------- photo architecture
+section('Telegram is the only photo source');
+const PHOTO_FORBIDDEN = [
+  [/firebase-admin\/storage|getStorage\(/, 'Firebase Storage'],
+  [/cloudinary/i, 'Cloudinary'],
+  [/aws-sdk|s3\.upload|S3Client/i, 'S3'],
+  [/@vercel\/blob|vercel\/blob/i, 'Vercel Blob'],
+  [/multer|formidable|busboy/i, 'a file-upload middleware'],
+  [/data:image\/[a-z]+;base64/i, 'an inline base64 image']
+];
+const allSource = [app, apiSource, read('index.html')].join('\n');
+for (const [pattern, what] of PHOTO_FORBIDDEN) {
+  check(`no ${what} anywhere in the app`, !pattern.test(allSource), '');
+}
+check('the only stored photo reference is the Telegram-provided URL',
+  /photoUrl: user\.photo_url \|\| ''/.test(read('api/profile/me.js')),
+  'profile endpoint no longer stores photo_url verbatim');
+check('no image bytes are ever written to Firestore',
+  !/photoData|photoBytes|imageBuffer|photoBase64/.test(allSource));
+check('package.json declares no image or storage dependency',
+  !/cloudinary|aws-sdk|@vercel\/blob|sharp|multer|jimp/.test(read('package.json')),
+  read('package.json').replace(/\s+/g, ' ').slice(0, 200));
+
+console.log(`\n=== ${pass} passed, ${fail} failed ===`);
+if (failures.length) console.log('Failed:\n - ' + failures.join('\n - '));
+process.exit(fail ? 1 : 0);

@@ -26,8 +26,12 @@ async function sendCommand(chatId, command, language) {
   }
   if (command === 'premium') {
     const text = language === 'fr'
-      ? ['💎 <b>Bezy Premium</b>', '', 'Débloquez davantage de façons de faire de belles rencontres.', '', '✓ Voir qui vous a liké', '✓ Découverte avancée', '✓ Plus de Super Likes', '✓ Visibilité accrue', '✓ Découverte illimitée', '', 'Le paiement se fait avec les Telegram Stars ⭐. Ouvrez Bezy Premium pour choisir votre formule.'].join('\n')
-      : ['💎 <b>Bezy Premium</b>', '', 'Unlock more ways to discover meaningful connections.', '', '✓ See who liked you', '✓ Advanced discovery', '✓ More Super Likes', '✓ Increased visibility', '✓ Unlimited discovery', '', 'Payment is made with Telegram Stars ⭐. Open Bezy Premium to choose your plan.'].join('\n');
+      ? ['💎 <b>Bezy Premium</b>', '', 'Débloquez davantage de façons de faire de belles rencontres.', '', '✓ Voir qui vous a liké', '✓ Découverte avancée', '✓ Plus de Super Likes', '✓ Visibilité accrue', '✓ Découverte illimitée', '',
+         'Le paiement se fait avec les Telegram Stars ⭐. Vous devez disposer de Stars sur votre solde (Réglages → Mes Stars).', '',
+         '⚠️ Telegram Premium est un abonnement Telegram distinct et n’inclut pas Bezy Premium.', '', 'Ouvrez Bezy Premium pour choisir votre formule.'].join('\n')
+      : ['💎 <b>Bezy Premium</b>', '', 'Unlock more ways to discover meaningful connections.', '', '✓ See who liked you', '✓ Advanced discovery', '✓ More Super Likes', '✓ Increased visibility', '✓ Unlimited discovery', '',
+         'Payment is made with Telegram Stars ⭐. You need Stars in your balance (Settings → My Stars).', '',
+         '⚠️ Telegram Premium is a separate Telegram subscription and does not include Bezy Premium.', '', 'Open Bezy Premium to choose your plan.'].join('\n');
     const label = language === 'fr' ? '💎 Voir Premium' : '💎 View Premium';
     await telegramApi('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: label, web_app: { url: miniAppUrl('premium') } }]] } });
     return;

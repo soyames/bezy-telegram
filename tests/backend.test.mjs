@@ -811,11 +811,17 @@ try {
   const premiumEn = (await sent()).filter((c) => c.method === 'sendMessage').pop();
   check('/premium no longer says "coming soon"', !/coming soon/i.test(premiumEn?.body?.text || ''), premiumEn?.body?.text?.slice(0, 80));
   check('/premium mentions Telegram Stars', /Telegram Stars/.test(premiumEn?.body?.text || ''));
+  check('/premium tells the user they need a Stars balance', /Stars in your balance/i.test(premiumEn?.body?.text || ''), premiumEn?.body?.text?.slice(0, 200));
+  check('/premium warns that Telegram Premium is not Bezy Premium',
+    /does not include Bezy Premium/i.test(premiumEn?.body?.text || ''), premiumEn?.body?.text?.slice(0, 240));
   check('/premium opens the premium view', /view=premium/.test(JSON.stringify(premiumEn?.body?.reply_markup || {})));
   await resetCalls();
   await cmd('/premium', 'fr');
   const premiumFr = (await sent()).filter((c) => c.method === 'sendMessage').pop();
   check('/premium localized in French', /Telegram Stars/.test(premiumFr?.body?.text || '') && /Voir qui vous a liké/.test(premiumFr?.body?.text || ''));
+  check('/premium states the Stars requirement in French', /Mes Stars/.test(premiumFr?.body?.text || ''), premiumFr?.body?.text?.slice(0, 200));
+  check('/premium warns in French that Telegram Premium is separate',
+    /n’inclut pas Bezy Premium/.test(premiumFr?.body?.text || ''), premiumFr?.body?.text?.slice(0, 240));
 } finally {
   await cleanup();
   await harness.close();

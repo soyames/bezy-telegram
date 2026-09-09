@@ -1,5 +1,10 @@
 # Bezy architecture
 
+> **Execution state lives in [`BEZY_MASTER_ROADMAP.md`](BEZY_MASTER_ROADMAP.md), not here.**
+> This document records *how Bezy is built*. The roadmap records *what is done, partially
+> done, blocked and outstanding*. Read the roadmap before starting work and update it after.
+> A new idea adds to the roadmap; it never replaces it.
+
 ## Product boundary
 
 Bezy is a Telegram-native product. Telegram is the user-facing application, identity layer, notification channel and messaging environment. The Bezy Mini App is the rich UI and is opened from the Bezy bot inside Telegram.
