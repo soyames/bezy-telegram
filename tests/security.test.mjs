@@ -378,6 +378,34 @@ try {
       res.status === 400 && /^[A-Z_]+$/.test(String(res.data.error || '')), `${res.status}:${JSON.stringify(res.data)}`);
   }
 
+  section('Error codes reachable by a normal user are rendered, not generic');
+  {
+    const fs = await import('node:fs');
+    const app = fs.readFileSync('app.js', 'utf8');
+    const en = JSON.parse(fs.readFileSync('locales/en.json', 'utf8')).app;
+    const fr = JSON.parse(fs.readFileSync('locales/fr.json', 'utf8')).app;
+    const block = /const ERROR_KEYS = \{([\s\S]*?)\};/.exec(app)?.[1] || '';
+    const handled = Object.fromEntries([...block.matchAll(/([A-Z_]{4,}):\s*'([a-z.__]+)'/g)].map((m) => [m[1], m[2]]));
+
+    // Codes an ordinary user can trigger without misusing the API. The rest
+    // (INVALID_ACTION, INVALID_TARGET, INVALID_PLAN, CONFIRMATION_REQUIRED) indicate a
+    // malformed client request and may fall back to the generic message.
+    const userReachable = [
+      'RATE_LIMITED', 'PREMIUM_REQUIRED', 'AGE_CONFIRMATION_REQUIRED',
+      'TARGET_NOT_FOUND', 'DATABASE_UNAVAILABLE', 'INVALID_SESSION', 'PROFILE_NOT_FOUND'
+    ];
+    for (const code of userReachable) {
+      const key = handled[code]?.replace(/^app\./, '');
+      check(`${code} maps to a real message in both languages`,
+        Boolean(key) && Boolean(en[key]) && Boolean(fr[key]),
+        `key=${handled[code] || 'UNMAPPED'}`);
+    }
+    check('rate limiting explains the wait rather than failing generically',
+      /rate_limited/.test(block) && /retryAfter/.test(app));
+    check('the long-wait variant carries a substitution placeholder',
+      en.rate_limited_minutes?.includes('{n}') && fr.rate_limited_minutes?.includes('{n}'));
+  }
+
   section('Data minimisation: fields no longer collected');
   await cleanup();
   await call('/api/profile/me', 'a', { ageEligibilityConfirmed: true });

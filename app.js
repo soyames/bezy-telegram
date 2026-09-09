@@ -65,9 +65,17 @@ const ERROR_KEYS = {
   DISCOVERY_LIMIT_REACHED: 'app.discovery_limit',
   SUPER_LIKE_LIMIT_REACHED: 'app.super_like_limit',
   PREMIUM_UNAVAILABLE: 'app.payment_failed',
-  AGE_CONFIRMATION_REQUIRED: 'app.error_age_required'
+  AGE_CONFIRMATION_REQUIRED: 'app.error_age_required',
+  RATE_LIMITED: 'app.rate_limited'
 };
 function errorText(error) {
+  // Rate limiting is reachable by an ordinary enthusiastic user, so it says how long to
+  // wait rather than falling back to a generic failure message.
+  if (error?.error === 'RATE_LIMITED') {
+    const seconds = Number(error.retryAfter) || 0;
+    if (seconds >= 120) return t('app.rate_limited_minutes').replace('{n}', String(Math.ceil(seconds / 60)));
+    return t('app.rate_limited');
+  }
   const key = ERROR_KEYS[error?.error];
   return key ? t(key) : t('app.error_generic');
 }
@@ -644,7 +652,7 @@ async function init() {
       people_available: 'people to discover', match_score: 'match', min_age: 'Minimum age', max_age: 'Maximum age', any_city: 'Any city', same_city_only: 'Only show people in my city', apply_filters: 'Apply filters', reset_filters: 'Reset filters', filters_applied: 'Filters applied.', filters_note: 'Filters are saved to your account and applied every time you open Discover.', conversation_hint: 'Matched — your conversation continues in Telegram.', profile_live: 'Your profile is live in Discover.', profile_hidden: 'Your profile is saved but hidden from Discover.',
       premium_title: 'Bezy Premium', premium_intro: 'Unlock more ways to discover meaningful connections.', premium_active_intro: "You're a Premium member. Thank you for supporting Bezy.", benefit_who_liked_you: 'See who liked you', benefit_advanced_discovery: 'Advanced discovery', benefit_more_super_likes: 'More Super Likes', benefit_increased_visibility: 'Increased visibility', benefit_unlimited_discovery: 'Unlimited discovery', choose_plan: 'Choose your plan', plan: 'Plan', plan_monthly: 'Monthly', plan_quarterly: 'Quarterly', plan_yearly: 'Yearly', months_count: '{n} months of Premium', best_value: 'Best value', subscribe_with_stars: 'Subscribe with Telegram Stars', renew_with_stars: 'Renew with Telegram Stars', renew: 'Renew or extend', active_until: 'Active until', days_remaining: 'Days remaining', stars_note: 'Payment is handled inside Telegram with Stars. Bezy never sees your card details.', who_liked_you: 'Who liked you', who_liked_you_locked: 'Premium members can see everyone who already liked them, and match instantly.', likes_waiting: '{n} people already liked you', no_likes_yet: 'No one is waiting yet. Keep discovering.', preparing_checkout: 'Preparing checkout…', payment_cancelled: 'Payment cancelled.', payment_failed: "We couldn't start the payment. Please try again.", payment_received: 'Payment received. Activating your Bezy Premium…', payment_pending: 'Your payment is still processing.', payment_processing: 'Your payment is being processed. Premium will activate shortly.', payment_unsupported: 'Please update Telegram to pay with Stars.', premium_active: '💎 Bezy Premium is active.', premium_required: 'This is a Premium feature.', premium_expired: 'Your Bezy Premium has expired.', discovery_limit: "You've reached today's discovery limit. Premium removes it.", super_like_limit: "You've used today's Super Likes. Premium gives you more.",
       more_connections: 'More connections', navigation: 'Bezy navigation', close: 'Close', bezy_member: 'Bezy member', meta_description: 'Bezy — meet someone worth knowing, entirely inside Telegram.', error_session: 'Your Telegram session could not be verified. Please reopen Bezy.', error_database: 'Bezy could not reach its database. Please try again.', error_profile_missing: 'Complete your profile to start discovering people.', error_target_missing: 'That profile is no longer available.',
-      age_gate_title: 'Bezy is only available to people aged 18 and over.', age_gate_body: 'By continuing, I confirm that I am 18 or older.', age_confirm: 'I am 18 or older', age_deny: 'I am under 18', age_note: 'Bezy does not verify identity or age. This is your own declaration.', age_blocked_title: 'Bezy is for adults aged 18 and over.', age_blocked_body: 'You cannot create a Bezy profile, discover people or match. Thank you for being honest.', error_age_required: 'Please confirm you are 18 or older to continue.'
+      age_gate_title: 'Bezy is only available to people aged 18 and over.', age_gate_body: 'By continuing, I confirm that I am 18 or older.', age_confirm: 'I am 18 or older', age_deny: 'I am under 18', age_note: 'Bezy does not verify identity or age. This is your own declaration.', age_blocked_title: 'Bezy is for adults aged 18 and over.', age_blocked_body: 'You cannot create a Bezy profile, discover people or match. Thank you for being honest.', error_age_required: 'Please confirm you are 18 or older to continue.', rate_limited: "You're going a little fast. Please try again in a moment.", rate_limited_minutes: "You've done that too many times. Please try again in about {n} minutes."
     }};
     document.documentElement.lang = 'en';
     applyLocale();

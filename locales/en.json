@@ -162,7 +162,9 @@
     "delete_type": "Type DELETE to confirm",
     "delete_done_title": "Your Bezy account has been deleted.",
     "delete_done_body": "You can close this window. If you ever want to come back, just open Bezy again and create a new profile.",
-    "rights_note": "You can ask us to access, correct, restrict, object to or delete your data at contacts@digitalconcordia.com."
+    "rights_note": "You can ask us to access, correct, restrict, object to or delete your data at contacts@digitalconcordia.com.",
+    "rate_limited": "You're going a little fast. Please try again in a moment.",
+    "rate_limited_minutes": "You've done that too many times. Please try again in about {n} minutes."
   },
   "profile": {
     "edit": "Edit profile",
