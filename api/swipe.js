@@ -43,47 +43,50 @@ export default async function handler(req, res) {
   const reciprocalRef = targetRef.collection('actions').doc(String(user.id));
   const matchRef = firestore.collection('matches').doc(matchId(user.id, targetId));
 
-  const result = await firestore.runTransaction(async (tx) => {
-    const [targetSnap, reciprocalSnap, existingMatch] = await Promise.all([
-      tx.get(targetRef),
-      tx.get(reciprocalRef),
-      tx.get(matchRef)
-    ]);
-    if (!targetSnap.exists) throw new Error('Target profile not found');
+  try {
+    const result = await firestore.runTransaction(async (tx) => {
+      const targetSnap = await tx.get(targetRef);
+      const reciprocalSnap = await tx.get(reciprocalRef);
+      const existingMatch = await tx.get(matchRef);
+      if (!targetSnap.exists) throw new Error('Target profile not found');
 
-    tx.set(actionRef, { action, createdAt: new Date() }, { merge: true });
+      tx.set(actionRef, { action, createdAt: new Date() }, { merge: true });
 
-    const reciprocal = reciprocalSnap.exists ? reciprocalSnap.data()?.action : '';
-    const isLike = action === 'like' || action === 'super';
-    const isReciprocalLike = reciprocal === 'like' || reciprocal === 'super';
-    const matched = isLike && isReciprocalLike;
+      const reciprocal = reciprocalSnap.exists ? reciprocalSnap.data()?.action : '';
+      const isLike = action === 'like' || action === 'super';
+      const isReciprocalLike = reciprocal === 'like' || reciprocal === 'super';
+      const matched = isLike && isReciprocalLike;
 
-    if (matched && !existingMatch.exists) {
-      tx.set(matchRef, {
-        participants: [String(user.id), targetId].sort(),
-        createdAt: new Date(),
-        source: 'mutual_like',
-        active: true
-      });
+      if (matched && !existingMatch.exists) {
+        tx.set(matchRef, {
+          participants: [String(user.id), targetId].sort(),
+          createdAt: new Date(),
+          source: 'mutual_like',
+          active: true
+        });
+      }
+
+      return {
+        matched,
+        created: matched && !existingMatch.exists,
+        target: targetSnap.data() || {}
+      };
+    });
+
+    if (result.created) {
+      const currentSnap = await userRef.get();
+      const current = currentSnap.data() || { telegramId: user.id };
+      const language = normalizedLanguage(user.language_code);
+      const targetLanguage = normalizedLanguage(result.target.languageCode);
+      await Promise.allSettled([
+        notifyMatch(current, result.target, language),
+        notifyMatch(result.target, current, targetLanguage)
+      ]);
     }
 
-    return {
-      matched,
-      created: matched && !existingMatch.exists,
-      target: targetSnap.data() || {}
-    };
-  });
-
-  if (result.created) {
-    const currentSnap = await userRef.get();
-    const current = currentSnap.data() || { telegramId: user.id };
-    const language = normalizedLanguage(user.language_code);
-    const targetLanguage = normalizedLanguage(result.target.languageCode);
-    await Promise.allSettled([
-      notifyMatch(current, result.target, language),
-      notifyMatch(result.target, current, targetLanguage)
-    ]);
+    return res.status(200).json({ ok: true, action, matched: result.matched });
+  } catch (error) {
+    console.error('Swipe failed:', error);
+    return res.status(error.message === 'Target profile not found' ? 404 : 500).json({ error: error.message || 'Unable to process action' });
   }
-
-  return res.status(200).json({ ok: true, action, matched: result.matched });
 }
