@@ -11,8 +11,10 @@ function publicMatch(id, data) {
     bio: profile.bio || '',
     interests: Array.isArray(profile.interests) ? profile.interests : [],
     photoUrl: data.photoUrl || '',
-    username: data.username || '',
-    telegramId: data.telegramId || Number(id)
+    // The Telegram handle is released only here, after a mutual match, because it is what
+    // hands the conversation over to Telegram. It is the user's current public handle and
+    // may change or be removed; `id` remains the authoritative identity.
+    username: data.username || ''
   };
 }
 

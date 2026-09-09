@@ -1,5 +1,6 @@
 import { db } from './_firebase.js';
 import { requirePost, requireTelegramUser } from './_telegram.js';
+import { rateLimit } from './_ratelimit.js';
 
 // Safety actions for a dating service: block, unblock, report and unmatch.
 // All of them are enforced server-side — hiding a button is not a safety control.
@@ -124,6 +125,19 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'AGE_CONFIRMATION_REQUIRED' });
     }
 
+    // Rate limited per action class. Report has the tightest budget because report spam is
+    // itself a harassment vector. list_blocks and unmatch ride the block budget.
+    const bucket = action === 'report' ? 'report' : 'block';
+    if (!(await rateLimit(firestore, res, userId, bucket))) return;
+
+    // Anti-enumeration: acting on a Telegram id that has no Bezy account must look exactly
+    // like acting on one that does. The response below is identical either way; the only
+    // difference is that nothing is written for a stranger, so no mirror document or report
+    // is created under an account that does not exist.
+    const targetExists = action === 'list_blocks'
+      ? true
+      : (await firestore.collection('users').doc(targetId).get()).exists;
+
     if (action === 'list_blocks') {
       const blocks = await firestore.collection('users').doc(userId).collection('blocks').limit(100).get();
       const blocked = [];
@@ -138,9 +152,18 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, blocked });
     }
 
-    if (action === 'block') return res.status(200).json({ ok: true, ...(await block(firestore, userId, targetId)) });
+    if (action === 'block') {
+      if (!targetExists) return res.status(200).json({ ok: true, blocked: true });
+      return res.status(200).json({ ok: true, ...(await block(firestore, userId, targetId)) });
+    }
     if (action === 'unblock') return res.status(200).json({ ok: true, ...(await unblock(firestore, userId, targetId)) });
-    if (action === 'report') return res.status(200).json({ ok: true, ...(await report(firestore, userId, targetId, req.body)) });
+    if (action === 'report') {
+      // A report about a non-existent account is accepted in appearance but not stored:
+      // there is nothing to moderate, and storing it would let anyone fill the moderation
+      // queue with entries for arbitrary Telegram ids.
+      if (!targetExists) return res.status(200).json({ ok: true, reported: true, reason: REPORT_REASONS.has(req.body?.reason) ? req.body.reason : 'other' });
+      return res.status(200).json({ ok: true, ...(await report(firestore, userId, targetId, req.body)) });
+    }
     return res.status(200).json({ ok: true, ...(await unmatch(firestore, userId, targetId)) });
   } catch (error) {
     console.error('Relationship request failed:', error);

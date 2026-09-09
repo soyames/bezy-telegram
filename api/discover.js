@@ -1,6 +1,7 @@
 import { db } from './_firebase.js';
 import { requirePost, requireTelegramUser } from './_telegram.js';
 import { isPremiumActive, limitsFor, currentUsage } from './_premium.js';
+import { rateLimit } from './_ratelimit.js';
 
 // Premium members receive a small, deterministic ranking boost. It changes ordering only;
 // it never fabricates candidates and never guarantees a match.
@@ -21,6 +22,17 @@ function genderMatches(current, candidate) {
   return wantsCandidate && candidateWantsCurrent;
 }
 
+/**
+ * What a candidate in the deck is allowed to learn about someone they have not matched with.
+ *
+ * The Telegram @username is deliberately NOT included. Bezy's premise is that it controls
+ * permission to connect: the Telegram handle is the actual contact vector, so releasing it
+ * before a mutual match would let anyone browse the deck and message people directly,
+ * bypassing consent entirely. The handle is released only by /api/matches.
+ *
+ * `id` is the target's Telegram id and is unavoidable — the client must be able to name who
+ * it is swiping on — but nothing further about their Telegram identity is sent.
+ */
 function publicProfile(id, data) {
   const profile = data.profile || {};
   return {
@@ -30,9 +42,7 @@ function publicProfile(id, data) {
     city: profile.city || '',
     bio: profile.bio || '',
     interests: Array.isArray(profile.interests) ? profile.interests : [],
-    photoUrl: data.photoUrl || '',
-    username: data.username || '',
-    telegramId: data.telegramId || Number(id)
+    photoUrl: data.photoUrl || ''
   };
 }
 
@@ -85,6 +95,7 @@ export default async function handler(req, res) {
   if (!user) return;
 
   try {
+    if (!(await rateLimit(db(), res, user.id, 'discover'))) return;
     return await handleDiscover(req, res, user);
   } catch (error) {
     console.error('Discover request failed:', error);

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { db } from './_firebase.js';
 import { requirePost, requireTelegramUser, telegramApi, normalizedLanguage } from './_telegram.js';
 import { premiumPlan, premiumPlans, premiumState, PREMIUM_BENEFITS, limitsFor, currentUsage, buildInvoicePayload } from './_premium.js';
+import { rateLimit } from './_ratelimit.js';
 
 const PLAN_LABELS = {
   en: { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' },
@@ -91,8 +92,14 @@ export default async function handler(req, res) {
 
   try {
     const action = String(req.body?.action || 'status');
-    if (action === 'status') return await statusResponse(res, user.id);
-    if (action === 'invoice') return await createInvoice(req, res, user);
+    if (action === 'status') {
+      if (!(await rateLimit(db(), res, user.id, 'premium_status'))) return;
+      return await statusResponse(res, user.id);
+    }
+    if (action === 'invoice') {
+      if (!(await rateLimit(db(), res, user.id, 'premium_invoice'))) return;
+      return await createInvoice(req, res, user);
+    }
     return res.status(400).json({ error: 'INVALID_ACTION' });
   } catch (error) {
     console.error('Premium request failed:', error);

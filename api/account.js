@@ -1,6 +1,7 @@
 import { db } from './_firebase.js';
 import { requirePost, requireTelegramUser } from './_telegram.js';
 import { premiumState } from './_premium.js';
+import { rateLimit } from './_ratelimit.js';
 
 // Data-subject rights that Bezy can genuinely honour automatically:
 //   action: 'export' — GDPR Art. 15 access / Art. 20 portability, as machine-readable JSON
@@ -137,6 +138,8 @@ async function deleteAccount(firestore, userId) {
   // Removes the user document and every subcollection: profile, actions, likesReceived,
   // blocks and blockedBy.
   await firestore.recursiveDelete(userRef);
+  // Rate-limit counters record when the account acted, so they are erased with it.
+  await firestore.collection('rateLimits').doc(userId).delete().catch(() => {});
 
   console.log(`[bezy-privacy] account.deleted ${JSON.stringify({ telegramUserId: userId, matchesEnded: matchesSnap.size, retainedPayments: retained.payments })}`);
   return { deleted: true, alreadyDeleted: false, matchesEnded: matchesSnap.size, retained };
@@ -155,10 +158,12 @@ export default async function handler(req, res) {
   try {
     const firestore = db();
     if (action === 'export') {
+      if (!(await rateLimit(firestore, res, userId, 'account_export'))) return;
       return res.status(200).json({ ok: true, data: await exportData(firestore, userId) });
     }
     if (action === 'delete') {
       // A typed confirmation guards an irreversible action against accidental calls.
+      if (!(await rateLimit(firestore, res, userId, 'account_delete'))) return;
       if (req.body?.confirm !== DELETE_CONFIRMATION) {
         return res.status(400).json({ error: 'CONFIRMATION_REQUIRED' });
       }

@@ -30,6 +30,9 @@ async function cleanup() {
   for (const doc of (await db.collection('users').get()).docs) {
     if (/^9000000\d\d$/.test(doc.id)) await db.recursiveDelete(doc.ref);
   }
+  for (const doc of (await db.collection('rateLimits').get()).docs) {
+    if (/^9000000\d\d$/.test(doc.id)) await doc.ref.delete();
+  }
   for (const col of ['matches', 'bezyPayments', 'bezyInvoices', 'reports']) {
     for (const doc of (await db.collection(col).get()).docs) {
       const d = doc.data();

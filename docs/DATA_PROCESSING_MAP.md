@@ -29,11 +29,17 @@ Every field below was located in the code, not assumed. "Where" gives the Firest
 | Field | Where | Why | Necessary? |
 | --- | --- | --- | --- |
 | `telegramId` | `users/{id}` (also the document id) | The only user identifier Bezy has; authentication and all relationships key off it | Yes |
-| `firstName`, `lastName` | `users/{id}` | Fallback display name before a profile exists | Partly — see §6 |
-| `username` | `users/{id}` | Builds the `t.me` deep link that hands a match over to Telegram | Yes |
+| `firstName` | `users/{id}` | Fallback display name before a profile exists | Yes |
+| `username` | `users/{id}` | The Telegram public handle. Released **only after a mutual match**, to open the conversation | Yes |
 | `languageCode` | `users/{id}` | Language of bot messages and notifications | Yes |
 | `photoUrl` | `users/{id}` | Profile picture shown in Discover | Yes, if photos are shown |
-| `isPremiumTelegram` | `users/{id}` | Informational only. **Never** grants Bezy Premium | No — see §6 |
+| ~~`lastName`~~ | — | **No longer collected** (never displayed or used) | Removed |
+| ~~`isPremiumTelegram`~~ | — | **No longer collected** (never granted any entitlement) | Removed |
+
+Identity model: the **Telegram numeric id** is the authoritative identity and the only basis
+for ownership; the **`@username`** is a mutable public locator and is never used as a key; the
+**Bezy `displayName`** is presentation only. The username may be absent or change at any time,
+and the code treats it as optional throughout.
 
 `initData` itself is validated in memory (`api/_telegram.js`) and **never stored or logged**.
 
@@ -104,6 +110,7 @@ settled entirely inside Telegram.
 | Third-party scripts | One: `telegram.org/js/telegram-web-app.js`, required for the Mini App to function |
 | Dependencies | `firebase-admin` (runtime) and `@playwright/test` (development) only |
 | IP addresses / user-agent | Not collected or stored by Bezy. Vercel processes request metadata as part of hosting |
+| Rate-limit counters | `rateLimits/{id}` — per-user request counts per bucket with a window start. Records activity timing, so it is personal data and is **erased with the account** |
 | Application logs | Errors and `[bezy-payment]` / `[bezy-privacy]` lines containing Telegram ids, plan ids and amounts. **No tokens, keys, `initData`, or profile content** |
 
 ---
@@ -215,9 +222,19 @@ personal data.
 | `invoicePayload` | Contains plan, user id and nonce. Needed for verification and audit |
 | Conversations | Not processed at all — the single largest minimisation win in the architecture |
 
-Neither `lastName` nor `isPremiumTelegram` was removed in this pass: both are written by the
-existing profile endpoint and removing them touches the payment/identity path. Flagged as a
-**technical item** rather than changed under a compliance banner.
+**Both were subsequently removed.** Each was traced end to end — one write, one read (the
+export), no display, no logic, no compatibility dependency — and `api/profile/me.js` no longer
+collects either. The export still reads them so that records created before the change remain
+exportable; new records simply do not have the fields.
+
+Existing production records may still carry them. No destructive migration was run. Clearing
+them from historical documents is a **technical item**, not a blocker.
+
+A further finding from the same review: `/api/discover` was disclosing every candidate's
+Telegram `@username`. Since the handle is what allows direct contact on Telegram, that let
+anyone read their own deck's API response and message people who had never matched with them,
+bypassing the consent gate the product exists to enforce. The handle is now released only by
+`/api/matches`. See `docs/SECURITY.md` §6.
 
 ---
 
@@ -276,7 +293,7 @@ summarised for users in the Privacy Policy. There is no opaque model and no mach
 
 ## 9. Security posture
 
-Verified in code during this audit:
+Full detail in `docs/SECURITY.md`. Verified in code during these audits:
 
 - Telegram `initData` is validated with an HMAC and a timing-safe comparison; a forged or
   foreign-bot signature is rejected. `auth_date` older than 24 hours is refused.
@@ -296,6 +313,7 @@ Known residual risks:
 
 - **24-hour `initData` replay window.** Captured `initData` remains usable for that period.
   Shortening it would break long-lived Mini App sessions, since Telegram does not refresh it.
-- **No rate limiting** on profile updates, discovery or invoice creation. Daily swipe quotas
-  limit the main abuse path, but invoice spam could create surplus `bezyInvoices` documents.
+- ~~No rate limiting~~ — **implemented** in `api/_ratelimit.js`: per-user, per-bucket fixed
+  windows covering swipe, discovery, profile writes, reports, blocks, likes, invoice creation,
+  export and deletion. See `docs/SECURITY.md` §4.
 - **No automated retention enforcement** (see §4).
