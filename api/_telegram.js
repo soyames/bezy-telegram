@@ -38,7 +38,7 @@ export function requirePost(req, res) {
 export function requireTelegramUser(req, res) {
   const user = validateInitData(req.body?.initData);
   if (!user?.id) {
-    res.status(401).json({ error: 'Invalid Telegram session' });
+    res.status(401).json({ error: 'INVALID_SESSION' });
     return null;
   }
   return user;

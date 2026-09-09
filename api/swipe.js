@@ -1,5 +1,6 @@
 import { db } from './_firebase.js';
 import { telegramApi, miniAppUrl, requirePost, requireTelegramUser, telegramUserLink, normalizedLanguage } from './_telegram.js';
+import { isPremiumActive, checkSwipeQuota } from './_premium.js';
 
 const ACTIONS = new Set(['like', 'super', 'pass']);
 
@@ -7,14 +8,18 @@ function matchId(a, b) {
   return [String(a), String(b)].sort().join('_');
 }
 
+// Per the Telegram-Native Communication Principle, the notification hands the conversation
+// back to Telegram. It must not offer a "call" button: the Bot API cannot start a call on a
+// user's behalf, so calling is described as something the users do with Telegram's own
+// controls once they are in the chat.
 function matchMessage(language, name) {
   return language === 'fr'
-    ? `💜 Match avec ${name} ! Vous vous êtes tous les deux appréciés.`
-    : `💜 You matched with ${name}! You both liked each other.`;
+    ? `💜 Match avec ${name} ! Vous vous êtes tous les deux appréciés.\n\nVotre conversation se poursuit sur Telegram — messages, appels vocaux et vidéo inclus.`
+    : `💜 You matched with ${name}! You both liked each other.\n\nYour conversation continues on Telegram — messages, voice and video calls included.`;
 }
 
 async function notifyMatch(user, other, language) {
-  const otherName = other.profile?.displayName || other.firstName || 'your match';
+  const otherName = other.profile?.displayName || other.firstName || (language === 'fr' ? 'votre match' : 'your match');
   const openChatText = language === 'fr' ? '💬 Ouvrir la conversation' : '💬 Open Telegram chat';
   const openBezyText = language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy';
   const buttons = [[{ text: openChatText, url: telegramUserLink(other) }], [{ text: openBezyText, web_app: { url: miniAppUrl('matches') } }]];
@@ -33,7 +38,7 @@ export default async function handler(req, res) {
   const targetId = String(req.body?.targetId || '');
   const action = String(req.body?.action || '');
   if (!targetId || targetId === String(user.id) || !ACTIONS.has(action)) {
-    return res.status(400).json({ error: 'Invalid action' });
+    return res.status(400).json({ error: 'INVALID_ACTION' });
   }
 
   const firestore = db();
@@ -43,12 +48,32 @@ export default async function handler(req, res) {
   const reciprocalRef = targetRef.collection('actions').doc(String(user.id));
   const matchRef = firestore.collection('matches').doc(matchId(user.id, targetId));
 
+  const likeReceivedRef = targetRef.collection('likesReceived').doc(String(user.id));
+
   try {
     const result = await firestore.runTransaction(async (tx) => {
+      // All reads must precede all writes inside a Firestore transaction.
+      const currentSnap = await tx.get(userRef);
       const targetSnap = await tx.get(targetRef);
       const reciprocalSnap = await tx.get(reciprocalRef);
       const existingMatch = await tx.get(matchRef);
-      if (!targetSnap.exists) throw new Error('Target profile not found');
+      if (!targetSnap.exists) throw new Error('TARGET_NOT_FOUND');
+
+      const currentData = currentSnap.exists ? currentSnap.data() : {};
+      const isPremium = isPremiumActive(currentData);
+
+      // Daily allowances are enforced here, inside the transaction, so the counter cannot
+      // be bypassed by a client that ignores the UI or races concurrent requests.
+      const alreadyActioned = (await tx.get(actionRef)).exists;
+      if (!alreadyActioned) {
+        const quota = checkSwipeQuota(currentData, action, isPremium);
+        if (!quota.allowed) {
+          const error = new Error(quota.reason);
+          error.quota = { reason: quota.reason, limits: quota.limits, isPremium };
+          throw error;
+        }
+        tx.set(userRef, { usage: quota.usage }, { merge: true });
+      }
 
       tx.set(actionRef, { action, createdAt: new Date() }, { merge: true });
 
@@ -56,6 +81,11 @@ export default async function handler(req, res) {
       const isLike = action === 'like' || action === 'super';
       const isReciprocalLike = reciprocal === 'like' || reciprocal === 'super';
       const matched = isLike && isReciprocalLike;
+
+      // Reverse index of the same action, so a user can be shown who liked them without
+      // scanning every other user's actions. This is an index, not a second like system.
+      if (isLike) tx.set(likeReceivedRef, { fromId: String(user.id), action, createdAt: new Date() }, { merge: true });
+      else tx.delete(likeReceivedRef);
 
       if (matched && !existingMatch.exists) {
         tx.set(matchRef, {
@@ -87,6 +117,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, action, matched: result.matched });
   } catch (error) {
     console.error('Swipe failed:', error);
-    return res.status(error.message === 'Target profile not found' ? 404 : 500).json({ error: error.message || 'Unable to process action' });
+    // Only the expected, user-meaningful case is surfaced; internal database errors
+    // must not leak their text to the Mini App.
+    if (error.message === 'TARGET_NOT_FOUND') return res.status(404).json({ error: error.message });
+    if (error.quota) return res.status(403).json({ error: error.quota.reason, limits: error.quota.limits, isPremium: error.quota.isPremium });
+    return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }
 }

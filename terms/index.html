@@ -8,14 +8,15 @@
   <style>
     :root{--bg:#f8f7fb;--card:#fff;--text:#17151c;--muted:#6f6877;--accent:#7c3aed;--line:#e8e3ec}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6}.wrap{width:min(100% - 28px,760px);margin:0 auto;padding:28px 0 60px}.brand{display:flex;align-items:center;gap:10px;margin-bottom:24px}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#8b5cf6,#ec4899);display:grid;place-items:center;color:#fff;font-weight:900;font-size:22px}.brand b{font-size:24px}.brand span{display:block;color:var(--muted);font-size:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:0 12px 35px rgba(31,23,43,.07)}h1{font-size:30px;letter-spacing:-.8px;margin:0 0 6px}h2{font-size:19px;margin:28px 0 8px}p,li{font-size:14px}small,.updated{color:var(--muted)}a{color:var(--accent)}.notice{background:#f1ebff;border-radius:16px;padding:14px;font-size:13px;margin:18px 0}.lang{display:flex;gap:8px;margin:0 0 18px}.lang a{padding:7px 11px;border-radius:999px;background:#f1ebff;text-decoration:none;font-size:12px;font-weight:700}.footer{margin-top:18px;text-align:center;color:var(--muted);font-size:12px}
-  </style>
+  .logo{position:relative;overflow:hidden}.logo img{position:absolute;left:-112%;top:-25%;width:327%;height:218%;max-width:none;display:block}
+</style>
 </head>
 <body>
 <main class="wrap">
-  <div class="brand"><div class="logo">B</div><div><b>Bezy</b><span>Meet someone worth knowing.</span></div></div>
+  <div class="brand"><div class="logo"><img src="/assets/bezy-icon.png" alt="Bezy"></div><div><b>Bezy</b><span id="tagline">Meet someone worth knowing.</span></div></div>
   <div class="lang"><a href="?lang=en">English</a><a href="?lang=fr">Français</a></div>
   <article class="card" id="content"></article>
-  <div class="footer">Bezy · <a href="/privacy">Privacy</a></div>
+  <div class="footer">Bezy · <a id="other-link" href="/privacy">Privacy</a></div>
 </main>
 <script>
 const isFr=new URLSearchParams(location.search).get('lang')==='fr'||(navigator.language||'').toLowerCase().startsWith('fr');
@@ -53,7 +54,7 @@ const fr={title:'Conditions d’utilisation',date:'Date d’entrée en vigueur :
 ['14. Modifications','Nous pouvons mettre à jour ces Conditions lorsque Bezy évolue ou lorsque les exigences légales changent. La poursuite de l’utilisation après l’entrée en vigueur d’une mise à jour vaut acceptation dans la mesure permise par la loi.'],
 ['15. Contact','Pour toute question juridique, de sécurité ou de compte, contactez <strong>[EMAIL SUPPORT]</strong>. Remplacez cet élément avant le lancement public.']
 ]};
-const d=isFr?fr:en;document.documentElement.lang=isFr?'fr':'en';document.getElementById('content').innerHTML=`<h1>${d.title}</h1><div class="updated">${d.date}</div><div class="notice">${d.intro}</div>${d.sections.map(s=>`<section><h2>${s[0]}</h2><p>${s[1]}</p></section>`).join('')}`;
+const d=isFr?fr:en;document.documentElement.lang=isFr?'fr':'en';document.title=isFr?'Bezy — Conditions':'Bezy — Terms';document.getElementById('tagline').textContent=isFr?'Rencontrez quelqu’un qui mérite d’être connu.':'Meet someone worth knowing.';const other=document.getElementById('other-link');other.textContent=isFr?'Confidentialité':'Privacy';other.href='/privacy?lang='+(isFr?'fr':'en');document.getElementById('content').innerHTML=`<h1>${d.title}</h1><div class="updated">${d.date}</div><div class="notice">${d.intro}</div>${d.sections.map(s=>`<section><h2>${s[0]}</h2><p>${s[1]}</p></section>`).join('')}`;
 </script>
 </body>
 </html>

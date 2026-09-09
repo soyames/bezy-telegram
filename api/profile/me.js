@@ -34,11 +34,28 @@ function normalizeProfile(input = {}) {
   };
 }
 
+function normalizePreferences(input = {}) {
+  const min = Number(input.minAge);
+  const max = Number(input.maxAge);
+  const minAge = Number.isFinite(min) ? Math.min(Math.max(Math.trunc(min), 18), 100) : 18;
+  const maxAge = Number.isFinite(max) ? Math.min(Math.max(Math.trunc(max), minAge), 100) : 100;
+  return { minAge, maxAge, city: cleanText(input.city, 80), sameCityOnly: Boolean(input.sameCityOnly) };
+}
+
 export default async function handler(req, res) {
   if (!requirePost(req, res)) return;
   const user = requireTelegramUser(req, res);
   if (!user) return;
 
+  try {
+    return await handleProfile(req, res, user);
+  } catch (error) {
+    console.error('Profile request failed:', error);
+    return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
+  }
+}
+
+async function handleProfile(req, res, user) {
   const ref = db().collection('users').doc(String(user.id));
   const snap = await ref.get();
   const current = snap.exists ? snap.data() : {};
@@ -63,10 +80,17 @@ export default async function handler(req, res) {
     baseData.discoverable = nextProfile.discoverable;
   }
 
+  let nextPreferences = current.preferences || normalizePreferences();
+  if (req.body?.preferences && typeof req.body.preferences === 'object') {
+    nextPreferences = normalizePreferences(req.body.preferences);
+    baseData.preferences = nextPreferences;
+  }
+
   if (!snap.exists) {
     await ref.set({
       ...baseData,
       profile: nextProfile,
+      preferences: nextPreferences,
       profileComplete: Boolean(nextProfile.profileComplete),
       discoverable: Boolean(nextProfile.discoverable),
       createdAt: now

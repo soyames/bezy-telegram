@@ -5,7 +5,7 @@ function publicMatch(id, data) {
   const profile = data.profile || {};
   return {
     id: String(id),
-    displayName: profile.displayName || data.firstName || 'Bezy member',
+    displayName: profile.displayName || data.firstName || '',
     age: profile.age || null,
     city: profile.city || '',
     bio: profile.bio || '',
@@ -21,6 +21,15 @@ export default async function handler(req, res) {
   const user = requireTelegramUser(req, res);
   if (!user) return;
 
+  try {
+    return await handleMatches(req, res, user);
+  } catch (error) {
+    console.error('Matches request failed:', error);
+    return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
+  }
+}
+
+async function handleMatches(req, res, user) {
   const snapshot = await db().collection('matches')
     .where('participants', 'array-contains', String(user.id))
     .limit(50)
@@ -28,22 +37,25 @@ export default async function handler(req, res) {
 
   const matches = [];
   for (const matchDoc of snapshot.docs) {
-    const participants = matchDoc.data()?.participants || [];
+    const matchData = matchDoc.data() || {};
+    if (matchData.active === false) continue;
+    const participants = matchData.participants || [];
     const otherId = participants.find((id) => String(id) !== String(user.id));
     if (!otherId) continue;
     const otherSnap = await db().collection('users').doc(String(otherId)).get();
     if (!otherSnap.exists) continue;
+    // Firestore Timestamps do not survive JSON serialization in a usable shape,
+    // so the API returns milliseconds and an ISO string the Mini App can render.
+    const matchedAtMs = matchData.createdAt?.toMillis?.() ?? new Date(matchData.createdAt || 0).getTime();
     matches.push({
       ...publicMatch(otherId, otherSnap.data() || {}),
-      matchedAt: matchDoc.data()?.createdAt || null
+      matchId: matchDoc.id,
+      matchedAtMs: Number.isFinite(matchedAtMs) ? matchedAtMs : 0,
+      matchedAt: Number.isFinite(matchedAtMs) && matchedAtMs > 0 ? new Date(matchedAtMs).toISOString() : null
     });
   }
 
-  matches.sort((a, b) => {
-    const aTime = a.matchedAt?.toMillis?.() || new Date(a.matchedAt || 0).getTime();
-    const bTime = b.matchedAt?.toMillis?.() || new Date(b.matchedAt || 0).getTime();
-    return bTime - aTime;
-  });
+  matches.sort((a, b) => b.matchedAtMs - a.matchedAtMs);
 
   return res.status(200).json({ ok: true, matches });
 }
