@@ -1,0 +1,32 @@
+{
+  "language_name": "English",
+  "app": {
+    "tagline": "Meet someone worth knowing.",
+    "discover": "Discover",
+    "matches": "Matches",
+    "messages": "Messages",
+    "profile": "Profile",
+    "for_you": "For you",
+    "filters": "Filters",
+    "pass": "Pass",
+    "super": "Super",
+    "like": "Like",
+    "your_matches": "Your matches",
+    "protected_by_bezy": "Protected by Bezy",
+    "view_membership": "View membership",
+    "unlock_premium": "Unlock Premium",
+    "privacy": "Privacy",
+    "terms": "Terms",
+    "settings": "Settings",
+    "no_conversations": "Your conversations will appear here after a mutual match.",
+    "private_by_design": "Private by design · Bot-controlled messaging",
+    "discover_intro": "Real people. Mutual interest. Conversations that stay on Telegram."
+  },
+  "profile": {
+    "edit": "Edit profile",
+    "my_profile": "My profile",
+    "language": "Language",
+    "french": "Français",
+    "english": "English"
+  }
+}
