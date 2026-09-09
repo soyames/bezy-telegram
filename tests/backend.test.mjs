@@ -49,6 +49,12 @@ async function cleanup() {
       if (touchesTest) await doc.ref.delete();
     }
   }
+  // Rate-limit counters are per-user and would otherwise carry across scenarios, which run
+  // far more requests as one user than any human would. Rate limiting itself is verified in
+  // tests/security.test.mjs.
+  for (const doc of (await firestore.collection('rateLimits').get()).docs) {
+    if (isTestId(doc.id)) await doc.ref.delete();
+  }
 }
 async function setPremium(userId, membership) {
   await firestore.collection('users').doc(String(userId)).set({ bezyPremium: membership }, { merge: true });

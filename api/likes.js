@@ -1,6 +1,7 @@
 import { db } from './_firebase.js';
 import { requirePost, requireTelegramUser } from './_telegram.js';
 import { isPremiumActive } from './_premium.js';
+import { rateLimit } from './_ratelimit.js';
 
 function publicLiker(id, data) {
   const profile = data.profile || {};
@@ -27,6 +28,7 @@ export default async function handler(req, res) {
 
   try {
     const firestore = db();
+    if (!(await rateLimit(firestore, res, user.id, 'likes_view'))) return;
     const userRef = firestore.collection('users').doc(String(user.id));
     const userSnap = await userRef.get();
     const userData = userSnap.exists ? userSnap.data() : {};

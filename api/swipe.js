@@ -1,6 +1,7 @@
 import { db } from './_firebase.js';
 import { telegramApi, miniAppUrl, requirePost, requireTelegramUser, telegramUserLink, normalizedLanguage } from './_telegram.js';
 import { isPremiumActive, checkSwipeQuota } from './_premium.js';
+import { rateLimit } from './_ratelimit.js';
 
 const ACTIONS = new Set(['like', 'super', 'pass']);
 
@@ -50,6 +51,8 @@ export default async function handler(req, res) {
 
   const likeReceivedRef = targetRef.collection('likesReceived').doc(String(user.id));
 
+  if (!(await rateLimit(firestore, res, user.id, 'swipe'))) return;
+
   try {
     const result = await firestore.runTransaction(async (tx) => {
       // All reads must precede all writes inside a Firestore transaction.
@@ -73,6 +76,9 @@ export default async function handler(req, res) {
       const targetData = targetSnap.exists ? targetSnap.data() : null;
       const reachable = Boolean(targetData)
         && targetData.profileComplete === true
+        // A hidden profile is unreachable too. Without this, a caller could distinguish
+        // "no Bezy account" from "has an account but is not discoverable".
+        && targetData.discoverable === true
         && !blockedEitherWay.exists
         && !blockedByTarget.exists;
       if (!reachable) throw new Error('TARGET_NOT_FOUND');

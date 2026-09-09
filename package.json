@@ -9,15 +9,13 @@
   "scripts": {
     "dev": "vercel dev",
     "harness": "node tests/harness.mjs",
-    "test": "node tests/backend.test.mjs",
+    "test": "node tests/backend.test.mjs && node tests/security.test.mjs",
     "test:e2e": "playwright test",
-    "test:all": "npm test && npm run test:e2e"
+    "test:all": "npm test && npm run test:e2e",
+    "test:security": "node tests/security.test.mjs"
   },
   "dependencies": {
     "firebase-admin": "^13.5.0"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.56.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0"

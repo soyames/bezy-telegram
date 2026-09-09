@@ -1,5 +1,6 @@
 import { db } from '../_firebase.js';
 import { requirePost, requireTelegramUser } from '../_telegram.js';
+import { rateLimit } from '../_ratelimit.js';
 
 const ALLOWED_GENDERS = new Set(['woman', 'man', 'non_binary', 'prefer_not_to_say']);
 const ALLOWED_SEEKING = new Set(['women', 'men', 'everyone']);
@@ -48,6 +49,9 @@ export default async function handler(req, res) {
   if (!user) return;
 
   try {
+    // Reads are cheap; only writes are rate limited, so opening the app is never blocked.
+    const isWrite = Boolean(req.body?.profile || req.body?.preferences || req.body?.ageEligibilityConfirmed);
+    if (isWrite && !(await rateLimit(db(), res, user.id, 'profile_write'))) return;
     return await handleProfile(req, res, user);
   } catch (error) {
     console.error('Profile request failed:', error);
@@ -61,14 +65,15 @@ async function handleProfile(req, res, user) {
   const current = snap.exists ? snap.data() : {};
   const now = new Date();
 
+  // Data minimisation: Telegram also supplies last_name and is_premium, but Bezy displays
+  // neither and uses neither in any logic, so they are deliberately not collected.
+  // `is_premium` in particular is Telegram Premium, which must never grant Bezy Premium.
   const baseData = {
     telegramId: user.id,
     firstName: user.first_name || '',
-    lastName: user.last_name || '',
     username: user.username || '',
     languageCode: user.language_code || '',
     photoUrl: user.photo_url || '',
-    isPremiumTelegram: Boolean(user.is_premium),
     updatedAt: now
   };
 
