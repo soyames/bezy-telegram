@@ -41,6 +41,56 @@ Practical consequences:
   Bezy's matchmaking value — discovery volume, seeing who liked you, advanced filters, super
   likes, priority and visibility — never Telegram's own chat or call features.
 
+## Operator
+
+Bezy is operated by **DIGITAL CONCORDIA**, a business registered in Benin under Registration
+No. `RB/ABC/21 A 28773`, registered on 25 March 2021 with the Cotonou Commercial Court,
+represented by its owner and legal representative Yao Amevi Amessinou Sossou. Registered
+address: Abomey-Calavi, Benin. Contact: `contacts@digitalconcordia.com`.
+
+Digital Concordia is the operating and trade name used for Bezy. The registration extract
+itself carries the spelling "DIGITAL CONDORDIA" — a clerical error made when the business was
+created. Public-facing Bezy material uses the intended spelling, DIGITAL CONCORDIA, while the
+registration number remains the authoritative identifier. Nothing in this repository asserts
+that the registry has corrected the spelling, because it has not.
+
+## Age policy: 18+ by self-declaration
+
+Bezy is for adults aged 18 and over. Eligibility is established by an **explicit
+self-declaration**, not by verification:
+
+- Bezy does **not** perform identity verification, government-ID checks, facial age
+  estimation, or use any third-party age-verification provider.
+- Telegram does not supply a verified age, and Bezy must never imply that it does.
+- No copy anywhere may claim users are "verified adults". The permitted phrasing is
+  "Bezy is for adults aged 18 and over."
+
+The declaration is stored on the user document and is deliberately **not** named
+`verifiedAge`, which would imply verification that does not happen:
+
+```text
+users/{telegramId}
+    ageEligibilityConfirmed    true (only ever written from an explicit boolean true)
+    ageEligibilityConfirmedAt  Timestamp of the first declaration; never re-dated
+    ageEligibilityMethod       "self_declaration"
+```
+
+Enforcement is server-side and layered, so a client that skips the gate gains nothing:
+
+| Endpoint | Behaviour without a declaration |
+| --- | --- |
+| `POST /api/profile/me` | Profile can never become `profileComplete` or `discoverable` |
+| `POST /api/discover` | Empty deck, `needsAgeConfirmation: true` |
+| `POST /api/swipe` | `403 AGE_CONFIRMATION_REQUIRED`, checked before the target is even looked up |
+
+The Mini App shows the gate before any other view, hides the bottom navigation while it is
+open, offers no pre-selected option, and requires an affirmative tap. Declaring "under 18"
+blocks profile creation, discovery and matching. Accounts created before the gate existed are
+asked to declare rather than being silently grandfathered in.
+
+Separately, the profile's numeric `age` field is still validated at 18–100; the declaration
+does not replace it.
+
 ## Explicit non-goals
 
 - No separate Bezy mobile application.
@@ -213,9 +263,58 @@ provider charge id is stored so a future refund can call `refundStarPayment`.
 
 ### Renewal
 
-An active membership is extended from its existing `expiresAt`; an expired one restarts from
+An entitled membership is extended from its existing `expiresAt`; anything else restarts from
 now. Buying a month on 20 September while active until 15 October yields 15 November — purchased
-time is never destroyed.
+time is never destroyed. Renewal keys off *effective entitlement*, not the raw `expiresAt`, so a
+refunded membership that still carries a future date cannot be stacked on by a new purchase.
+
+### Refunds
+
+**A refund is not an expiration.** Expiry is time running out; a refund undoes the purchase.
+A refunded membership becomes Free *immediately*, even when `expiresAt` is months away.
+
+```text
+successful_payment → payment recorded → Premium activated
+                                              ↓
+                                       refund requested
+                                              ↓
+                                  Telegram Stars refund succeeds
+                                              ↓
+                        refunded_payment webhook  /  admin script
+                                              ↓
+                               payment marked refunded  (bezyPayments)
+                                              ↓
+                          entitlement revoked  (users/{id}.bezyPremium)
+                                              ↓
+                                 Telegram confirmation to the user
+```
+
+Telegram pushes `refunded_payment` inside a normal `message` update whenever a Stars payment is
+refunded — by Bezy, by the operator's script, or by Telegram support. That update is the
+authoritative revocation trigger, so entitlement is withdrawn regardless of who initiated the
+refund. It requires no new `allowed_updates` entry beyond `message`.
+
+`applyRefund()` in `api/_premium.js` is the single revocation path, shared by the webhook and
+the admin script. It runs one transaction on `bezyPayments/{telegram_payment_charge_id}`:
+
+| Field | On refund |
+| --- | --- |
+| `bezyPayments/{id}.refundStatus` | `none` → `refunded` (or `failed` if Telegram rejects) |
+| `bezyPayments/{id}.status` | `processed` → `refunded` |
+| `bezyPayments/{id}.refundedAt`, `.refundSource` | written |
+| `users/{id}.bezyPremium.active` | `true` → `false` |
+| `users/{id}.bezyPremium.revokedAt`, `.revocationReason`, `.refundedChargeId` | written |
+| `planId`, `purchasedAt`, `expiresAt`, `telegramPaymentChargeId`, `stars`, `invoicePayload` | **preserved for audit** |
+
+`premiumState()` treats any membership with `revokedAt` as inactive independently of the clock,
+so every Premium-gated endpoint sees the user as Free on its next call.
+
+Ordering is deliberate: Telegram is asked first and Firestore is only written after Telegram
+confirms. A rejected refund records `refundStatus: failed` with the reason and leaves the
+membership untouched. Re-processing the same charge returns `already_refunded` without a second
+write, a second revocation, or a duplicate notification.
+
+Refunds are administrative and have **no HTTP endpoint** — see "Refund authorization" below.
 
 ### Entitlements, enforced server-side
 
@@ -235,6 +334,19 @@ guarantees a match.
 
 `api/_premium.js` is the single source of truth for plans, membership state and quotas, so
 entitlement cannot drift between endpoints.
+
+### Refund authorization
+
+There is deliberately **no refund API route**. `POST /api/premium` accepts only `status` and
+`invoice`; anything else is rejected with `INVALID_ACTION`, and `/api/premium/refund` does not
+exist. A refund therefore cannot be triggered by any Mini App client, authenticated or not, and
+no user can act on another user's payment.
+
+Refunds are initiated by the operator running `scripts/refund-payment.mjs`, which requires both
+the bot token and the Firebase service-account credentials. Holding those credentials *is* the
+authorization boundary. Should a refund UI ever be needed, it must sit behind a real admin
+identity check — never behind Telegram `initData` alone, which only proves who the caller is,
+not that they are permitted to refund.
 
 ## Future Telegram Serverless evaluation
 

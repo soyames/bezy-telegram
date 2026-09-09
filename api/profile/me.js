@@ -72,9 +72,26 @@ async function handleProfile(req, res, user) {
     updatedAt: now
   };
 
+  // Bezy is 18+ only. Eligibility is an explicit self-declaration by the user — it is NOT
+  // identity or age verification, and Telegram supplies no verified age. The declaration is
+  // only ever recorded from an affirmative `true`; nothing here can set it implicitly, and an
+  // existing declaration is never overwritten or re-dated.
+  const alreadyConfirmed = current.ageEligibilityConfirmed === true;
+  if (!alreadyConfirmed && req.body?.ageEligibilityConfirmed === true) {
+    baseData.ageEligibilityConfirmed = true;
+    baseData.ageEligibilityConfirmedAt = now;
+    baseData.ageEligibilityMethod = 'self_declaration';
+  }
+  const ageConfirmed = alreadyConfirmed || baseData.ageEligibilityConfirmed === true;
+
   let nextProfile = current.profile || {};
   if (req.body?.profile && typeof req.body.profile === 'object') {
     nextProfile = normalizeProfile(req.body.profile);
+    // Server-side enforcement: without the declaration a profile can never become complete
+    // or discoverable, so a client that skips the age gate still cannot enter Discover.
+    if (!ageConfirmed) {
+      nextProfile = { ...nextProfile, profileComplete: false, discoverable: false };
+    }
     baseData.profile = nextProfile;
     baseData.profileComplete = nextProfile.profileComplete;
     baseData.discoverable = nextProfile.discoverable;
@@ -104,6 +121,13 @@ async function handleProfile(req, res, user) {
   return res.status(200).json({
     ok: true,
     userId: String(user.id),
+    // Existing accounts that predate the age gate are reported as needing the declaration
+    // rather than being silently treated as confirmed.
+    needsAgeConfirmation: data.ageEligibilityConfirmed !== true,
+    ageEligibility: {
+      confirmed: data.ageEligibilityConfirmed === true,
+      method: data.ageEligibilityMethod || null
+    },
     profile: data,
     needsProfile: !data.profileComplete
   });

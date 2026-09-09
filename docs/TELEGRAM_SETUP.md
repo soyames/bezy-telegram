@@ -1,5 +1,27 @@
 # Bezy Telegram setup
 
+## 0. Bot identity
+
+Configure in @BotFather:
+
+- **Name:** `Bezy`
+- **About:** `Meet someone worth knowing`
+- **Description:**
+
+```text
+💜 Bezy helps you discover people worth knowing. Create your profile, discover compatible
+people, like, match and start conversations — all directly in Telegram. 18+ only.
+```
+
+- **Username:** the intended username is `@BezyBot` (moving from `@BezyDatingBot`).
+  Confirm availability in @BotFather before announcing it; a username change does not
+  affect the bot token, the Telegram user IDs, or any stored data. After changing it,
+  update any `t.me` links you have published — the Mini App itself derives links from
+  `BEZY_MINI_APP_URL` and stored usernames, so no code change is required.
+
+Bot copy must say "18+ only" and must never claim age or identity verification. See the
+age policy in `docs/ARCHITECTURE.md`.
+
 ## 1. Main Mini App
 
 Configure in @BotFather:
@@ -109,17 +131,43 @@ what a real user experiences.
 17. In Vercel, replay the `successful_payment` request (Logs → the request → Replay). The log
     must read `successful_payment.duplicate_ignored` with `"idempotent":true`, `bezyPayments`
     must still hold one document, and `expiresAt` must be unchanged.
-18. Refund the test purchase so the Stars return to the buyer:
+18. **Refund the test purchase.** Use the refund script rather than calling Telegram directly,
+    so the payment record and the membership are updated as well:
 
 ```powershell
-$env:TELEGRAM_BOT_TOKEN = "..."   # your shell only
-$body = @{ user_id = <buyer telegram id>; telegram_payment_charge_id = "<charge id>" } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/refundStarPayment" -ContentType "application/json" -Body $body
+$env:TELEGRAM_BOT_TOKEN   = "..."                                  # this shell only
+$env:BEZY_SERVICE_ACCOUNT = "C:\path\to\service-account.json"
+node scripts/refund-payment.mjs <telegram_payment_charge_id> --dry-run   # inspect first
+node scripts/refund-payment.mjs <telegram_payment_charge_id>
 ```
 
-A refund does **not** revoke the membership. Delete `users/{id}.bezyPremium` and
-`bezyPayments/{charge_id}` manually after a test purchase. (Automatic revocation on refund is
-not implemented — see the limitations in the architecture doc.)
+The script refuses unknown or already-refunded charges, asks Telegram first, and only writes
+Firestore after Telegram confirms.
+
+19. **Verify the revocation.**
+    → Vercel log: `[bezy-payment] refund.revoked {"chargeId":…,"revoked":true,
+    "previousState":"active","newState":"inactive"}`
+    → `bezyPayments/{charge_id}`: `refundStatus: "refunded"`, `status: "refunded"`, `refundedAt`
+      set; plan, amount, payload and `processedAt` all still present.
+    → `users/{id}.bezyPremium`: `active: false`, `revokedAt`, `revocationReason: "refund"`,
+      `refundedChargeId` — with `planId`, `purchasedAt` and the original `expiresAt` preserved.
+    → The Mini App shows the purchase CTA again; *Who liked you* is locked; the free daily
+      discovery limit applies again.
+    → The bot sends *"Your Bezy Premium subscription has been refunded…"* in the user's language.
+
+20. **Verify refund idempotency.** Telegram delivers a `refunded_payment` update after the
+    script already applied the refund, so revocation runs twice by design. The second pass must
+    log `refund.duplicate_ignored` with `"idempotent":true`, leave `revokedAt` unchanged, and
+    send no second message. Re-running the script prints *Already refunded — nothing to do.*
+
+**Refund is not expiration.** A refunded membership is Free immediately, even if `expiresAt` is
+months away. A later repurchase starts from *now*, so refunded time is never handed back.
+
+#### Refunds initiated outside Bezy
+
+If Telegram support refunds a payment, or the operator calls `refundStarPayment` directly,
+Telegram still delivers `refunded_payment` to the webhook and Premium is revoked automatically.
+No manual Firestore edit is needed in any refund path.
 
 #### If the payment fails
 
@@ -133,6 +181,8 @@ not implemented — see the limitations in the architecture doc.)
 | Stars charged but no membership | No `successful_payment.*` line | Webhook returned non-200, or `TELEGRAM_WEBHOOK_SECRET` mismatches between Vercel and `setWebhook` (returns 401) |
 | Mini App stuck on *Your payment is being processed* | Firestore membership | Activation failed after payment — inspect the `successful_payment.rejected` `reason` |
 | All webhook calls 401 | Vercel logs | `TELEGRAM_WEBHOOK_SECRET` set in Vercel but not passed to `setWebhook` |
+| Refunded but Premium still active | `refund.unknown_payment` in logs | The charge has no `bezyPayments` document — refunded against a different Firebase project |
+| Refund script exits code 3 | `refundFailureReason` on the payment | Telegram rejected the refund; membership is intentionally left active |
 
 Payment logs are prefixed `[bezy-payment]` and contain no token, key, initData or profile data.
 

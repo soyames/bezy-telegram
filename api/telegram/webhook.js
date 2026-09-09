@@ -1,6 +1,6 @@
 import { configureLocalizedCommands, miniAppUrl, normalizedLanguage, telegramApi } from '../_telegram.js';
 import { db } from '../_firebase.js';
-import { parseInvoicePayload, premiumPlan, nextExpiry } from '../_premium.js';
+import { parseInvoicePayload, premiumPlan, nextExpiry, applyRefund } from '../_premium.js';
 
 const COMMAND_VIEWS = {
   start: null, demarrer: null, help: null, aide: null,
@@ -195,6 +195,59 @@ async function handleSuccessfulPayment(message) {
   return result;
 }
 
+// Telegram pushes `refunded_payment` inside a normal message update whenever a Stars
+// payment is refunded — whether Bezy initiated it, the owner ran the refund script, or
+// Telegram support processed it. This is therefore the authoritative revocation trigger:
+// entitlement is withdrawn no matter where the refund came from.
+async function handleRefundedPayment(message) {
+  const refund = message.refunded_payment;
+  const chargeId = refund?.telegram_payment_charge_id;
+  const context = {
+    telegramUserId: String(message.from?.id || ''),
+    chargeId: chargeId || null,
+    currency: refund?.currency,
+    refundedAmount: Number(refund?.total_amount)
+  };
+
+  if (!chargeId) {
+    logPayment('refund.rejected', { ...context, reason: 'missing_charge_id' });
+    return null;
+  }
+
+  const result = await applyRefund(db(), chargeId, { source: 'telegram_webhook' });
+
+  if (result.outcome === 'unknown_payment') {
+    logPayment('refund.unknown_payment', context);
+    return result;
+  }
+  if (result.outcome === 'already_refunded') {
+    logPayment('refund.duplicate_ignored', { ...context, idempotent: true, planId: result.planId });
+    return result;
+  }
+
+  logPayment('refund.revoked', {
+    ...context,
+    planId: result.planId,
+    revoked: result.revoked,
+    previousState: result.previousState,
+    newState: result.newState,
+    idempotent: false
+  });
+  return result;
+}
+
+async function confirmRefund(chatId, language) {
+  const text = language === 'fr'
+    ? '↩️ Votre abonnement Bezy Premium a été remboursé. L’accès Premium a été retiré de votre compte.\n\nVotre profil, vos matchs et vos conversations Telegram ne sont pas affectés.'
+    : '↩️ Your Bezy Premium subscription has been refunded, and Premium access has been removed from your account.\n\nYour profile, your matches and your Telegram conversations are unaffected.';
+  const label = language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy';
+  await telegramApi('sendMessage', {
+    chat_id: chatId,
+    text,
+    reply_markup: { inline_keyboard: [[{ text: label, web_app: { url: miniAppUrl('premium') } }]] }
+  });
+}
+
 async function confirmPremium(chatId, language, expiresAt) {
   const date = expiresAt ? new Date(expiresAt.toMillis?.() ?? expiresAt) : null;
   const until = date
@@ -230,6 +283,18 @@ export default async function handler(req, res) {
   const message = update.message;
   if (!message?.chat?.id) return res.status(200).json({ ok: true });
   const language = normalizedLanguage(message.from?.language_code);
+
+  if (message.refunded_payment) {
+    try {
+      const result = await handleRefundedPayment(message);
+      // Only a refund that actually withdrew access is announced, so a redelivered
+      // update cannot produce a second "your Premium was removed" message.
+      if (result?.outcome === 'refunded' && result.revoked) await confirmRefund(message.chat.id, language);
+    } catch (error) {
+      console.error('Refund handling failed:', error);
+    }
+    return res.status(200).json({ ok: true });
+  }
 
   if (message.successful_payment) {
     try {

@@ -98,6 +98,10 @@ async function handleDiscover(req, res, user) {
   if (!currentSnap.exists) return res.status(404).json({ error: 'PROFILE_NOT_FOUND' });
 
   const currentData = currentSnap.data() || {};
+  // Bezy is 18+ only: no deck is served until the user has declared eligibility.
+  if (currentData.ageEligibilityConfirmed !== true) {
+    return res.status(200).json({ ok: true, profiles: [], needsProfile: true, needsAgeConfirmation: true });
+  }
   if (!currentData.profileComplete) {
     return res.status(200).json({ ok: true, profiles: [], needsProfile: true });
   }
