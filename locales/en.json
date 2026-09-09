@@ -164,7 +164,9 @@
     "delete_done_body": "You can close this window. If you ever want to come back, just open Bezy again and create a new profile.",
     "rights_note": "You can ask us to access, correct, restrict, object to or delete your data at contacts@digitalconcordia.com.",
     "rate_limited": "You're going a little fast. Please try again in a moment.",
-    "rate_limited_minutes": "You've done that too many times. Please try again in about {n} minutes."
+    "rate_limited_minutes": "You've done that too many times. Please try again in about {n} minutes.",
+    "stars_needed": "You need Telegram Stars in your balance to subscribe. You can top up in Telegram under Settings, then My Stars.",
+    "not_telegram_premium": "Telegram Premium is a separate Telegram subscription. It does not include Bezy Premium — Bezy Premium is paid separately with Stars."
   },
   "profile": {
     "edit": "Edit profile",
