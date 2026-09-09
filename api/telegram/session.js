@@ -18,10 +18,10 @@ function validateInitData(initData) {
     .update(dataCheckString)
     .digest('hex');
 
-  if (!crypto.timingSafeEqual(Buffer.from(calculated), Buffer.from(hash))) return null;
+  if (calculated.length !== hash.length || !crypto.timingSafeEqual(Buffer.from(calculated), Buffer.from(hash))) return null;
 
   const authDate = Number(params.get('auth_date'));
-  if (!Number.isFinite(authDate) || Math.abs(Date.now() / 1000 - authDate) > 86400) return null;
+  if (!Number.isFinite(authDate) || Date.now() / 1000 - authDate > 86400 || Date.now() / 1000 - authDate < -60) return null;
 
   const userRaw = params.get('user');
   if (!userRaw) return null;
