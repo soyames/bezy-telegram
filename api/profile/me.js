@@ -23,27 +23,23 @@ export default async function handler(req, res) {
 
   const ref = db().collection('users').doc(String(user.id));
   const snap = await ref.get();
+  const profileData = {
+    telegramId: user.id,
+    firstName: user.first_name || '',
+    lastName: user.last_name || '',
+    username: user.username || '',
+    languageCode: user.language_code || '',
+    photoUrl: user.photo_url || '',
+    isPremiumTelegram: Boolean(user.is_premium),
+    updatedAt: new Date()
+  };
+
   if (!snap.exists) {
-    await ref.set({
-      telegramId: user.id,
-      firstName: user.first_name || '',
-      lastName: user.last_name || '',
-      username: user.username || '',
-      languageCode: user.language_code || '',
-      isPremiumTelegram: Boolean(user.is_premium),
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
+    await ref.set({ ...profileData, createdAt: new Date() });
   } else {
-    await ref.update({
-      firstName: user.first_name || '',
-      lastName: user.last_name || '',
-      username: user.username || '',
-      languageCode: user.language_code || '',
-      isPremiumTelegram: Boolean(user.is_premium),
-      updatedAt: new Date()
-    });
+    await ref.update(profileData);
   }
 
-  return res.status(200).json({ ok: true, userId: String(user.id), profile: snap.exists ? snap.data() : null });
+  const latest = await ref.get();
+  return res.status(200).json({ ok: true, userId: String(user.id), profile: latest.data() });
 }
