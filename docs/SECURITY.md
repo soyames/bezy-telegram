@@ -86,6 +86,9 @@ the free tier). Quotas make Premium meaningful; rate limits stop automation.
 | `premium_status` | 120 / hour |
 | `account_export` | 3 / hour |
 | `account_delete` | 5 / hour |
+| `account_restrict` | 20 / hour (a data-subject right — exercised freely, obstructed never) |
+| `account_objection` | 20 / hour (same reasoning) |
+| `support_create` | 3 / hour, 10 / day (shared across the bot and the Mini App) |
 
 Properties, all tested:
 
@@ -175,8 +178,9 @@ the profile endpoint.
 
 ## 11. Logging
 
-Logged: error objects, and `[bezy-payment]` / `[bezy-privacy]` / `[bezy-ratelimit]` lines
-containing Telegram ids, plan ids, amounts, currency and outcome.
+Logged: error objects, and structured `[bezy-payment]` / `[bezy-privacy]` / `[bezy-ratelimit]`
+/ `[bezy-notify]` / `[bezy-support]` lines containing Telegram ids, bucket names, references,
+categories, plan ids, amounts, currency and outcome.
 
 Never logged: bot token, Firebase private key, service-account credentials, raw `initData`,
 profile content, or message content.
@@ -220,7 +224,7 @@ Contact for any report: `contacts@digitalconcordia.com`.
 | --- | --- |
 | 24-hour `initData` replay window | Accepted; mitigated by rate limits and quotas (§2) |
 | Deck `id` is a real Telegram numeric id | Accepted; opaque ids not implemented (§6) |
-| No automated retention or dormant-account expiry | **Not implemented** |
+| Retention is operator-invoked, never scheduled | **Deliberate** — `scripts/retention.mjs`, dry-run by default, with operational defaults (§DATA_PROCESSING_MAP §4) |
 | No penetration test | Not performed |
 | Rate limiter fails open | Deliberate (§4) |
 | Under-18 declaration is session-only client-side | Backend enforcement is the real control |

@@ -48,9 +48,12 @@ and the code treats it as optional throughout.
 | Field | Where | Why |
 | --- | --- | --- |
 | `displayName`, `age`, `city`, `bio`, `interests[]` | `users/{id}.profile` | The profile other users see; drives compatibility scoring |
-| `gender`, `seeking` | `users/{id}.profile` | Reciprocal matching. **See §3 — potential Art. 9 data** |
+| `prompts` (`id`, `answer` ≤200 each, ≤3) | `users/{id}.profile` | Optional conversation hooks shown on cards |
+| `languages` (≤5 ISO 639-1 codes) | `users/{id}.profile` | Free discovery filter and a compatibility term |
+| `gender`, `seeking` | `users/{id}.profile` | Reciprocal eligibility only — never scored, never displayed. **See §3 — potential Art. 9 data** |
 | `discoverable`, `profileComplete` | `users/{id}` and `.profile` | Whether the profile enters other people's decks |
-| `preferences` (`minAge`, `maxAge`, `city`, `sameCityOnly`) | `users/{id}.preferences` | Discovery filters |
+| `preferences` (`minAge`, `maxAge`, `city`, `sameCityOnly`, `languages[]`) | `users/{id}.preferences` | Discovery filters (city/same-city Premium-gated) |
+| `notifications` (`matches`, `super_likes`, `profile_reminders` booleans) | `users/{id}.notifications` | The user's own notification choices; transactional messages are structurally absent |
 
 ### 1.3 Age eligibility
 
@@ -68,19 +71,21 @@ Bezy performs **no** age or identity verification and must never describe this a
 | --- | --- | --- |
 | `action` (`like` / `super` / `pass`), `createdAt` | `users/{id}/actions/{targetId}` | Prevents re-showing a decided profile; detects mutual likes |
 | `fromId`, `action`, `createdAt` | `users/{id}/likesReceived/{fromId}` | Reverse index powering the Premium "who liked you" feature |
-| `participants[]`, `active`, `createdAt`, `endedAt`, `endedBy`, `endedReason` | `matches/{sortedPair}` | The match itself and whether it is still live |
+| `participants[]`, `source` (`'mutual_like'`), `active`, `createdAt`, `endedAt`, `endedBy`, `endedReason` | `matches/{sortedPair}` | The match itself and whether it is still live |
 | `targetId`, `createdAt` | `users/{id}/blocks/{targetId}` | Safety: exclusion from discovery and contact |
 | `actorId`, `createdAt` | `users/{id}/blockedBy/{actorId}` | Mirror so discovery can filter both directions in one read |
 | `usage` (`day`, `discoveryActions`, `superLikes`) | `users/{id}` | Daily free-tier quotas; resets on a new UTC day |
 
-**Conversations are not processed by Bezy at all.** Matched users are handed to Telegram and
-message content never reaches Bezy's servers or database.
+**Ordinary Telegram conversations are not processed by Bezy at all.** Matched users are
+handed to Telegram and chat content never reaches Bezy's servers or database. The single
+deliberate exception is support intake: a user's own next bot message during intake is
+stored as `supportRequests.details` (≤1000 chars) and erased with the account — see §1.6.
 
 ### 1.5 Safety / moderation
 
 | Field | Where | Why |
 | --- | --- | --- |
-| `reporterId`, `targetId`, `reason`, `details`, `status`, `createdAt` | `reports/{autoId}` | Reviewing reported Bezy profiles and conduct |
+| `reporterId`, `targetId`, `reason`, `details`, `status` (`open|resolved|dismissed`), `createdAt`, `statusUpdatedAt`, `statusNote` (≤500, moderator-written) | `reports/{autoId}` | Reviewing reported Bezy profiles and conduct |
 
 `details` is user-authored free text capped at 1000 characters and may contain whatever the
 reporter types. No profile snapshot is copied into a report, so an erasure request does not
@@ -112,7 +117,7 @@ an intake in progress and disappears with the document.
 Bezy never receives card numbers, bank details or billing addresses. Telegram Stars are
 settled entirely inside Telegram.
 
-### 1.7 Technical data
+### 1.8 Technical data
 
 | Item | Reality in this codebase |
 | --- | --- |
@@ -124,7 +129,7 @@ settled entirely inside Telegram.
 | Dependencies | `firebase-admin` (runtime) and `@playwright/test` (development) only |
 | IP addresses / user-agent | Not collected or stored by Bezy. Vercel processes request metadata as part of hosting |
 | Rate-limit counters | `rateLimits/{id}` — per-user request counts per bucket with a window start. Records activity timing, so it is personal data and is **erased with the account** |
-| Application logs | Errors and `[bezy-payment]` / `[bezy-privacy]` lines containing Telegram ids, plan ids and amounts. **No tokens, keys, `initData`, or profile content** |
+| Application logs | Structured `[bezy-payment]`, `[bezy-privacy]`, `[bezy-ratelimit]`, `[bezy-notify]` and `[bezy-support]` lines carrying Telegram ids, bucket names, references, categories, plan ids and amounts, plus error messages. **No tokens, keys, `initData`, profile content, card data or message text** |
 
 ---
 
@@ -190,18 +195,22 @@ Where the law fixes a period, this document does not guess it.
 
 | Data | Current behaviour | Target |
 | --- | --- | --- |
-| Account, profile, preferences | Kept until the user deletes the account | Add inactivity-based deletion — **not implemented** |
+| Account, profile, preferences | Kept until the user deletes the account | **Implemented** — `abandonedSignups` purge, operational default **90 days** for accounts that never confirmed 18+ and never completed a profile |
 | Actions (like/pass/super) | Deleted with the account | Adequate |
 | `likesReceived` mirrors | Deleted with the account, including fan-out to other users | Adequate |
-| Matches | Deactivated on deletion, retaining two Telegram ids | Consider purging fully deactivated matches after a period — **not implemented** |
+| Matches | Deactivated on deletion, retaining two Telegram ids | **Implemented** — ended matches purge after **180 days** (operational default) |
 | Blocks / blockedBy | Deleted with the account, mirrors cleaned | Adequate |
-| Reports | **Retained** after the reported user deletes their account | Needed so a user cannot erase their own conduct record. Retention period **LEGAL REVIEW REQUIRED** |
-| Payments and invoices | **Retained** after deletion | Accounting/tax obligation. Period **LEGAL REVIEW REQUIRED** (commonly multi-year, but this depends on the applicable jurisdiction and has not been verified) |
+| Reports | **Retained** after the reported user deletes their account | Needed so a user cannot erase their own conduct record. Period **LEGAL REVIEW REQUIRED** — deliberately unset in the retention mechanism |
+| Payments and invoices | **Retained** after deletion | Accounting/tax obligation. Period **LEGAL REVIEW REQUIRED** — payments deliberately unset; spent invoices purge after **30 days** (operational default) |
+| Support requests | Deleted with the account | **Defined** — purge after **365 days** (proposed operational default, subject to legal confirmation) |
 | Daily usage counters | Overwritten each UTC day; deleted with the account | Adequate |
+| Rate-limit counters | Deleted with the account | Stale windows purge after **7 days** (operational default) |
 | Vercel platform logs | Controlled by Vercel's own retention | **LEGAL REVIEW REQUIRED** — confirm the platform's retention |
 
-**Not implemented:** automated retention enforcement. Deletion is user-initiated. There is no
-scheduled job that removes dormant accounts or ages out old records.
+**Implemented:** the retention mechanism (`api/_retention.js` + `scripts/retention.mjs`).
+It is **operator-invoked** — dry-run by default, `--apply` executes — and deliberately has no
+scheduler. The periods above are operational defaults; the legally gated categories
+(payments, reports) stay unset until P0-8 is resolved.
 
 ---
 
@@ -213,8 +222,8 @@ scheduled job that removes dormant accounts or ages out old records.
 | Portability (Art. 20) | **Implemented** — the same structured, machine-readable JSON |
 | Erasure (Art. 17) | **Implemented** — `POST /api/account {action:'delete'}` with typed confirmation |
 | Rectification (Art. 16) | **Self-service for everything Bezy controls** — the profile is editable in-app (name, age, city, bio, interests, prompts, languages, gender, seeking, discoverability). Telegram-owned identity (`first_name`, `username`, photo) is corrected in Telegram itself; matches and blocks have their own actions (unmatch, unblock); usage and rate-limit counters are transient. The remainder — the 18+ declaration and payment records — via email |
-| Restriction (Art. 18) | **Automated, self-service** — Profile → Safety & privacy → *Pause processing*. Sets `processingRestricted` with a timestamp: the profile leaves every deck, the account can neither act nor be acted on, and engagement notifications stop. Nothing is deleted; access and erasure remain available throughout. Reversible by the user, and lifting does not republish the profile |
-| Objection (Art. 21) | **Automated, self-service** — Profile → Safety & privacy → *Object to processing* (Art. 21(5) allows objections by automated means). Sets `processingObjection` with a timestamp: the same operational pause as restriction — the profile leaves every deck, the account can neither act nor be acted on, and engagement notifications stop. Nothing is deleted; access and erasure remain available. The legal state stays distinct from restriction in storage and in the export, because the rights are distinct. Withdrawable by the user, and withdrawal does not republish the profile |
+| Restriction (Art. 18) | **Automated, self-service** — Profile → Privacy & your data → *Data & privacy controls* → *Pause processing*. Sets `processingRestricted` with a timestamp: the profile leaves every deck, the account can neither act nor be acted on, and engagement notifications stop. Nothing is deleted; access and erasure remain available throughout. Reversible by the user, and lifting does not republish the profile |
+| Objection (Art. 21) | **Automated, self-service** — the same *Data & privacy controls* sheet → *Object to processing* (Art. 21(5) allows objections by automated means). Sets `processingObjection` with a timestamp: the same operational pause as restriction — the profile leaves every deck, the account can neither act nor be acted on, and engagement notifications stop. Nothing is deleted; access and erasure remain available. The legal state stays distinct from restriction in storage and in the export, because the rights are distinct. Withdrawable by the user, and withdrawal does not republish the profile |
 | Withdraw consent (Art. 7(3)) | Not applicable unless consent becomes a basis (see §3) |
 | Complaint to a supervisory authority | The Privacy Policy should name the route. **LEGAL REVIEW REQUIRED** — which authority is competent depends on the establishment analysis |
 
@@ -228,12 +237,12 @@ personal data.
 
 | Field | Finding |
 | --- | --- |
-| `lastName` | Stored from Telegram but **never displayed or used** in any code path. Candidate for removal |
-| `isPremiumTelegram` | Stored, never used for entitlement. Retained only as a signal; removable |
+| `lastName` | **Not collected.** Current writes never store it; the export reads it only so records created before the removal remain exportable |
+| `isPremiumTelegram` | **Not collected.** Same as above — legacy read only, never used for entitlement |
 | `photoUrl` | A Telegram-hosted URL rather than a copied image — good minimisation, no photo storage |
 | `details` on reports | Free text, capped at 1000 chars, no snapshot copied — proportionate |
 | `invoicePayload` | Contains plan, user id and nonce. Needed for verification and audit |
-| Conversations | Not processed at all — the single largest minimisation win in the architecture |
+| Conversations | Ordinary chats are not processed at all; the one deliberate exception is support-intake text (§1.4, §1.6) |
 
 **Both were subsequently removed.** Each was traced end to end — one write, one read (the
 export), no display, no logic, no compatibility dependency — and `api/profile/me.js` no longer
@@ -289,18 +298,24 @@ any specific operation, or a processor is **LEGAL REVIEW REQUIRED**.
 ## 8. Profiling and automated decision-making
 
 Bezy performs **profiling** in the Art. 4(4) sense: `api/discover.js` computes a deterministic
-compatibility score from shared interests, same city and age proximity, adds a fixed +6
-visibility boost for Premium members, and orders the deck by that score.
+compatibility score — base 45, plus shared interests (+9 each, capped +25), a shared spoken
+language (+15), same city (+18), age proximity (up to +12), and a completed bio (+4) — adds a
+fixed +6 visibility boost for Premium members, and orders the deck by that score. Premium
+viewers additionally receive a `breakdown` of the same terms. Every input is something both
+people wrote into their own profiles; nothing behavioural feeds the score, and
+`gender`/`seeking` are deliberately excluded from it.
 
 It does **not** appear to constitute a decision under Art. 22, because:
 
 - no legal or similarly significant effect follows from the ranking;
-- it orders candidates, it does not exclude anyone the user could otherwise reach;
+- it orders candidates, but eligibility (who can appear at all) is determined separately by
+  explicit settings: reciprocal `gender`/`seeking`, age range, visibility, blocks, prior
+  decisions and paused legal states — the score itself excludes nobody;
 - the user makes every like/pass decision themselves.
 
 Whether Art. 22 is engaged is **LEGAL REVIEW REQUIRED**, but the transparency obligation is
 satisfiable regardless, and the logic is fully documented in `docs/ARCHITECTURE.md` and
-summarised for users in the Privacy Policy. There is no opaque model and no machine learning.
+summarised for users in the Privacy Policy §15. There is no opaque model and no machine learning.
 
 ---
 
@@ -328,5 +343,7 @@ Known residual risks:
   Shortening it would break long-lived Mini App sessions, since Telegram does not refresh it.
 - ~~No rate limiting~~ — **implemented** in `api/_ratelimit.js`: per-user, per-bucket fixed
   windows covering swipe, discovery, profile writes, reports, blocks, likes, invoice creation,
-  export and deletion. See `docs/SECURITY.md` §4.
-- **No automated retention enforcement** (see §4).
+  premium status, export, deletion, restriction/objection actions and support-request
+  creation. See `docs/SECURITY.md` §4.
+- ~~No automated retention enforcement~~ — **implemented** as an operator-run mechanism
+  (`api/_retention.js`, `scripts/retention.mjs`), dry-run by default; no scheduler (see §4).

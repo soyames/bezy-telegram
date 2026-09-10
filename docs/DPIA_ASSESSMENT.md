@@ -59,8 +59,8 @@ Identified from the architecture rather than from a template.
 | Someone is outed as a Bezy user, or their orientation inferred | **High** | Membership cannot be probed: non-existent, hidden and blocked targets return identical responses. No public profiles, no web-indexable pages | Residual: any match learns the counterpart's Telegram identity — inherent to the product |
 | Harassment or unwanted contact after a match | **High** | Bezy block, unmatch and report; Telegram's own block/report handles the conversation layer | No automated content moderation. Response times are not guaranteed |
 | A minor accesses an adult service | **High** | Server-enforced 18+ gate: no profile, no deck, no swiping without a declaration; explicit affirmative action; disclosed as self-declaration | Self-declaration can be defeated by simply lying. Verification deliberately not implemented (see §5) |
-| Profile data exposed by a breach | **High** | Deny-all Firestore rules; no direct client access; Admin SDK only; credentials in env vars; no secrets logged | No penetration test. No rate limiting. 24-hour `initData` replay window |
-| Data retained longer than necessary | **Medium** | User-initiated deletion removes profile and activity, with fan-out cleanup | No automated retention enforcement; no dormant-account expiry |
+| Profile data exposed by a breach | **High** | Deny-all Firestore rules; no direct client access; Admin SDK only; credentials in env vars; no secrets logged; per-user, per-bucket rate limiting on every endpoint | No penetration test. 24-hour `initData` replay window |
+| Data retained longer than necessary | **Medium** | User-initiated deletion removes profile and activity, with fan-out cleanup; operator-run retention tool applies operational defaults (abandoned signups 90d, ended matches 180d, spent invoices 30d, stale counters 7d, support requests 365d) | Payment and report periods deliberately unset pending legal review; no scheduler (operator-invoked by design) |
 | Payment data linked to a dating profile | **Medium** | Payment records hold ids and amounts only — no profile content. No card data ever reaches Bezy | Payment records survive deletion; retention period unverified |
 | Transfer of EU personal data outside the EEA | **Medium/High** | Firestore is in `europe-west1` | Controller established in Benin; Vercel region unverified; no verified transfer mechanism |
 | Impersonation / fake profiles | **Medium** | Telegram identity is cryptographically bound; reporting exists | No identity verification. One Telegram account, one profile |
@@ -72,7 +72,9 @@ Identified from the architecture rather than from a template.
 
 Verified in code during the audit, not aspirational:
 
-- Data minimisation by architecture: **conversations are never processed by Bezy**.
+- Data minimisation by architecture: **ordinary Telegram conversations are never processed by
+  Bezy** — the single controlled exception is support-intake text, stored in the user's own
+  support request (≤1000 chars) and erased with the account.
 - No analytics, no cookies, no tracking, no advertising identifiers, no third-party SDKs
   beyond Telegram's own Mini App script.
 - Photos are referenced by Telegram URL, not copied into Bezy storage.

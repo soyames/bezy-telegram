@@ -211,7 +211,9 @@ The browser/Mini App must not connect directly to Firestore. `firestore.rules` t
 - `users/{telegramId}/actions/{targetTelegramId}` — the current user's like, super-like or pass decision for a target.
 - `matches/{sortedTelegramIdPair}` — a mutual like between two users.
 
-Planned, not yet implemented: `users/{uid}/blocks`, `users/{uid}/reports`, `subscriptions/{uid}`.
+Implemented as shown: `users/{uid}/blocks` (+ `blockedBy` mirrors) and top-level
+`reports/{autoId}`. Deliberately absent: `subscriptions/{uid}` (Premium lives on the user
+document as `bezyPremium`) and any messaging collection.
 
 Deliberately absent, and must stay absent under the Telegram-Native Communication Principle:
 any collection for messages, conversations, calls, call metadata, story media or story views.
@@ -283,6 +285,105 @@ The Mini App never receives Firestore credentials and never performs direct Fire
 - `POST /api/telegram/webhook` — process localized bot commands, `pre_checkout_query` and
   `successful_payment`, and provide Mini App entry points.
 
+## Discovery strategy (CURRENT / FUTURE / LATER)
+
+The product direction for the matching engine, stated so nobody pretends an unbuilt stage
+exists. Each stage is gated on data governance, not just engineering.
+
+- **CURRENT — explainable deterministic matching.** Hard eligibility (reciprocal
+  `gender`/`seeking`, age range, visibility, blocks, prior decisions, paused legal states)
+  is applied strictly and never silently relaxed; the compatibility score is a fixed formula
+  on self-declared fields; Premium adds a +6 ordering boost and the `breakdown` insight. The
+  zero-result deck is honest: `emptyReason: 'filters' | 'pool'` tells the user why the deck
+  is empty and offers explicit actions (adjust filters, reset with a tap, check later) —
+  decided candidates are never recycled to make the deck look populated.
+- **FUTURE — reciprocal and adaptive matching.** Extend the deterministic engine with
+  reciprocal compatibility (how well the *candidate* matches the *caller*, symmetric with
+  the current one-way score), profile-quality signals, freshness weighting and controlled
+  diversity/exploration in the deck ordering. Still fully explainable; still no behavioural
+  inference; every new term must come from data both people already published or from
+  explicitly defined product outcomes (likes, mutual matches, continued matches, unmatches —
+  never conversation content).
+
+### Stage 3 status — slice 1 implemented (freshness + page diversity), feedback/tuning designed
+
+- **Implemented:** a bounded freshness term (`freshnessTerm`, +4/+2/+1/0 for activity within
+  7/30/90 days, from `updatedAt`/`createdAt` already on the candidate's document — zero new
+  reads) and page-local bounded diversity (`applyPageDiversity`: after three candidates in
+  the same returned page share the caller's dominant declared signal — same city or one of
+  the caller's own interests — further same-signal candidates take a −3 ordering penalty;
+  no cross-session state, no demographic inference, every input is data the card itself
+  shows). Both are ordering-only: eligibility, safety, recycling rules, card shapes and the
+  caller's displayed score are untouched.
+- **Designed, not implemented:** explicit outcome feedback and weight tuning. The
+  evaluation methodology is operator-run and offline: candidate orderings are compared
+  against mutual-match rate, sustained-match rate and unmatch rate on real cohorts — the
+  success metric is match quality, never swipe volume. The Stage 2 weights
+  (0.85/0.05, +10 fit, +3/+1 exploration, +6 Premium) remain principled initial values
+  until real outcomes exist; no live experiment infrastructure and no new data collection
+  are required or introduced.
+
+### Stage 2 status — reciprocal ordering implemented (2026-09-10)
+
+The deck now orders by a reciprocal pair model, while every card keeps showing only the
+caller's own directional score — the other side is never disclosed or implied:
+
+- `pairCompatibility(a, b)` — the documented shape 0.6·min + 0.3·mean − 0.1·gap, which
+  reduces algebraically to `0.85·min + 0.05·max`: the lower directional score carries 17×
+  the weight of the higher one, so a balanced pair (70/70) outranks a lopsided one (85/40)
+  and a hard one-sided miss can never be rescued.
+- The reverse score is the same formula **plus a +10 preference-fit term** (`preferenceFit`)
+  when the caller fits the candidate's own filters (age and languages always; city /
+  same-city only when the candidate is Premium — mirroring their own deck semantics). This
+  realises pair state 2 (preference mismatch → deprioritised, never excluded, never
+  disclosed) using preferences already on the candidate's document — zero extra reads.
+- `explorationTerm` — bounded deterministic exploration (pair state 5): sparse profiles
+  (≤2 declared signals among interests/languages/bio/prompts) get a fixed +3/+1 ordering
+  offset so new or quiet users are not systematically buried. It never touches the
+  displayed score and fabricates nothing.
+- The Premium +6 visibility boost still applies to ordering exactly as documented; the
+  internal ordering key is stripped from the card payload (contract-pinned).
+- **LATER — statistical/ML-informed ranking.** Only after sufficient real data exists, and
+  only after a privacy review of what an ML model would consume. The dataset would be the
+  explicitly defined product outcomes above, not chat content, media or GPS. This stage is
+  not authorized by anything in this repository.
+
+### Stage specifications
+
+| | STAGE 1 — CURRENT | STAGE 2 — RECIPROCAL | STAGE 3 — ADAPTIVE | STAGE 4 — STATISTICAL/ML |
+| --- | --- | --- | --- | --- |
+| Inputs | caller profile, candidate profiles, preferences, decision/block sets | + the symmetric candidate→caller score | + age/freshness of candidates, deck history, explicit outcomes (like, mutual match, continued match, unmatch) | + outcome dataset after volume exists |
+| Outputs | eligible deck, deterministic score, order, Premium breakdown, honest `emptyReason` | pair quality signal + explanation | freshness/diversity-weighted order, exploration slots, pool-recovery guidance | learned ranking |
+| Stores new data? | no | no | only explicit outcome flags already stored (actions/matches) | under review — nothing beyond defined outcomes |
+| Sensitive data? | never scored on | never scored on | never | prohibited unless counsel rules otherwise |
+| Behavioural data? | no | no | explicit product outcomes only | same, gated |
+| Telegram chat content? | never | never | never | never |
+| Explainability | fully — fixed formula, documented | fully — two documented formulas | rule-based weights, documented | must remain explainable per card (a hard gate for approval) |
+| Risks | none beyond scoring bias of the fixed weights | asymmetric-interest misreading if surfaced without explanation | diversity tuning vs "show me the best" tension | opacity, bias, data drift |
+| Success metric | mutual matches | mutual matches + match quality | sustained matches + successful returns | quality of meaningful connections, not swipe volume |
+
+### Pair scoring is not an average (design rationale, retained)
+
+`(A→B + B→A) / 2` is rejected as the reciprocal model: it lets a lopsided pair (98/20)
+outrank a balanced one (70/70), and it hides *which* side is cold. The designed pair model
+distinguishes five cases explicitly:
+
+1. **Hard incompatibility** — reciprocal `gender`/`seeking`, blocks, paused states, age
+   bounds. Exclusion. Never relaxed, never re-ranked around.
+2. **Preference mismatch** — one side's soft filter misses (city/languages/age band). The
+   pair stays visible but is deprioritised; the explanation says why.
+3. **Mutual compatibility** — both directional scores are high and close. Promoted.
+4. **Asymmetric interest** — one score high, one middling. Ranked on the *lower* score with
+   the gap recorded; surfaced honestly ("strong on their side" is never fabricated).
+5. **Uncertainty / exploration** — sparse profiles (few interests, no prompts) get a small
+   bounded exploration slot so new or quiet users are not systematically buried. Slots
+   rotate deterministically; nothing is invented about the person.
+
+The working shape (design only, not implemented): `pair = f(min, mean, gap)` where `min`
+dominates (a floor term), `mean` breaks ties among pairs with the same floor, and `gap`
+penalises lopsidedness — e.g. `pair = 0.6·min + 0.3·mean − 0.1·gap`. Exact weights are
+Stage 2 work, tuned against the mutual-match success metric, never against swipe volume.
+
 ## Matching and conversation flow
 
 ```text
@@ -329,9 +430,9 @@ The initial approach is to use the Telegram profile photo URL when Telegram make
 
 ### Bezy Premium is not Telegram Premium
 
-`users/{id}.isPremiumTelegram` records whether the user pays Telegram for *Telegram* Premium.
-It is informational only and must never grant a Bezy entitlement. Bezy Premium lives in its own
-field, `users/{id}.bezyPremium`, and is granted solely by a verified Telegram Stars payment.
+Bezy deliberately does **not** collect Telegram's `is_premium` flag (Telegram Premium): it
+would grant nothing and invites conflation. Bezy Premium lives in its own field,
+`users/{id}.bezyPremium`, and is granted solely by a verified Telegram Stars payment.
 
 ### Payment provider
 

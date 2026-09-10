@@ -44,7 +44,7 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Nothing — the Profile IA refinement is in `c14f764`; see §20 session log |
+| Uncommitted | Everything since `d3cb87f`: reconciliation batch, support-retention default, privacy-transparency line, zero-result discovery, CX fixes, Stage 2 reciprocal, Stage 3 adaptive, SC-3 index fix, Stage-4 spec + tooling, counsel packet, support fallback, convergence record — see §20 session log. **Uncommitted by rule; nothing pushed or deployed** |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
 | Unpushed | Nothing — pushed at `b968321` |
 
@@ -162,6 +162,10 @@ is the point of the control system.
 
 Clearing P0-1 promotes R1–R3 and removes the largest technical unknown in the project.
 
+Counsel-ready factual packet: `docs/LEGAL_REVIEW_PACKET.md` — the open legal questions with
+the repository facts for each, maintained against the implementation. Stage 4 outcome-data
+specification (design only, nothing active): `docs/OUTCOME_DATA_SPEC.md`.
+
 ### 5.2 Legal review — not answerable by engineering
 
 | # | Question | Status |
@@ -212,7 +216,7 @@ three are blocked or partial for the reasons given below.
 | P1-3 | Expanded discovery filters | 🟡 PARTIAL | Age/city/same-city exist and are Premium-gated. `languages` 🟢 implemented: profile chips, a free (non-Premium) discovery filter, a compatibility term, EN/FR, tests in all suites. **`relationshipIntent` 🔴 BLOCKED on P0-5** — the last remaining sub-item |
 | P1-4 | Why you matched | 🟢 COMPLETE | `sharedSignals()` in `api/matches.js` returns `interests`/`city`/`age` tokens plus values the counterpart already published. Attached to matches only, so it is unreachable before mutual consent. `gender`/`seeking` deliberately excluded — see §18 |
 | P1-5 | Conversation starters | 🟢 COMPLETE | Derived in the client from the same `sharedSignals`, so explanation and suggestion cannot disagree. Suggestion + copy only; the conversation still happens in Telegram. Reachable from Matches and Messages |
-| P1-6 | Compatibility / ranking improvements | 🟡 PARTIAL | Deterministic scoring + Premium boost exist and are documented. Sensitive signals blocked on P0-5 |
+| P1-6 | Compatibility / ranking improvements | 🟡 PARTIAL | Deterministic scoring + Premium boost exist and are documented; the zero-result deck is honest (four-way `emptyReason` with explicit actions, no recycling, no silent relaxation); **Stage 2 reciprocal ordering implemented** — floor-dominated pair model (`0.85·min + 0.05·max`), invisible preference-fit term, bounded sparse-profile exploration, displayed score stays the caller's own. Stage 3 (freshness/diversity from explicit outcomes) next; sensitive signals blocked on P0-5 |
 | P1-7 | Improved Telegram notifications | 🟠 IN PROGRESS | Match and Premium-activation notifications exist and are localized; every §9 notification item (N-1…N-4) is now implemented, so the substance is complete — verification pending the fresh-quota suite run |
 
 ---
@@ -310,7 +314,7 @@ None started. No unnecessary infrastructure expansion.
 | --- | --- | --- | --- | --- |
 | SC-1 | Vercel behaviour under load | P0 | 🔵 READY | Serverless cold starts, concurrency, function limits |
 | SC-2 | Firestore behaviour under load | P0 | 🔵 READY | Free-tier daily quotas are a real ceiling at campaign scale. **No longer theoretical:** on 2026-09-10 the Spark daily read quota was exhausted by development testing alone — several backend + Playwright runs against the one shared database — which aborted a suite mid-run and blocked all further Firestore reads for the day. Writes continued to work. Two consequences to design for: (a) the test suites and production share a quota, so a busy test day can degrade the live app; (b) an aborted suite can leave synthetic `9000000xx` profiles discoverable, since cleanup itself needs reads. Both argue for a separate test project or emulator before any campaign. **Billing must stay disabled**, so raising the quota is not an available answer |
-| SC-3 | Discovery query scalability | P0 | 🔵 READY | `where('discoverable','==',true).limit(100)` scans a fixed window; behaviour at large user counts is unmodelled |
+| SC-3 | Discovery query scalability | P0 | 🟢 COMPLETE | The discover query is now deterministic newest-first over a declared + **deployed** composite index (`discoverable` + `createdAt`) — the previous unordered 100-document window could miss candidates as the market grew. Contract suite pins the index declaration and the query agreement. At-scale *load* behaviour remains subject to SC-1/SC-2 testing |
 | SC-4 | Rate-limiter scalability | P1 | 🔵 READY | One document per user per request; read-then-write contention unmeasured |
 | SC-5 | Payment webhook reliability under load | P0 | 🔵 READY | Telegram retries on non-200; idempotency is tested but not load-tested |
 | SC-6 | Failure-mode catalogue | P1 | 🟢 COMPLETE | `docs/FAILURE_MODES.md` — per dependency: what the user sees, what the operator sees in the `[bezy-*]` logs, and the response; tied to the deterministic degraded-state e2e spec and the payment symptom table in TELEGRAM_SETUP §2b |
@@ -356,7 +360,7 @@ campaign or `start_param` code exists.
 
 | # | Item | Status | Notes |
 | --- | --- | --- | --- |
-| D-1 | Core docs | 🟢 COMPLETE | ARCHITECTURE, SECURITY, DATA_PROCESSING_MAP, DPIA_ASSESSMENT, TELEGRAM_SETUP, LAUNCH_CHECKLIST, API_CONTRACT, FAILURE_MODES, `docs/adr/` |
+| D-1 | Core docs | 🟢 COMPLETE | ARCHITECTURE, SECURITY, DATA_PROCESSING_MAP, DPIA_ASSESSMENT, TELEGRAM_SETUP, LAUNCH_CHECKLIST, API_CONTRACT, FAILURE_MODES, LEGAL_REVIEW_PACKET, OUTCOME_DATA_SPEC, `docs/adr/` |
 | D-2 | This roadmap as source of truth | 🟢 COMPLETE | Referenced from `docs/ARCHITECTURE.md` |
 | D-3 | Launch checklist | 🟢 COMPLETE | `docs/LAUNCH_CHECKLIST.md` — the operational runbook behind the four §16 gates: per-level steps, commands and evidence, plus ongoing-operations discipline. Adds no new requirements; references existing procedures |
 | D-4 | Architecture decision records | 🟢 COMPLETE | Eight dated ADRs in `docs/adr/` (Telegram-native, platform stack, Stars-only, photos, identity model, no-analytics, localization, billing/quota discipline) — referenced from `ARCHITECTURE.md`, pinned by the contract suite |
@@ -478,6 +482,152 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — convergence checkpoint (stop cleanly)
+- **Verified against the repository:** every remaining roadmap item is blocked only by
+  E/F/G/H or real-traffic dependency. No work was manufactured to stay busy; no completed
+  decision was reopened.
+- **Preparatory artifacts confirmed on disk and referenced:** §19 credentialed-suite
+  commands; `docs/TELEGRAM_SETUP.md` §2b payment procedure; `set-webhook.ps1 -VerifyOnly`
+  (launch checklist L-1.2); `docs/LEGAL_REVIEW_PACKET.md`; `docs/OUTCOME_DATA_SPEC.md`;
+  `scripts/outcome-eval.mjs`; `firestore.indexes.json` (both indexes deployed);
+  `scripts/retention.mjs` / `scripts/profile-reminders.mjs` / `scripts/list-support.mjs`.
+- **Exact external action per blocker:** (1) credentialed fresh-quota day → run the three
+  §19 suites once; (2) owner authorization → Vercel redeploy; (3) real Stars balance →
+  §2b procedure; (4) operator shell with the Vercel secret → `set-webhook.ps1`; (5) legal
+  counsel → LEGAL_REVIEW_PACKET (P0-5 first); (6) real traffic → T4/SF-3 tuning and
+  Stage 5 evaluation.
+- **Next session must re-audit the 24 workstreams before assuming convergence still holds.**
+
+### Session — autonomous: support failure fallback
+- **Fixed:** the support-callback and support-intake catch blocks previously swallowed
+  failures with no user feedback (the dead-button class observed live during diagnosis).
+  Both now answer with a plain-language fallback ("Bezy could not process that right now…
+  or write to contacts@digitalconcordia.com.", EN/FR) — the button can never again be a
+  silent dead end. The fallback reveals no internals; delivery failure of the fallback
+  itself is logged and nothing else happens. The forced-failure path has no clean harness
+  injection, so it is covered by code review + the existing happy-path tests rather than a
+  fabricated test.
+- **Tests:** smoke 40/0; contract 90/0; localization 188/0 (webhook untouched by the
+  Firestore-free e2e sets).
+
+### Session — autonomous: Stage 4 evaluation tooling
+- **Built:** `api/_outcomes.js` (pure) + `scripts/outcome-eval.mjs` (`npm run outcomes`) —
+  the operator-run, read-only evaluation the outcome spec calls for: mutual-match rate,
+  continued-match rate, unmatch/block-ended rates from the outcomes already stored.
+  Contract-pinned (84 → 90): the headline metric is matches-per-like, empty cohorts return
+  nulls (never invented numbers), account-deletion endings are reported but excluded from
+  quality rates, and no engagement/swipe-volume row can enter the report.
+
+### Session — autonomous: SC-3 fix, Stage 4 spec, counsel packet
+- **SC-3 fixed:** the discover query was an unordered 100-document window — beyond 100
+  discoverable users candidates could be missed across reloads. Now newest-first over a
+  composite index (`discoverable` + `createdAt`), declared in `firestore.indexes.json` and
+  **deployed to bezydating (default database)** with the authenticated Firebase CLI under
+  the operator's standing index authorization. Contract suite pins the index declaration
+  and the query/index agreement (82 → 84).
+- **Stage 4 prepared as design only:** `docs/OUTCOME_DATA_SPEC.md` — the five explicit
+  outcome events (all already stored), the five hypotheses, the operator-run offline
+  evaluation methodology (mutual-match rate / sustained-match rate / unmatch rate; never
+  swipe volume), the no-analytics representation constraint, and the five gates before any
+  implementation. Nothing active, nothing collected.
+- **WS7 prepared:** `docs/LEGAL_REVIEW_PACKET.md` — the eleven open legal questions with
+  repository-fact pointers, plus the standing facts counsel can rely on.
+- **Tests:** contract 84 passed / 0 failed; the full quota-free gate re-run below.
+
+### Session — Stage 3 adaptive, slice 1: freshness + page diversity
+- **Built:** a bounded freshness term (+4/+2/+1/0 for activity within 7/30/90 days, from
+  `updatedAt`/`createdAt` already loaded — zero new reads) and page-local bounded diversity
+  (after three same-page candidates share the caller's dominant declared signal, further
+  same-signal candidates take a −3 ordering penalty; no cross-session state, no inference,
+  declared data only). Both are ordering-only; eligibility, safety, recycling, card shapes
+  and the caller's displayed score are untouched. Contract suite pins the bounds, decay,
+  page-locality and no-cross-state behaviour (78 → 82); backend twin-profile freshness test
+  written but unexecuted (quota).
+- **Designed, not implemented:** outcome feedback and weight tuning — the evaluation
+  methodology (mutual-match rate / sustained-match rate / unmatch rate on real cohorts,
+  operator-run, offline) is documented in ARCHITECTURE; Stage 2 weights remain principled
+  initial values until real outcomes exist. No new data collection, no live experiment
+  infra.
+- **Docs:** ARCHITECTURE Stage 3 status; API contract v1.5 (ordering semantics extended).
+
+### Session — Stage 2 reciprocal compatibility implemented
+- **Built:** deck ordering now uses a floor-dominated reciprocal pair model — the approved
+  shape 0.6·min + 0.3·mean − 0.1·gap, implemented as its exact algebraic equivalent
+  `0.85·min + 0.05·max` (verified numerically before coding). The reverse directional score
+  gains a +10 preference-fit term (`preferenceFit`) when the caller fits the candidate's
+  own filters (age/languages always; city/same-city only for Premium candidates — their
+  own semantics), realising pair state 2 with zero extra reads and no new data. A bounded
+  deterministic `explorationTerm` (+3/+1) keeps sparse profiles from being buried. Cards
+  still display only the caller's own directional score; the internal ordering key is
+  stripped from the payload and the reciprocal side is never disclosed or implied. Premium
+  +6 boost preserved. Contract suite pins the formula, symmetry, floor-dominance, fit
+  semantics and exploration bounds; backend deck test asserts the fitting candidate ranks
+  above the mismatching one (written, unexecuted — quota).
+- **Docs:** ARCHITECTURE Stage 2 status + pair-scoring rationale retained; API contract
+  v1.4 (ordering semantics only — card shapes unchanged).
+- **Next:** Stage 3 adaptive (freshness/diversity from explicit outcomes) — not started.
+
+### Session — product-quality review of discovery; safe CX fixes applied
+- **Findings and fixes:** (1) acting on the last card of a page dead-ended into an empty
+  state even though more eligible candidates existed — the app now fetches the next page
+  automatically, with a loading placeholder, so the deck only reports empty when the server
+  says so. (2) The empty deck now distinguishes four honest reasons, attributed from data
+  the request already read (no extra queries, nothing new disclosed): `no_supply` (nothing
+  discoverable), `filters` (the caller's own preferences), `eligibility` (hard reciprocal
+  gender/seeking mismatch), `pool` (everyone decided on) — each with its own EN/FR copy and
+  Check-again action; filters are never silently relaxed, candidates never recycled. (3)
+  Cards now show a "new today" chip and, for free users, a "why this person" line computed
+  only from facts the card already shows (shared interests, shared languages, same city);
+  Premium keeps the numeric breakdown. (4) The four-stage engine spec (inputs/outputs/
+  storage/sensitive/behavioural/chat/explainability/risks/metric per stage) and the
+  pair-scoring design — the mean is rejected; a floor-weighted pair model distinguishing
+  hard incompatibility, preference mismatch, mutual compatibility, asymmetric interest and
+  exploration uncertainty — are documented in ARCHITECTURE "Discovery strategy". API
+  contract v1.3 now lists all four `emptyReason` values.
+- **Deliberately not built:** reciprocal scoring (next slice, on approval), any new data
+  collection, any behavioural dataset.
+- **Tests:** localization 188/0; contract 69/0; degraded e2e 3/3; cross-browser 9/9.
+  Backend empty-deck scenarios (all four reasons) written but unexecuted (quota).
+
+### Session — action: honest zero-result discovery + staged engine strategy
+- **Built:** `/api/discover` now returns `emptyReason: 'filters' | 'pool' | null`; the Mini
+  App empty deck explains the reason and offers only explicit user actions (adjust filters,
+  reset with a tap, check again). Decided candidates are never recycled, filters are never
+  silently relaxed — pinned by backend tests (written, unexecuted) and a contract check on
+  the new `filtersActive()` helper. EN/FR keys added.
+- **Documented:** the three-stage engine strategy in `ARCHITECTURE.md` "Discovery
+  strategy" — CURRENT explainable deterministic, FUTURE reciprocal/adaptive (each term from
+  published data or explicit product outcomes only), LATER statistical/ML after real data
+  plus a privacy review, with conversation content explicitly excluded as a dataset.
+- **Status:** P1-6 note updated. Localization/contract suites re-run below.
+
+### Session — action: documentation reconciliation after the data-processing audit
+- **All 12 audit contradictions verified against code and fixed in documentation** (code is
+  the source of truth; nothing was changed to match stale docs): Privacy Policy EN + FR
+  (drop "last name" and "approximate distance"; add prompts, languages, counters, support
+  intake, reminders, the true four deletion-retained categories, the corrected §15
+  eligibility-vs-score explanation, the actual retention defaults, the renamed section
+  path; effective date bumped), `DATA_PROCESSING_MAP` (§1.2/1.4/1.5/1.7→1.8 inventories,
+  §4 retention table + mechanism description, §5 rights paths, §6 minimisation table, §8
+  profiling terms + eligibility/score distinction, §9 buckets + retention line),
+  `DPIA_ASSESSMENT` (rate limiting + retention rows, messaging exception), `SECURITY.md`
+  (three new rate-limit buckets, log prefixes, retention line), `ARCHITECTURE.md`
+  (implemented blocks/reports, `isPremiumTelegram` no longer collected).
+- **Defined:** support-request retention now has an operational default — **365 days**,
+  overridable via `BEZY_RETENTION_SUPPORT_DAYS` — marked as a proposed default subject to
+  legal confirmation; payments and reports stay deliberately unset (P0-8). Contract suite
+  pins the default.
+- **UX:** the Privacy & your data card now opens with a plain-language transparency line
+  ("Your chats stay in Telegram. Your photos stay on Telegram. We use your city, not your
+  GPS."), EN + FR, pinned by localization and e2e assertions. The Mini App deletion copy
+  now lists the same four retained categories as the policy.
+- **Legacy fields:** `lastName`/`isPremiumTelegram` remain export-readable for historical
+  records only; no production mutation was performed, and no cleanup is required at this
+  scale — documented in the map §6.
+- **Tests:** run below. Firestore-backed suites remain unexecuted (no credentials in this
+  environment; quota discipline unchanged).
+- **Next:** legal counsel on the §19 register facts (Art. 9/P0-5 first), then P0-4/P0-1.
 
 ### Session — Profile IA refinement (approved CX, presentation only)
 - **Changed (UI only — no backend, schema, bot or support changes):** the Profile settings

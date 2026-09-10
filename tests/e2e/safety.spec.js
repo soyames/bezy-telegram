@@ -202,6 +202,7 @@ test('safety and privacy controls are localized in French', async ({ page }) => 
   expect(profile).not.toMatch(/\bapp\.[a-z_]+/);
   expect(profile).toContain('Sécurité');
   expect(profile).toContain('Confidentialité et vos données');
+  expect(profile).toContain('pas votre GPS');
   expect(profile).toContain('Télécharger mes données');
   expect(profile).toContain('Supprimer mon compte');
   expect(profile).toContain('Mentions légales');

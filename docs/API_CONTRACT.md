@@ -41,7 +41,16 @@ Ground rules that are part of the contract itself:
 
 `/api/discover` (200) additionally carries `stats { available, bestMatch, newToday, inYourCity }`,
 `preferences { minAge, maxAge, city, sameCityOnly, languages }`, `needsProfile: false`,
-`isPremium: boolean` and `quota { discoveryRemaining, superLikesRemaining, limits }`.
+`isPremium: boolean`, `quota { discoveryRemaining, superLikesRemaining, limits }` and
+`emptyReason: 'filters' | 'no_supply' | 'eligibility' | 'pool' | null` (v1.3) — set when the
+deck is empty, so the Mini App explains why and offers explicit actions: the caller's own
+filters, nothing discoverable at all, hard reciprocal eligibility, or everyone already
+decided on. The engine never silently relaxes filters or recycles decided candidates.
+**Ordering semantics (v1.4, extended v1.5):** the deck order is the reciprocal pair model
+(floor-dominated `0.85·min + 0.05·max` of both directional scores, plus the invisible
+preference-fit term), a bounded exploration offset, a bounded freshness term and a
+page-local bounded diversity penalty; the `compatibility` field on each card remains the
+caller's own directional score, and no reciprocal detail is ever included in the payload.
 Paused variant: `{ ok, profiles: [], needsProfile: false, processingRestricted, processingObjection }`.
 Age-gate variant: `{ ok, profiles: [], needsProfile: true, needsAgeConfirmation: true }`.
 
@@ -106,6 +115,12 @@ account.
 
 ## Changelog
 
+- **v1.5** — ordering gains the bounded freshness term and the page-local diversity
+  penalty (Stage 3 slice 1); card shapes unchanged.
+- **v1.4** — deck **ordering** is now the reciprocal pair model (Stage 2); card shapes are
+  unchanged and the caller's own directional score remains what is displayed.
+- **v1.3** — `/api/discover` gains `emptyReason` (`filters` | `pool` | `null`) for the
+  honest zero-result deck.
 - **v1.2** — `/api/support` (CN-7): structured support requests with the documented
   category and status machine tokens.
 - **v1.1** — deck cards gain an optional `breakdown` field for Premium callers only

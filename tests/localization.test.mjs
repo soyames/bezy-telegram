@@ -209,7 +209,7 @@ const AREAS = {
   deletion: ['delete_account', 'delete_explain', 'delete_retained', 'delete_type', 'delete_done_title', 'delete_done_body'],
   export: ['export_data', 'export_preparing', 'export_ready'],
   safety: ['block', 'unblock', 'report', 'unmatch', 'report_reason', 'report_send', 'report_note', 'blocked_people', 'no_blocked'],
-  'empty and loading states': ['loading', 'no_matches', 'no_profiles', 'no_conversations', 'no_likes_yet', 'complete_profile'],
+  'empty and loading states': ['loading', 'no_matches', 'no_profiles', 'no_conversations', 'no_likes_yet', 'complete_profile', 'empty_filters', 'empty_pool', 'empty_no_supply', 'empty_eligibility', 'adjust_filters', 'check_later'],
   'rate limiting': ['rate_limited', 'rate_limited_minutes'],
   prompts: ['prompts_title', 'prompts_hint', 'prompt_placeholder', 'prompt_none', 'prompts_select_label', 'prompts_answer_label'],
   'profile preview': ['preview_profile', 'preview_title', 'preview_hint', 'preview_incomplete'],
@@ -220,7 +220,7 @@ const AREAS = {
   'restriction of processing': ['restrict_title', 'restrict_explain', 'restrict_action', 'restrict_confirm', 'restricted_badge', 'restricted_notice', 'unrestrict_action', 'restrict_done', 'unrestrict_done', 'restrict_note', 'error_processing_restricted'],
   'objection to processing': ['objection_title', 'objection_explain', 'objection_confirm', 'object_action', 'objection_badge', 'objection_notice', 'unobject_action', 'objection_done', 'unobject_done', 'objection_note'],
   'help and support': ['support_title', 'support_intro', 'support_help', 'support_formal', 'support_contact', 'support_history', 'support_history_empty', 'support_form_title', 'support_form_category', 'support_form_details', 'support_form_placeholder', 'support_submit', 'support_required', 'support_done', 'support_email', 'support_expectation'],
-  'data and privacy controls': ['data_title', 'data_controls', 'data_controls_intro']
+  'data and privacy controls': ['data_title', 'data_controls', 'data_controls_intro', 'privacy_by_design']
 };
 for (const [area, keys] of Object.entries(AREAS)) {
   const gaps = keys.filter((k) => !en[k] || !fr[k]);
@@ -237,7 +237,7 @@ section('No hardcoded copy in runtime-populated elements');
   const RUNTIME_FILLED = [
     'discover-loading', 'premium-loading', 'people-label', 'match-label', 'new-label',
     'my-name', 'profile-status', 'my-avatar', 'prompts-hint', 'prompts-list',
-    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice', 'support-intro', 'support-formal', 'support-expectation'
+    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice', 'support-intro', 'support-formal', 'support-expectation', 'privacy-by-design'
   ];
   for (const id of RUNTIME_FILLED) {
     const m = new RegExp(`id="${id}"[^>]*>([^<]*)<`).exec(html);

@@ -51,13 +51,13 @@ export function retentionPolicy() {
       description: 'Rate-limit counters whose windows have long expired.'
     },
     supportRequests: {
-      // Deliberately unset, like payments: support requests are personal data and the
-      // operator chooses the period (BEZY_RETENTION_SUPPORT_DAYS). They are also erased
-      // with the account itself, so the only requests that ever reach a retention run are
-      // from accounts that still exist.
-      days: envDays('BEZY_RETENTION_SUPPORT_DAYS', null),
+      // Proposed operational default, subject to legal confirmation: support requests are
+      // the user's own words about their own problem, and they are already erased with the
+      // account. A year covers the realistic support lifecycle without inventing a legal
+      // period — the operator can override it via BEZY_RETENTION_SUPPORT_DAYS.
+      days: envDays('BEZY_RETENTION_SUPPORT_DAYS', 365),
       legalReviewRequired: false,
-      description: 'Support requests (CN-7). Period is the operator\'s to set.'
+      description: 'Support requests (CN-7). Operational default 365 days; erased with the account.'
     },
     payments: {
       // Deliberately unset. Accounting/tax retention is P0-8 in the roadmap.
