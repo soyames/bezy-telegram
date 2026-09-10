@@ -35,8 +35,8 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `ed7f326`** (`feat: version the API contract and record
-architecture decisions`). Commit is **local only — not pushed**.
+🟢 **Working tree clean at `2c71d53`** (`feat: bot-first support, Premium compatibility
+insights, moderation and ops tooling`). Commit is **local only — not pushed**.
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -44,9 +44,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | CN-7 bot-first support rework, PR-8, SF-2/SF-3, T4 tooling, SC-6 catalogue — see §20 session log |
+| Uncommitted | Nothing — the CN-7/PR-8/SF-2/SF-3/T4/SC-6 batch is in `2c71d53`; see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3 and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
-| Unpushed | `main` is 3 commits ahead of `origin/main` |
+| Unpushed | `main` is 4 commits ahead of `origin/main` |
 
 ---
 
