@@ -149,6 +149,29 @@ check('every support status has a label in both languages',
 check('the support card links the canonical bot',
   /id="support-bot-btn"[^>]*href="https:\/\/t\.me\/BezyDatingBot"/.test(read('index.html')), 'bot link not found on the support card');
 
+// The canonical bot identity cannot drift: @BezyDatingBot is a permanent decision
+// (roadmap §1, ADR 0001). A bare "@BezyBot" in any file — docs, pages, scripts — is drift,
+// and the decision itself must stay recorded in the roadmap.
+const BOT_IDENTITY_EXTS = new Set(['.md', '.html', '.js', '.mjs', '.json', '.ps1']);
+const botIdentityDrift = [];
+(function walkBot(dir) {
+  for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${entry.name}`;
+    if (rel === './tests/localization.test.mjs') continue; // the check's own literals
+    if (entry.isDirectory()) {
+      if (['node_modules', 'test-results', 'playwright-report', '.git'].includes(entry.name)) continue;
+      walkBot(rel);
+    } else if (BOT_IDENTITY_EXTS.has(path.extname(entry.name))) {
+      const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+      if (/BezyBot/.test(text)) botIdentityDrift.push(rel);
+    }
+  }
+})('.');
+check('no file references a bare @BezyBot — the canonical username is @BezyDatingBot',
+  botIdentityDrift.length === 0, botIdentityDrift.join(','));
+check('the roadmap records the permanent bot-username decision',
+  /`@BezyDatingBot`\*\* — must not be changed/.test(read('docs/BEZY_MASTER_ROADMAP.md')), 'decision line not found in roadmap §1');
+
 check('every notification category has a label in both languages',
   apiOptionalCategories.every((id) => en[`notify_${id}`] && fr[`notify_${id}`]),
   apiOptionalCategories.filter((id) => !en[`notify_${id}`] || !fr[`notify_${id}`]).join(','));
