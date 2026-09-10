@@ -45,7 +45,7 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Nothing — everything since `d3cb87f` is in `8592bc2`; see §20 session log |
+| Uncommitted | P0-4 completion record (webhook re-registered with the secret, live evidence) + its session-log entry — see §20 |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
 | Unpushed | Nothing — pushed at `ad8731b` |
 
@@ -159,7 +159,7 @@ is the point of the control system.
 | P0-1 | Real Telegram Stars purchase (250 ⭐ monthly) | 🔴 BLOCKED | Blocked on a Stars balance; observed balance was 0 |
 | P0-2 | Real Telegram Stars refund | 🔴 BLOCKED | Depends on P0-1. `scripts/refund-payment.mjs` |
 | P0-3 | Full lifecycle verification in production | 🔴 BLOCKED | Depends on P0-1/P0-2. Procedure: `docs/TELEGRAM_SETUP.md` §2b |
-| P0-4 | Re-confirm `allowed_updates` before the test | 🔵 READY | Must include `pre_checkout_query` **and `callback_query`** (the support menu's buttons are callbacks — without it they render but every tap is dropped). **And** if Vercel has `TELEGRAM_WEBHOOK_SECRET`, the registration must pass the same value or every update 401s (observed live 2026-09-10). `scripts/set-webhook.ps1 -VerifyOnly` now exits 3 on any `last_error_message` |
+| P0-4 | Re-confirm `allowed_updates` before the test | 🟢 COMPLETE | Verified live 2026-09-10: `allowed_updates = message, callback_query, pre_checkout_query`, the registration was re-run **with** `TELEGRAM_WEBHOOK_SECRET` (clearing the observed 401 wall), `pending_update_count: 0`, `last_error: none` — the script prints READY with no warning. Support buttons and Stars pre-checkout are now both deliverable |
 
 Clearing P0-1 promotes R1–R3 and removes the largest technical unknown in the project.
 
@@ -483,6 +483,15 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — P0-4 cleared: webhook re-registered with the secret
+- The operator re-ran `set-webhook.ps1` with `TELEGRAM_WEBHOOK_SECRET` set to the Vercel
+  value: `setWebhook ok=True`, all three update types registered, no `last_error`, zero
+  pending updates. The 401 wall is cleared; support-menu callbacks and Stars pre-checkout
+  are now deliverable end to end. P0-4 🔵 → 🟢.
+- Remaining live checks the operator can now do by hand: tap a support-menu button in the
+  bot (Firestore quota permitting) and, when a Stars balance exists, run TELEGRAM_SETUP
+  §2b (P0-1…P0-3).
 
 ### Session — convergence checkpoint (stop cleanly)
 - **Verified against the repository:** every remaining roadmap item is blocked only by
