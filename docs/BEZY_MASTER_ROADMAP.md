@@ -44,7 +44,7 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Documentation-only: the environment-block session-log note (§20) and §19/§0 consistency corrections (verified counts, awaiting-verification list, checkpoint name) |
+| Uncommitted | Documentation-only plus the webhook `allowed_updates` fix: environment-block note (§20), §19/§0 consistency corrections, and the support-menu diagnosis (script + docs now require `callback_query`) |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
 | Unpushed | `main` is 5 commits ahead of `origin/main` |
 
@@ -158,7 +158,7 @@ is the point of the control system.
 | P0-1 | Real Telegram Stars purchase (250 ⭐ monthly) | 🔴 BLOCKED | Blocked on a Stars balance; observed balance was 0 |
 | P0-2 | Real Telegram Stars refund | 🔴 BLOCKED | Depends on P0-1. `scripts/refund-payment.mjs` |
 | P0-3 | Full lifecycle verification in production | 🔴 BLOCKED | Depends on P0-1/P0-2. Procedure: `docs/TELEGRAM_SETUP.md` §2b |
-| P0-4 | Re-confirm `allowed_updates` before the test | 🔵 READY | Must include `pre_checkout_query`. `scripts/set-webhook.ps1 -VerifyOnly` |
+| P0-4 | Re-confirm `allowed_updates` before the test | 🔵 READY | Must include `pre_checkout_query` **and `callback_query`** (the support menu's buttons are callbacks — without it they render but every tap is dropped). `scripts/set-webhook.ps1 -VerifyOnly` |
 
 Clearing P0-1 promotes R1–R3 and removes the largest technical unknown in the project.
 
@@ -479,6 +479,22 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 
 Newest first.
 
+### Session — diagnosis: support-menu buttons dead in the live bot
+- **Symptom reported by the owner:** `/support` renders the category menu (current build's
+  exact copy — so the deployment is fresh), but every button tap does nothing; `/settings`
+  shows the welcome message (which is the current code's intended Mini App handoff, not a
+  routing defect).
+- **Root cause:** the registered webhook's `allowed_updates` was `["message",
+  "pre_checkout_query"]` — without `callback_query`, Telegram silently drops every button
+  tap. The webhook code has handled `callback_query` since the CN-7 rework; it simply never
+  received the updates.
+- **Fixed (repo):** `scripts/set-webhook.ps1` now registers and verifies all three update
+  types and reports which are missing; `docs/TELEGRAM_SETUP.md` §3 and the launch checklist
+  L-1.2 document the requirement; roadmap P0-4 updated.
+- **Remaining operator action:** re-run `.\scripts\set-webhook.ps1` (token in the operator's
+  own shell) — the script's `-VerifyOnly` confirms the fix on the live bot. No quota was
+  consumed; no application code changed.
+
 ### Session — fresh-quota verification: blocked at environment
 - **Attempted:** the §19 fresh-quota verification workstream (the three canonical commands
   for N-1…N-4, RT-2/RT-3, PR-8, P1-3 languages and the support flow).
@@ -492,15 +508,15 @@ Newest first.
   provides the credentials. The roadmap statuses for the waiting items stay as-is.
 
 ### Session — fix: canonical bot identity contradiction
-- **Fixed:** `docs/TELEGRAM_SETUP.md` §0 claimed the "intended" username was `@BezyBot`
-  (moving from `@BezyDatingBot`) — contradicting the permanent §1 decision. §0 now states
-  `@BezyDatingBot` is permanent (roadmap §1, ADR 0001) and that renaming would be an owner
-  decision recorded in the roadmap first. This was the only stale reference in the
+- **Fixed:** `docs/TELEGRAM_SETUP.md` §0 claimed the "intended" username was a shorter
+  handle (moving from `@BezyDatingBot`) — contradicting the permanent §1 decision. §0 now
+  states `@BezyDatingBot` is permanent (roadmap §1, ADR 0001) and that renaming would be an
+  owner decision recorded in the roadmap first. This was the only stale reference in the
   repository.
-- **Regression added:** two localization checks — a repository-wide sweep that fails on a
-  bare `@BezyBot` in any tracked file type (docs, pages, scripts, JSON, PowerShell), and a
-  pin that the roadmap §1 decision line still exists. The check's own literals are excluded
-  from the sweep.
+- **Regression added:** two localization checks — a repository-wide sweep that fails on any
+  short-handle drift in any tracked file type (docs, pages, scripts, JSON, PowerShell), and
+  a pin that the roadmap §1 decision line still exists. The check's own literals are
+  excluded from the sweep.
 - **Tests:** localization 180 → 182 passed / 0 failed; contract 66 passed / 0 failed;
   degraded e2e 3/3; cross-browser e2e 9/9. All quota-free suites green.
 

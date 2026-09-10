@@ -224,7 +224,7 @@ After the Vercel deployment is live, set the bot webhook to:
 
 If `TELEGRAM_WEBHOOK_SECRET` is configured, pass the same value as Telegram's `secret_token` when calling `setWebhook`.
 
-### Required for Telegram Stars: `allowed_updates`
+### Required for payments AND the support menu: `allowed_updates`
 
 **Payments will silently never activate if this is wrong.** `allowed_updates` defaults to a list
 that excludes `pre_checkout_query`, and an earlier `setWebhook` on this bot was called with
@@ -232,18 +232,25 @@ that excludes `pre_checkout_query`, and an earlier `setWebhook` on this bot was 
 (which arrives inside a `message`) but never delivers `pre_checkout_query`, so checkout times
 out after 10 seconds and the user is refunded.
 
-The webhook must be registered for both:
+**`callback_query` is equally required** — every support-menu button is a callback. Without it
+the menu renders fine but Telegram drops every tap, so the buttons look dead while message
+commands keep working. (This was observed live on 2026-09-10 and diagnosed to the registered
+`allowed_updates` list, not the code: the menu itself was rendered by the current build.)
+
+The webhook must be registered for all three:
 
 ```powershell
 $token = "YOUR_BOT_TOKEN"
 $body = @{
     url             = "https://bezy-telegram.vercel.app/api/telegram/webhook"
-    allowed_updates = @("message", "pre_checkout_query")
+    allowed_updates = @("message", "callback_query", "pre_checkout_query")
 } | ConvertTo-Json
 Invoke-RestMethod -Method Post -Uri "https://api.telegram.org/bot$token/setWebhook" -ContentType "application/json" -Body $body
 ```
 
-Verify with `getWebhookInfo`: `allowed_updates` must list `pre_checkout_query`.
+Or simply re-run `.\scripts\set-webhook.ps1`, which now registers all three and verifies them.
+Verify with `getWebhookInfo`: `allowed_updates` must list `pre_checkout_query` **and**
+`callback_query`.
 
 Example from a local PowerShell session (keep the token private):
 
