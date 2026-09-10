@@ -35,8 +35,8 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `30ef891`** (`chore: establish Bezy master roadmap and continuity
-checkpoint`). Commit is **local only — not pushed**.
+🟢 **Working tree clean at `3a6c874`** (`Ship notification controls, data rights, languages
+and launch runbook`). Commit is **local only — not pushed**.
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -44,9 +44,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | T5, T1, Q-6, CN-3, CN-7, D-3, the demo-copy cleanup, P1-1/P1-2/P1-4/P1-5, N-1/N-2/N-3/N-4, RT-2, RT-3, the P1-3 `languages` sub-item, and the outside-Telegram gate fix — see §20 session log |
+| Uncommitted | Nothing — the execution work through CN-7/D-3 is in `3a6c874`; see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3 and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
-| Unpushed | `main` is 1 commit ahead of `origin/main` |
+| Unpushed | `main` is 2 commits ahead of `origin/main` |
 
 ---
 
