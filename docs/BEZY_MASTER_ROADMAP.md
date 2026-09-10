@@ -44,7 +44,7 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Nothing |
+| Uncommitted | Profile IA refinement (UI + locales + e2e spec updates) — see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
 | Unpushed | Nothing — pushed at `b968321` |
 
@@ -478,6 +478,25 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — Profile IA refinement (approved CX, presentation only)
+- **Changed (UI only — no backend, schema, bot or support changes):** the Profile settings
+  now read Safety → Privacy & your data → Help & support → Legal. Safety keeps *Blocked
+  people*; the data card keeps *Download my data* and *Delete my account* (still visually
+  destructive) and gains one human-readable entry point, *Data & privacy controls*, whose
+  sheet explains in plain language and hosts the existing Pause/Object flows with their
+  legally precise copy — no legal capability removed, none weakened. Help & support now has
+  exactly two CTAs: **Get help** (same canonical bot link, pinned by tests) and **My support
+  requests**; the structured intake form still exists, reachable from the history sheet as
+  *Contact support*, and the formal/legal fallback (email + the 3-working-days aim) is a
+  small text block instead of a competing button. The Legal card keeps Privacy and Terms
+  under the plain title *Legal* (`legal_privacy` value changed; FR: *Mentions légales*).
+- **Localization:** `support_bot` removed (banlisted), new keys `support_help`,
+  `support_formal`, `data_title`, `data_controls`, `data_controls_intro`; safety/rights
+  copy shortened per the copy principles.
+- **Tests:** localization 182 → 186 passed / 0 failed; contract 67 passed / 0 failed;
+  degraded e2e 3/3; cross-browser e2e 9/9. The Firestore-backed e2e specs (safety, profile)
+  were updated to the new IA and remain unexecuted (quota).
 
 ### Session — Firestore index deployed, rules confirmed
 - At the operator's request, the missing Firestore index and rules were created: the one

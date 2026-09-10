@@ -44,9 +44,7 @@ const identical = Object.keys(en).filter((k) => en[k] === fr[k]);
 // Words that are legitimately identical in both languages.
 const ALLOWED_IDENTICAL = new Set(['messages', 'super', 'premium_title', 'plan', 'language_name', 'reason_spam', 'notifications_title',
   // Language names that are spelled the same in French.
-  'language_sw', 'language_yo',
-  // The bot username is a machine token and stays identical in both languages.
-  'support_bot']);
+  'language_sw', 'language_yo']);
 const suspicious = identical.filter((k) => !ALLOWED_IDENTICAL.has(k));
 check('no French string silently duplicates the English one', suspicious.length === 0,
   suspicious.map((k) => `${k}="${en[k]}"`).join(' | '));
@@ -101,7 +99,7 @@ check('the typed delete confirmation stays the literal DELETE in every language'
   `en="${en.delete_type}" fr="${fr.delete_type}"`);
 // Removed keys must not reappear. `premium_soon` in particular claimed Premium was
 // "coming soon" long after it shipped.
-for (const dead of ['premium_soon', 'people_nearby', 'adults_only']) {
+for (const dead of ['premium_soon', 'people_nearby', 'adults_only', 'support_bot']) {
   check(`removed key "${dead}" has not come back`,
     !(dead in en) && !(dead in fr) && !app.includes(`${dead}:`), `en=${dead in en} fr=${dead in fr}`);
 }
@@ -221,7 +219,8 @@ const AREAS = {
   languages: ['languages_label', 'languages_hint', 'filter_languages', 'filter_languages_hint'],
   'restriction of processing': ['restrict_title', 'restrict_explain', 'restrict_action', 'restrict_confirm', 'restricted_badge', 'restricted_notice', 'unrestrict_action', 'restrict_done', 'unrestrict_done', 'restrict_note', 'error_processing_restricted'],
   'objection to processing': ['objection_title', 'objection_explain', 'objection_confirm', 'object_action', 'objection_badge', 'objection_notice', 'unobject_action', 'objection_done', 'unobject_done', 'objection_note'],
-  'help and support': ['support_title', 'support_intro', 'support_bot', 'support_contact', 'support_history', 'support_history_empty', 'support_form_title', 'support_form_category', 'support_form_details', 'support_form_placeholder', 'support_submit', 'support_required', 'support_done', 'support_email', 'support_expectation']
+  'help and support': ['support_title', 'support_intro', 'support_help', 'support_formal', 'support_contact', 'support_history', 'support_history_empty', 'support_form_title', 'support_form_category', 'support_form_details', 'support_form_placeholder', 'support_submit', 'support_required', 'support_done', 'support_email', 'support_expectation'],
+  'data and privacy controls': ['data_title', 'data_controls', 'data_controls_intro']
 };
 for (const [area, keys] of Object.entries(AREAS)) {
   const gaps = keys.filter((k) => !en[k] || !fr[k]);
@@ -238,7 +237,7 @@ section('No hardcoded copy in runtime-populated elements');
   const RUNTIME_FILLED = [
     'discover-loading', 'premium-loading', 'people-label', 'match-label', 'new-label',
     'my-name', 'profile-status', 'my-avatar', 'prompts-hint', 'prompts-list',
-    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice', 'support-intro', 'support-expectation'
+    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice', 'support-intro', 'support-formal', 'support-expectation'
   ];
   for (const id of RUNTIME_FILLED) {
     const m = new RegExp(`id="${id}"[^>]*>([^<]*)<`).exec(html);
