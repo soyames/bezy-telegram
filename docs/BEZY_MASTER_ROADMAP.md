@@ -35,8 +35,8 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `b968321`** (`fix: register callback_query for the support menu
-and trace the live failure`). **Pushed — `main` is in sync with `origin/main`.**
+🟢 **Working tree clean at `85a6322`** (`fix: support-history query, webhook secret
+diagnostics, Firestore index and rules`). **Pushed — `main` is in sync with `origin/main`.**
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
