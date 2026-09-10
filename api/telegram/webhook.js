@@ -15,6 +15,14 @@ function commandName(text) {
   return first.replace(/^\//, '').split('@')[0].toLowerCase();
 }
 function uiButton(language, view) { return { text: language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy', web_app: { url: miniAppUrl(view) } }; }
+
+// A support action that fails must still answer the user — a silent dead button is a dead
+// end. This fallback is the last line: it says what to do next without disclosing why.
+function supportFailureMessage(language) {
+  return language === 'fr'
+    ? 'Bezy n’a pas pu traiter cette demande pour le moment. Réessayez dans un instant, ou écrivez à contacts@digitalconcordia.com.'
+    : 'Bezy could not process that right now. Please try again in a moment, or write to contacts@digitalconcordia.com.';
+}
 function helpText(language) {
   return language === 'fr'
     ? ['💜 <b>Comment fonctionne Bezy</b>', '', '1. Créez votre profil dans la Mini App.', '2. Découvrez des personnes compatibles.', '3. Likez ou passez.', '4. Un match apparaît lorsque l’intérêt est réciproque.', '5. Ouvrez ensuite la conversation directement dans Telegram.', '', 'Bezy est réservé aux personnes de 18 ans et plus.', '', 'Un problème ? Envoyez /assistance.'].join('\n')
@@ -481,6 +489,15 @@ export default async function handler(req, res) {
       }
     } catch (error) {
       console.error('Callback handling failed:', error);
+      try {
+        const chatId = update.callback_query?.message?.chat?.id;
+        const from = update.callback_query?.from;
+        if (chatId && from) {
+          await telegramApi('sendMessage', { chat_id: chatId, text: supportFailureMessage(normalizedLanguage(from.language_code)) });
+        }
+      } catch (replyError) {
+        console.error('Support failure reply failed:', replyError);
+      }
     }
     return res.status(200).json({ ok: true });
   }
@@ -523,6 +540,11 @@ export default async function handler(req, res) {
       await handleSupportText(message.chat.id, language, message.from, db(), String(message.text || ''));
     } catch (error) {
       console.error('Support intake failed:', error);
+      try {
+        await telegramApi('sendMessage', { chat_id: message.chat.id, text: supportFailureMessage(language) });
+      } catch (replyError) {
+        console.error('Support failure reply failed:', replyError);
+      }
     }
     return res.status(200).json({ ok: true });
   }

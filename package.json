@@ -21,6 +21,7 @@
     "retention": "node scripts/retention.mjs",
     "reminders": "node scripts/profile-reminders.mjs",
     "support": "node scripts/list-support.mjs",
+    "outcomes": "node scripts/outcome-eval.mjs",
     "reports": "node scripts/report-stats.mjs",
     "rate-limits": "node scripts/rate-limit-status.mjs",
     "sync:fallback": "node scripts/sync-fallback-locale.mjs"

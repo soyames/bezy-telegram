@@ -11,7 +11,7 @@ import { sharedSignals } from '../api/matches.js';
 import { defaultNotificationSettings, normalizeNotificationSettings, notificationSettings, isNotificationEnabled, withinDailyCap, OPTIONAL_CATEGORIES, NOTIFICATION_CATEGORIES } from '../api/_notify.js';
 import { processingPaused } from '../api/_privacy.js';
 import { planProfileReminders, sendProfileReminders, reminderMessage } from '../api/_reminders.js';
-import { compatibilityBreakdown } from '../api/discover.js';
+import { compatibilityBreakdown, filtersActive, pairCompatibility, explorationTerm, preferenceFit } from '../api/discover.js';
 import { formatSupportReference, normalizeSupportRequest } from '../api/_support.js';
 
 let pass = 0, fail = 0;
@@ -1260,6 +1260,96 @@ try {
   r = await call('/api/discover', 'a');
   check('the breakdown disappears when membership is revoked',
     (r.data.profiles || []).every((p) => !('breakdown' in p)));
+
+  // --------------------------------------------------- Stage 2 reciprocal pair
+  section('Reciprocal pair (pure logic)');
+  check('the pair model is floor-dominated and symmetric',
+    pairCompatibility(85, 40) === pairCompatibility(40, 85) && pairCompatibility(70, 70) > pairCompatibility(85, 40));
+  check('exploration is bounded', explorationTerm({}) === 3 && explorationTerm({ interests: ['a', 'b', 'c'] }) === 0);
+  check('preference fit is soft — it never excludes', typeof preferenceFit({}, {}) === 'boolean');
+
+  section('Reciprocal pair on the deck');
+  await cleanup();
+  await seedAll();
+  // Bo's filters fit Ada (same city, open age); Cy's exclude her (age floor above Ada's).
+  await firestore.collection('users').doc('900000002').set({ preferences: { minAge: 25, maxAge: 35, city: '', sameCityOnly: false, languages: [] } }, { merge: true });
+  await firestore.collection('users').doc('900000003').set({ preferences: { minAge: 40, maxAge: 50, city: '', sameCityOnly: false, languages: [] } }, { merge: true });
+  r = await call('/api/discover', 'a');
+  const deck = r.data.profiles || [];
+  const boIndex = deck.findIndex((p) => p.id === '900000002');
+  const cyIndex = deck.findIndex((p) => p.id === '900000003');
+  check('the pair model ranks the fitting candidate above the mismatching one',
+    boIndex >= 0 && cyIndex >= 0 && boIndex < cyIndex, `bo=${boIndex} cy=${cyIndex}`);
+  check('the displayed score stays the caller\'s own perspective',
+    deck.every((p) => Number.isFinite(p.compatibility) && !('orderKey' in p) && !('reverseScore' in p)),
+    JSON.stringify(deck[0] || {}).slice(0, 120));
+
+  // --------------------------------------------------- Stage 3 adaptive (slice 1)
+  section('Stage 3 freshness on the deck');
+  await cleanup();
+  await seedAll();
+  // Two synthetic candidates with byte-identical profiles, differing only in updatedAt.
+  const twin = { ...PROFILES.b, displayName: 'Twin' };
+  await firestore.collection('users').doc('900000060').set({
+    telegramId: 900000060, ageEligibilityConfirmed: true, profileComplete: true, discoverable: true,
+    profile: { ...twin, discoverable: true, profileComplete: true }, createdAt: new Date(), updatedAt: new Date()
+  });
+  await firestore.collection('users').doc('900000061').set({
+    telegramId: 900000061, ageEligibilityConfirmed: true, profileComplete: true, discoverable: true,
+    profile: { ...twin, discoverable: true, profileComplete: true }, createdAt: new Date(), updatedAt: new Date(Date.now() - 400 * 86400000)
+  });
+  r = await call('/api/discover', 'a');
+  const twins = (r.data.profiles || []).filter((p) => ['900000060', '900000061'].includes(p.id));
+  check('identical profiles differ only by freshness: the recent one ranks first',
+    twins.length === 2 && twins[0].id === '900000060', twins.map((p) => p.id).join(','));
+
+  // --------------------------------------------------- honest zero-result discovery
+  section('Empty-deck diagnostics (pure logic)');
+  check('default preferences report no active filters',
+    filtersActive({ minAge: 18, maxAge: 100, sameCityOnly: false, languages: [] }) === false);
+  check('any deviation reports filters', filtersActive({ sameCityOnly: true }) === true);
+
+  section('Empty-deck diagnostics on the deck');
+  await cleanup();
+  await seedAll();
+  await call('/api/profile/me', 'a', { preferences: { minAge: 60, maxAge: 70, city: 'Atlantis', sameCityOnly: true, languages: ['yo'] } });
+  r = await call('/api/discover', 'a');
+  check('a filter-empty deck explains itself', (r.data.profiles || []).length === 0 && r.data.emptyReason === 'filters', JSON.stringify(r.data.emptyReason));
+  check('the filters are not silently relaxed', r.data.preferences.minAge === 60 && r.data.preferences.sameCityOnly === true);
+  await call('/api/profile/me', 'a', { preferences: { minAge: 18, maxAge: 100, city: '', sameCityOnly: false, languages: [] } });
+  r = await call('/api/discover', 'a');
+  check('an explicit reset restores the deck', (r.data.profiles || []).length > 0 && r.data.emptyReason === null,
+    JSON.stringify(r.data.emptyReason));
+  // A decided candidate is never recycled into an empty deck.
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'pass' });
+  await call('/api/swipe', 'a', { targetId: '900000003', action: 'pass' });
+  await call('/api/swipe', 'a', { targetId: '900000004', action: 'pass' });
+  r = await call('/api/discover', 'a');
+  check('an exhausted deck reports the pool, not filters', (r.data.profiles || []).length === 0 && r.data.emptyReason === 'pool',
+    JSON.stringify(r.data.emptyReason));
+  check('decided candidates are not recycled',
+    (r.data.profiles || []).every((p) => !['900000002', '900000003', '900000004'].includes(p.id)));
+
+  // No supply: nothing discoverable at all.
+  await cleanup();
+  await seedAll();
+  for (const id of ['900000002', '900000003', '900000004']) {
+    await firestore.collection('users').doc(id).set({ discoverable: false }, { merge: true });
+  }
+  r = await call('/api/discover', 'a');
+  check('an empty market reports no supply', (r.data.profiles || []).length === 0 && r.data.emptyReason === 'no_supply',
+    JSON.stringify(r.data.emptyReason));
+
+  // Hard eligibility: everyone nearby mismatches who you are / who you're looking for.
+  await cleanup();
+  await seedAll();
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, seeking: 'women' } });
+  r = await call('/api/discover', 'a');
+  check('an eligibility-empty deck says so', (r.data.profiles || []).length === 0 && r.data.emptyReason === 'eligibility',
+    JSON.stringify(r.data.emptyReason));
+  check('eligibility is never silently relaxed', (r.data.profiles || []).length === 0);
 
   // -------------------------------------------------- restriction of processing (Art. 18)
   section('Restriction of processing (pure logic)');

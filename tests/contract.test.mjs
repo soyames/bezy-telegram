@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { publicProfile, compatibilityBreakdown } from '../api/discover.js';
+import { publicProfile, compatibilityBreakdown, filtersActive, compatibility, pairCompatibility, explorationTerm, preferenceFit, freshnessTerm, applyPageDiversity } from '../api/discover.js';
 import { publicMatch, sharedSignals } from '../api/matches.js';
 import { publicLiker } from '../api/likes.js';
 import { publicPlans } from '../api/premium.js';
@@ -19,6 +19,7 @@ import { retentionPolicy, isConfigured } from '../api/_retention.js';
 import { SUPPORT_CATEGORIES, SUPPORT_STATUSES, SUPPORT_DETAILS_MAX, formatSupportReference, normalizeSupportRequest, diagnosePremium, diagnoseDiscovery, diagnoseProfile } from '../api/_support.js';
 import { REPORT_STATUSES, triageTransition, summarizeReports } from '../api/_moderation.js';
 import { RATE_LIMITS } from '../api/_ratelimit.js';
+import { summarizeOutcomes, outcomeReport } from '../api/_outcomes.js';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -124,6 +125,67 @@ section('Compatibility breakdown (contract version 1.1)');
     breakdown.closeInAge === true && compatibilityBreakdown({ age: 29 }, { age: 35 }).closeInAge === false);
   check('the breakdown never carries sensitive attributes', !('gender' in breakdown) && !('seeking' in breakdown));
   check('the base deck card shape has no breakdown key', !('breakdown' in publicProfile('900000001', ADA_DOC)));
+  check('filter detection matches the documented defaults',
+    filtersActive({ minAge: 18, maxAge: 100, city: '', sameCityOnly: false, languages: [] }) === false
+    && filtersActive({ minAge: 18, maxAge: 100, city: '', sameCityOnly: true, languages: [] }) === true
+    && filtersActive({ minAge: 30, maxAge: 100, city: '', sameCityOnly: false, languages: [] }) === true
+    && filtersActive({ minAge: 18, maxAge: 100, city: '', sameCityOnly: false, languages: ['en'] }) === true);
+}
+
+// ---------------------------------------------------------------- Stage 2 reciprocal pair
+section('Reciprocal pair compatibility (Stage 2)');
+{
+  check('the pair model is symmetric', pairCompatibility(85, 40) === pairCompatibility(40, 85));
+  check('a balanced pair beats a lopsided one with a higher mean',
+    pairCompatibility(70, 70) > pairCompatibility(85, 40)
+    && pairCompatibility(55, 55) > pairCompatibility(50, 90));
+  check('a hard one-sided miss can never be rescued',
+    pairCompatibility(1, 99) < 10 && pairCompatibility(20, 98) < pairCompatibility(50, 50));
+  check('the implemented form equals the documented 0.6/0.3/0.1 formula',
+    pairCompatibility(83, 47) === Math.round(0.6 * 47 + 0.3 * ((83 + 47) / 2) - 0.1 * Math.abs(83 - 47)));
+  check('the directional score stays deterministic and ranged',
+    compatibility(ADA_DOC.profile, ADA_DOC.profile) >= 1 && compatibility({}, {}) >= 1 && compatibility({}, {}) <= 99);
+  check('exploration is bounded and rewards only sparse profiles',
+    explorationTerm({ interests: ['a'], languages: ['en'], bio: 'b', prompts: [{ id: 'i_value', answer: 'x' }] }) === 0
+    && explorationTerm({ interests: ['a'] }) === 3
+    && explorationTerm({ interests: ['a'], bio: 'b' }) === 1
+    && explorationTerm({}) === 3);
+  check('preference fit mirrors the documented filter semantics',
+    preferenceFit({ minAge: 30, maxAge: 40 }, { age: 29 }) === false
+    && preferenceFit({ minAge: 18, maxAge: 100 }, { age: 29 }) === true
+    && preferenceFit({ languages: ['en'] }, { languages: ['fr'] }) === false
+    && preferenceFit({ languages: ['en'] }, { languages: [] }) === true
+    && preferenceFit({ languages: [] }, {}) === true);
+  check('city terms apply only for Premium seekers',
+    preferenceFit({ city: 'Paris' }, { city: 'Lyon' }, false) === true
+    && preferenceFit({ city: 'Paris' }, { city: 'Lyon' }, true) === false
+    && preferenceFit({ sameCityOnly: true, city: 'Paris' }, { city: 'Lyon' }, true) === false);
+  check('the reverse preference term creates real pair asymmetry',
+    pairCompatibility(70, 80) > pairCompatibility(70, 70));
+}
+
+// ---------------------------------------------------------------- Stage 3 adaptive (slice 1)
+section('Stage 3 freshness and page diversity');
+{
+  const NOW = 1_800_000_000_000;
+  check('freshness decays in bounded steps and never negatives',
+    freshnessTerm(new Date(NOW - 2 * 86400000), NOW) === 4
+    && freshnessTerm(new Date(NOW - 20 * 86400000), NOW) === 2
+    && freshnessTerm(new Date(NOW - 80 * 86400000), NOW) === 1
+    && freshnessTerm(new Date(NOW - 400 * 86400000), NOW) === 0
+    && freshnessTerm(null, NOW) === 0
+    && freshnessTerm(new Date(NOW + 1000), NOW) === 0);
+  // Five equal candidates, all same city as the caller: the penalty is bounded and page-local.
+  const page = ['b', 'c', 'd', 'e', 'f'].map((id) => ({
+    id, orderKey: 50, city: 'Paris', interests: ['music']
+  }));
+  const diverse = applyPageDiversity(page, { city: 'Paris', interests: ['music'] });
+  check('page diversity is bounded', diverse.every((entry) => entry.orderKey >= 47)
+    && diverse.filter((entry) => entry.orderKey === 47).length === 2);
+  check('page diversity preserves all candidates', diverse.length === 5
+    && JSON.stringify(diverse.map((e) => e.id).sort()) === JSON.stringify(['b', 'c', 'd', 'e', 'f']));
+  check('page diversity leaves no cross-page state',
+    applyPageDiversity([{ id: 'x', orderKey: 50, city: 'Paris', interests: ['music'] }], { city: 'Paris', interests: ['music'] })[0].orderKey === 50);
 }
 
 // ---------------------------------------------------------------- likes
@@ -215,6 +277,16 @@ section('Support flow (contract version 1.2)');
   // index that may not exist. Support and reminder reads must sort in memory instead.
   check('support reads never rely on a composite index', !/orderBy\(/.test(read('api/_support.js')),
     'orderBy found in api/_support.js');
+  // The one deliberate exception (SC-3): discovery pages newest-first over a composite
+  // index. The declared index and the query must agree, or production 500s.
+  const indexFile = JSON.parse(read('firestore.indexes.json'));
+  const discoverIndex = (indexFile.indexes || []).find((i) => i.collectionGroup === 'users'
+    && JSON.stringify(i.fields) === JSON.stringify([{ fieldPath: 'discoverable', order: 'ASCENDING' }, { fieldPath: 'createdAt', order: 'DESCENDING' }]));
+  check('the discovery composite index is declared for deploy',
+    Boolean(discoverIndex), 'users(discoverable ASC, createdAt DESC) missing from firestore.indexes.json');
+  check('the discovery query matches the declared index',
+    /\.where\('discoverable', '==', true\)[\s\S]{0,80}\.orderBy\('createdAt', 'desc'\)/.test(read('api/discover.js')),
+    'discover.js query drifted from the declared index');
   check('support categories are a closed machine-token list',
     SUPPORT_CATEGORIES.length > 0 && SUPPORT_CATEGORIES.every((id) => /^[a-z_]+$/.test(id)));
   check('support statuses are the documented four-state lifecycle',
@@ -232,6 +304,9 @@ section('Support flow (contract version 1.2)');
   check('profile diagnostics list only the documented required fields',
     diagnoseProfile({ profile: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman' } }).missing.join(',') === 'seeking');
   check('retention policy covers support requests', 'supportRequests' in retentionPolicy());
+  check('support requests have the proposed operational default and stay overridable',
+    isConfigured(retentionPolicy().supportRequests)
+    && retentionPolicy().supportRequests.days === 365);
 }
 
 // ---------------------------------------------------------------- moderation tooling (SF-2/SF-3)
@@ -260,6 +335,35 @@ section('Moderation tooling (contract)');
   check('the support bucket exists and shares one ceiling across both channels',
     Array.isArray(RATE_LIMITS.support_create) && RATE_LIMITS.support_create.some((w) => w.windowSeconds === 86400),
     JSON.stringify(RATE_LIMITS.support_create));
+}
+
+// ---------------------------------------------------------------- Stage 4 outcome evaluation
+section('Outcome evaluation (Stage 4)');
+{
+  const summary = summarizeOutcomes({
+    likes: 100,
+    matches: [
+      { active: true }, { active: true }, { active: true },
+      { active: false, endedReason: 'unmatch' },
+      { active: false, endedReason: 'block' },
+      { active: false, endedReason: 'account_deleted' },
+      { active: false, endedReason: 'unmatch' }
+    ],
+    blocks: 5,
+    unmatches: 2
+  });
+  check('the headline metric is mutual matches per like',
+    summary.mutualMatchRate === 0.07 && summary.matches === 7 && summary.likes === 100);
+  check('continued-match rate is active over total',
+    summary.continuedMatchRate === 3 / 7 && summary.active === 3);
+  check('unmatch and block-ended rates are fractions of ended matches',
+    summary.unmatchRate === 2 / 4 && summary.blockEndedRate === 1 / 4);
+  check('account-deletion endings are reported but never counted as quality signals',
+    summary.deletionEnded === 1 && !('deletionEndedRate' in summary));
+  check('empty cohorts report nulls, never invented numbers',
+    summarizeOutcomes({ likes: 0, matches: [], blocks: 0, unmatches: 0 }).mutualMatchRate === null);
+  check('the report table has no engagement or swipe-volume rows',
+    !outcomeReport(summary).some(([label]) => /swipe|session|time|view/i.test(label)));
 }
 
 // ---------------------------------------------------------------- governance records
