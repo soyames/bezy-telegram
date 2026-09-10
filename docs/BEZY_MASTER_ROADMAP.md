@@ -35,8 +35,8 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `3a6c874`** (`Ship notification controls, data rights, languages
-and launch runbook`). Commit is **local only — not pushed**.
+🟢 **Working tree clean at `ed7f326`** (`feat: version the API contract and record
+architecture decisions`). Commit is **local only — not pushed**.
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -44,9 +44,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Q-5 contract suite + `API_CONTRACT.md` + the `_notify.js` TDZ fix + D-4 ADR set + RT-1/G-3 governance clarifications — see §20 session log |
+| Uncommitted | Nothing — Q-5/D-4 and the governance clarifications are in `ed7f326`; see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3 and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
-| Unpushed | `main` is 2 commits ahead of `origin/main` |
+| Unpushed | `main` is 3 commits ahead of `origin/main` |
 
 ---
 
