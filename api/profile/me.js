@@ -58,7 +58,7 @@ function normalizePrompts(input) {
   return prompts;
 }
 
-function normalizeProfile(input = {}) {
+export function normalizeProfile(input = {}) {
   const age = Number(input.age);
   const interests = Array.isArray(input.interests)
     ? [...new Set(input.interests.map((value) => cleanText(value, 32)).filter(Boolean))].slice(0, 12)
@@ -88,7 +88,7 @@ function normalizeProfile(input = {}) {
   };
 }
 
-function normalizePreferences(input = {}) {
+export function normalizePreferences(input = {}) {
   const min = Number(input.minAge);
   const max = Number(input.maxAge);
   const minAge = Number.isFinite(min) ? Math.min(Math.max(Math.trunc(min), 18), 100) : 18;

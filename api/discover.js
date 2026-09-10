@@ -34,7 +34,7 @@ function genderMatches(current, candidate) {
  * `id` is the target's Telegram id and is unavoidable — the client must be able to name who
  * it is swiping on — but nothing further about their Telegram identity is sent.
  */
-function publicProfile(id, data) {
+export function publicProfile(id, data) {
   const profile = data.profile || {};
   return {
     id: String(id),

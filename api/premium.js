@@ -13,7 +13,7 @@ const INVOICE_DESCRIPTION = {
   fr: 'Voyez qui vous a liké, découverte avancée, plus de Super Likes, visibilité accrue et découverte illimitée.'
 };
 
-function publicPlans() {
+export function publicPlans() {
   return Object.values(premiumPlans()).map((plan) => ({
     id: plan.id,
     stars: plan.stars,

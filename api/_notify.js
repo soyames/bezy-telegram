@@ -17,6 +17,8 @@
 import { telegramApi } from './_telegram.js';
 import { processingPaused } from './_privacy.js';
 
+const DAY_MS = 86400000;
+
 /**
  * `optional` is what the user may turn off. `dailyCap` is the flood ceiling within `windowMs`
  * (default one day): 0 means uncapped, which is correct for events that cannot be generated at
@@ -37,8 +39,6 @@ export const NOTIFICATION_CATEGORIES = {
 
 export const OPTIONAL_CATEGORIES = Object.keys(NOTIFICATION_CATEGORIES)
   .filter((id) => NOTIFICATION_CATEGORIES[id].optional);
-
-const DAY_MS = 86400000;
 
 // Opt-out, not opt-in: a dating app that silently never tells you about your matches is
 // broken. The user can switch either category off at any time.
