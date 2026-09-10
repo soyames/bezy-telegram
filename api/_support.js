@@ -65,12 +65,13 @@ export async function createSupportRequest(firestore, { telegramUserId, category
 
 /** The caller's own requests, newest first. Never anyone else's. */
 export async function listSupportRequests(firestore, telegramUserId, limit = 20) {
+  // Deliberately no orderBy in the query: where + orderBy on different fields would need a
+  // composite index (observed live as a 500 on 2026-09-10), and a user's own requests are a
+  // handful — creation is rate-limited to 3/hour. Sort in memory instead.
   const snap = await firestore.collection('supportRequests')
     .where('telegramUserId', '==', String(telegramUserId))
-    .orderBy('createdAt', 'desc')
-    .limit(Math.min(Number(limit) || 20, 50))
     .get();
-  return snap.docs.map((doc) => {
+  const requests = snap.docs.map((doc) => {
     const d = doc.data() || {};
     const ms = d.createdAt?.toMillis?.() ?? new Date(d.createdAt || 0).getTime();
     return {
@@ -78,9 +79,12 @@ export async function listSupportRequests(firestore, telegramUserId, limit = 20)
       category: SUPPORT_CATEGORIES.includes(d.category) ? d.category : 'problem',
       status: SUPPORT_STATUSES.includes(d.status) ? d.status : 'open',
       details: String(d.details || '').slice(0, SUPPORT_DETAILS_MAX),
-      createdAt: Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null
+      createdAt: Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null,
+      createdAtMs: ms
     };
   });
+  requests.sort((a, b) => b.createdAtMs - a.createdAtMs);
+  return requests.slice(0, Math.min(Number(limit) || 20, 50)).map(({ createdAtMs, ...rest }) => rest);
 }
 
 /**

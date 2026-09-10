@@ -91,3 +91,9 @@ if ($ready) {
     Write-Host "Re-run this script without -VerifyOnly." -ForegroundColor Red
     exit 2
 }
+if ($info.last_error_message) {
+    Write-Host "WARNING: getWebhookInfo reports last_error_message = '$($info.last_error_message)'." -ForegroundColor Yellow
+    Write-Host "Telegram is rejecting updates at the endpoint. The usual cause is TELEGRAM_WEBHOOK_SECRET set in Vercel but not passed here (every update gets 401)." -ForegroundColor Yellow
+    Write-Host "Re-run with `$env:TELEGRAM_WEBHOOK_SECRET set to the same value as Vercel." -ForegroundColor Yellow
+    exit 3
+}

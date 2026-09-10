@@ -211,6 +211,10 @@ section('Error catalogue (version 1)');
 // ---------------------------------------------------------------- support flow (CN-7)
 section('Support flow (contract version 1.2)');
 {
+  // Pinned after a live 500: where + orderBy on different fields requires a composite
+  // index that may not exist. Support and reminder reads must sort in memory instead.
+  check('support reads never rely on a composite index', !/orderBy\(/.test(read('api/_support.js')),
+    'orderBy found in api/_support.js');
   check('support categories are a closed machine-token list',
     SUPPORT_CATEGORIES.length > 0 && SUPPORT_CATEGORIES.every((id) => /^[a-z_]+$/.test(id)));
   check('support statuses are the documented four-state lifecycle',

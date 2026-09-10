@@ -1,5 +1,13 @@
 {
-  "//": "Bezy deliberately uses only queries that Firestore's automatic single-field indexes already cover: users where discoverable == true, matches where participants array-contains uid, and direct document/subcollection reads. Ordering and filtering beyond that is done in the Vercel API so no composite index is required. Add an entry here only when a query genuinely needs one, and deploy it before shipping the query.",
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "supportRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "telegramUserId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }
