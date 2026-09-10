@@ -479,6 +479,23 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 
 Newest first.
 
+### Session — live callback trace: failure chain confirmed mechanically
+- **Evidence:** `allowed_updates` now correct (README prints READY), yet taps stay silent. A
+  local reproduction with the harness (fake bot token, no Firebase env) POSTs a
+  `callback_query` and gets exactly the live symptom: HTTP 200 `{"ok":true}`, one Telegram
+  call — `answerCallbackQuery` (the button spinner stops) — zero `sendMessage`, and the
+  error swallowed into the console only.
+- **Conclusion:** every `support:` path starts with a Firestore read while message commands
+  touch no Firestore — which is why `/support` renders but taps die. When the read fails
+  (most plausibly the exhausted daily read quota, SC-2 — to be confirmed by Vercel's
+  `Callback handling failed:` log line), the handler still answers 200, so Telegram records
+  no error and the user sees nothing.
+- **Production check:** smoke suite green (40/40); no build-freshness drift flagged.
+- **Not changed:** webhook code (no-code-changes constraint). One hardening candidate is
+  proposed, not applied: a user-visible fallback message when the callback path fails.
+- **Next action:** operator confirms the Vercel `Callback handling failed:` line after one
+  tap, then either waits for quota or approves the fallback-message hardening.
+
 ### Session — diagnosis: support-menu buttons dead in the live bot
 - **Symptom reported by the owner:** `/support` renders the category menu (current build's
   exact copy — so the deployment is fresh), but every button tap does nothing; `/settings`
