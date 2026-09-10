@@ -6,9 +6,11 @@ import { processingPaused } from './_privacy.js';
 
 // Premium members receive a small, deterministic ranking boost. It changes ordering only;
 // it never fabricates candidates and never guarantees a match.
-const PREMIUM_VISIBILITY_BOOST = 6;
+export const PREMIUM_VISIBILITY_BOOST = 6;
 
-function genderMatches(current, candidate) {
+// Exported for scripts/diagnose-discover.mjs so the operator diagnostic runs the exact
+// production predicates rather than a reimplementation that could drift.
+export function genderMatches(current, candidate) {
   const currentGender = current?.gender || 'prefer_not_to_say';
   const candidateGender = candidate?.gender || 'prefer_not_to_say';
   const currentSeeking = current?.seeking || 'everyone';
@@ -51,7 +53,7 @@ export function publicProfile(id, data) {
 
 // Stored preferences are written by /api/profile/me. Read defensively so a user who has
 // never opened Filters still gets a sane, unfiltered deck.
-function readPreferences(stored = {}) {
+export function readPreferences(stored = {}) {
   const min = Number(stored.minAge);
   const max = Number(stored.maxAge);
   const minAge = Number.isFinite(min) ? Math.min(Math.max(Math.trunc(min), 18), 100) : 18;
@@ -65,7 +67,7 @@ function readPreferences(stored = {}) {
   };
 }
 
-function sameCity(a, b) {
+export function sameCity(a, b) {
   return Boolean(a) && Boolean(b) && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 }
 
@@ -87,7 +89,7 @@ export function filtersActive(preferences = {}) {
 // power-user concern, it is whether the product works at all — the same reasoning that keeps
 // the age range free. A candidate with no languages listed is never excluded, so the filter
 // narrows the deck for people who set it without punishing profiles that predate the field.
-function matchesPreferences(preferences, currentProfile, candidateProfile, isPremium) {
+export function matchesPreferences(preferences, currentProfile, candidateProfile, isPremium) {
   const age = Number(candidateProfile?.age);
   if (Number.isFinite(age) && (age < preferences.minAge || age > preferences.maxAge)) return false;
   const wanted = preferences.languages || [];
@@ -312,15 +314,23 @@ async function handleDiscover(req, res, user) {
     ...blocksSnap.docs.map((doc) => doc.id),
     ...blockedBySnap.docs.map((doc) => doc.id)
   ]);
-  // Newest first, via the declared composite index (discoverable + createdAt): without an
-  // order the 100-document page would be an arbitrary slice, and candidates beyond it could
-  // be missed across reloads exactly when the market grows (SC-3). The composite index keeps
-  // this deterministic at any pool size; the in-memory scoring still caps the page at 100.
+  // The candidate set is EVERY discoverable user, and eligibility is computed over the whole
+  // set before any ordering. The previous SC-3 query window (`limit(100)` + `orderBy`) is
+  // rejected outright: it silently excluded eligible users beyond the newest 100, `orderBy`
+  // drops documents missing `createdAt`, and `where` + `orderBy` requires a composite index
+  // whose absence turns every deck load into a 500 (see docs/FAILURE_MODES.md — observed live
+  // on the support module). The query is therefore a plain equality over the automatic
+  // single-field index; newest-first ordering is applied in memory below, deterministic at
+  // any pool size, with missing timestamps treated as oldest so no discoverable account is
+  // ever dropped by the query itself. The response page remains 20.
   const candidatesSnap = await db().collection('users')
     .where('discoverable', '==', true)
-    .orderBy('createdAt', 'desc')
-    .limit(100)
     .get();
+  const candidates = candidatesSnap.docs.slice().sort((a, b) => {
+    const aCreated = a.data()?.createdAt?.toMillis?.() ?? 0;
+    const bCreated = b.data()?.createdAt?.toMillis?.() ?? 0;
+    return bCreated - aCreated || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  });
 
   const preferences = readPreferences(currentData.preferences);
   const currentProfile = currentData.profile || {};
@@ -334,7 +344,7 @@ async function handleDiscover(req, res, user) {
   let hardMisses = 0;    // incomplete profile, or reciprocal gender/seeking mismatch
   let decidedMisses = 0; // previously acted on or blocked in either direction
   let preferenceMisses = 0; // excluded by the caller's own filters
-  for (const doc of candidatesSnap.docs) {
+  for (const doc of candidates) {
     if (doc.id === String(user.id) || excluded.has(doc.id)) { decidedMisses++; continue; }
     const data = doc.data() || {};
     // A paused account is already undiscoverable, but it is excluded explicitly as well:
@@ -371,7 +381,7 @@ async function handleDiscover(req, res, user) {
   // looking for) explains it; 'pool' — everyone left has already been decided on.
   function emptyReasonFor() {
     if (eligible.length) return null;
-    if (candidatesSnap.size === 0) return 'no_supply';
+    if (candidates.length === 0) return 'no_supply';
     if (preferenceMisses >= hardMisses && preferenceMisses >= decidedMisses) return 'filters';
     if (hardMisses >= decidedMisses) return 'eligibility';
     return 'pool';

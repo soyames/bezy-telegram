@@ -277,16 +277,21 @@ section('Support flow (contract version 1.2)');
   // index that may not exist. Support and reminder reads must sort in memory instead.
   check('support reads never rely on a composite index', !/orderBy\(/.test(read('api/_support.js')),
     'orderBy found in api/_support.js');
-  // The one deliberate exception (SC-3): discovery pages newest-first over a composite
-  // index. The declared index and the query must agree, or production 500s.
+  // Discovery follows the same discipline after a live discovery failure: the previous
+  // SC-3 window (newest 100 over a composite index) silently excluded eligible users
+  // beyond the window — and dropped documents missing `createdAt` — so the candidate
+  // query must be a plain equality with in-memory newest-first ordering. No query-level
+  // window, no composite index, and the declared indexes must not contain one for users.
+  check('discovery never orders in the query',
+    !/orderBy\(/.test(read('api/discover.js')), 'orderBy found in api/discover.js');
+  check('discovery never windows candidates in the query',
+    !/\.limit\(100\)/.test(read('api/discover.js')), 'limit(100) found in api/discover.js');
+  check('discovery orders newest-first in memory',
+    /createdAt\?\.toMillis/.test(read('api/discover.js')), 'in-memory newest-first sort missing');
   const indexFile = JSON.parse(read('firestore.indexes.json'));
-  const discoverIndex = (indexFile.indexes || []).find((i) => i.collectionGroup === 'users'
-    && JSON.stringify(i.fields) === JSON.stringify([{ fieldPath: 'discoverable', order: 'ASCENDING' }, { fieldPath: 'createdAt', order: 'DESCENDING' }]));
-  check('the discovery composite index is declared for deploy',
-    Boolean(discoverIndex), 'users(discoverable ASC, createdAt DESC) missing from firestore.indexes.json');
-  check('the discovery query matches the declared index',
-    /\.where\('discoverable', '==', true\)[\s\S]{0,80}\.orderBy\('createdAt', 'desc'\)/.test(read('api/discover.js')),
-    'discover.js query drifted from the declared index');
+  check('no users composite index is declared for discovery',
+    !(indexFile.indexes || []).some((i) => i.collectionGroup === 'users'),
+    'a users composite index is still declared; the query no longer needs one');
   check('support categories are a closed machine-token list',
     SUPPORT_CATEGORIES.length > 0 && SUPPORT_CATEGORIES.every((id) => /^[a-z_]+$/.test(id)));
   check('support statuses are the documented four-state lifecycle',

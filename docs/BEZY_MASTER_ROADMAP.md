@@ -45,8 +45,8 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | P0-4 completion record (webhook re-registered with the secret, live evidence) + its session-log entry — see §20 |
-| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
+| Uncommitted | Discovery candidate-window fix (see §20 "discovery candidate window removed"): `api/discover.js` (where-only query, in-memory newest-first sort, whole-pool eligibility), `app.js` (cleared filter input → default bound, not 0), `firestore.indexes.json` (users composite index removed), `tests/discovery.test.mjs` (new pure suite, wired into `npm test`), `tests/backend.test.mjs` (Firestore-backed regression scenarios), `tests/contract.test.mjs` (index-free/window-free pins), `scripts/diagnose-discover.mjs` (read-only operator diagnostic) + its `api/discover.js` predicate exports, this roadmap |
+| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regression scenarios are likewise written but unexecuted |
 | Unpushed | Nothing — pushed at `ad8731b` |
 
 ---
@@ -315,7 +315,7 @@ None started. No unnecessary infrastructure expansion.
 | --- | --- | --- | --- | --- |
 | SC-1 | Vercel behaviour under load | P0 | 🔵 READY | Serverless cold starts, concurrency, function limits |
 | SC-2 | Firestore behaviour under load | P0 | 🔵 READY | Free-tier daily quotas are a real ceiling at campaign scale. **No longer theoretical:** on 2026-09-10 the Spark daily read quota was exhausted by development testing alone — several backend + Playwright runs against the one shared database — which aborted a suite mid-run and blocked all further Firestore reads for the day. Writes continued to work. Two consequences to design for: (a) the test suites and production share a quota, so a busy test day can degrade the live app; (b) an aborted suite can leave synthetic `9000000xx` profiles discoverable, since cleanup itself needs reads. Both argue for a separate test project or emulator before any campaign. **Billing must stay disabled**, so raising the quota is not an available answer |
-| SC-3 | Discovery query scalability | P0 | 🟢 COMPLETE | The discover query is now deterministic newest-first over a declared + **deployed** composite index (`discoverable` + `createdAt`) — the previous unordered 100-document window could miss candidates as the market grew. Contract suite pins the index declaration and the query agreement. At-scale *load* behaviour remains subject to SC-1/SC-2 testing |
+| SC-3 | Discovery query scalability | P0 | 🟡 PARTIAL | After a live discovery failure (an eligible, discoverable user never reached a deck), the SC-3 composite-index window was **removed**: the candidate query is now a plain where-only equality with in-memory newest-first ordering — no query-level window, no composite index, deterministic at any pool size, missing `createdAt` treated as oldest. The response page stays 20. Contract suite pins the index-free, window-free query; the Firestore-backed regression (>100 pool not truncated) is written but unexecuted (quota). At-scale *load* behaviour remains subject to SC-1/SC-2 testing |
 | SC-4 | Rate-limiter scalability | P1 | 🔵 READY | One document per user per request; read-then-write contention unmeasured |
 | SC-5 | Payment webhook reliability under load | P0 | 🔵 READY | Telegram retries on non-200; idempotency is tested but not load-tested |
 | SC-6 | Failure-mode catalogue | P1 | 🟢 COMPLETE | `docs/FAILURE_MODES.md` — per dependency: what the user sees, what the operator sees in the `[bezy-*]` logs, and the response; tied to the deterministic degraded-state e2e spec and the payment symptom table in TELEGRAM_SETUP §2b |
@@ -483,6 +483,32 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — discovery candidate window removed (live failure: an eligible user never reached a deck)
+- **Live incident:** a real, actively-used account with `discoverable: true` never appeared in
+  the caller's Discovery deck; the deck was empty. Root cause class: the SC-3 candidate query
+  (`where discoverable == true` + `orderBy createdAt desc` + `limit 100`) computed eligibility
+  over a bounded, index-dependent window — eligible users beyond the newest 100 were silently
+  unreachable, documents missing `createdAt` were silently dropped by `orderBy`, and the
+  composite-index dependency was exactly the failure shape observed live on `/api/support`
+  (see FAILURE_MODES.md). **Fixed:** the query is now a plain where-only equality (automatic
+  single-field index, no 500 mode); newest-first ordering is applied in memory with missing
+  timestamps treated as oldest; eligibility is computed over the whole pool; the response page
+  stays 20. `firestore.indexes.json` no longer declares a users composite index.
+- **Also fixed:** the Mini App filter form serialized a cleared age input as `0`, which the
+  backend clamps to `maxAge 18` — an accidental all-hiding filter. A missing value now means
+  the default bound.
+- **Coverage:** new pure suite `tests/discovery.test.mjs` (45 checks — the full reciprocal
+  gender/seeking matrix incl. the prefer_not_to_say rule, the eligibility-≠-ranking invariant
+  across pairCompatibility/preferenceFit/freshness/page-diversity/Premium, broad default
+  filters, completeness↔discoverability linkage, the production pair passing every pure gate)
+  wired into `npm test`. Firestore-backed regression scenarios added to
+  `tests/backend.test.mjs` (mutually eligible pair reaches the deck, >100 pool is not
+  truncated, pagination serves every eligible candidate before an honest `pool` empty state).
+  Contract suite re-pins discovery as index-free and window-free (92/0). Localization 188/0.
+  Firestore-backed suites remain **written but unexecuted — credentials/quota unavailable**.
+- Production is **affected** and requires redeployment: the live static bundle matches the
+  working tree, but the fix is not deployed. No deploy was performed in this session.
 
 ### Session — P0-4 cleared: webhook re-registered with the secret
 - The operator re-ran `set-webhook.ps1` with `TELEGRAM_WEBHOOK_SECRET` set to the Vercel

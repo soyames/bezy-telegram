@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vercel dev",
     "harness": "node tests/harness.mjs",
-    "test": "node tests/contract.test.mjs && node tests/localization.test.mjs && node tests/backend.test.mjs && node tests/security.test.mjs",
+    "test": "node tests/contract.test.mjs && node tests/localization.test.mjs && node tests/discovery.test.mjs && node tests/backend.test.mjs && node tests/security.test.mjs",
     "test:contract": "node tests/contract.test.mjs",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:browsers": "playwright test tests/e2e/browsers.spec.js",

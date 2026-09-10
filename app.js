@@ -129,9 +129,12 @@ function openFilters() {
     <p class="filter-note">${escapeHtml(t('app.filters_note'))}</p>
   `, () => {
     languageChips('filter-languages', preferences.languages || []);
+    // An emptied numeric input serializes as Number('') === 0, which the backend clamps to
+    // maxAge 18 — an accidental filter that hides nearly everyone. A missing value means the
+    // default bound instead, so clearing a field can never shrink the deck by accident.
     $('filter-apply').onclick = () => savePreferences({
-      minAge: Number($('filter-min-age').value),
-      maxAge: Number($('filter-max-age').value),
+      minAge: Number($('filter-min-age').value) || 18,
+      maxAge: Number($('filter-max-age').value) || 100,
       city: $('filter-city').value,
       sameCityOnly: $('filter-same-city').checked,
       languages: readLanguageChips('filter-languages')
