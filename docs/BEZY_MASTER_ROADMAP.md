@@ -35,8 +35,8 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `f448c65`** (`chore: record post-commit checkpoint state in the
-roadmap`). Commit is **local only — not pushed**.
+🟢 **Working tree clean at `b968321`** (`fix: register callback_query for the support menu
+and trace the live failure`). **Pushed — `main` is in sync with `origin/main`.**
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -44,9 +44,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Documentation-only plus the webhook `allowed_updates` fix: environment-block note (§20), §19/§0 consistency corrections, and the support-menu diagnosis (script + docs now require `callback_query`) |
+| Uncommitted | Nothing |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
-| Unpushed | `main` is 5 commits ahead of `origin/main` |
+| Unpushed | Nothing — pushed at `b968321` |
 
 ---
 
