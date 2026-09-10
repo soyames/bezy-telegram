@@ -17,3 +17,6 @@ blob-report/
 
 .DS_Store
 Thumbs.db
+
+.vercel
+.env*

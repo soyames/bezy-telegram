@@ -38,32 +38,44 @@ function check(name, ok, detail = '') {
 }
 function section(title) { console.log(`\n== ${title} ==`); }
 
-section('Reciprocal gender/seeking eligibility (the documented matrix)');
+section('Gender/seeking eligibility (the documented matrix, Everyone semantics included)');
 const MATRIX = [
   // caller gender, caller seeking, candidate gender, candidate seeking, expected
+  // Explicit preference stays reciprocal: both directions must accept.
   ['woman', 'women', 'woman', 'women', true],
   ['woman', 'women', 'woman', 'men', false],
   ['woman', 'women', 'man', 'everyone', false],
   ['woman', 'men', 'man', 'women', true],
   ['woman', 'men', 'man', 'men', false],
-  ['woman', 'everyone', 'man', 'women', true],
-  ['woman', 'everyone', 'woman', 'everyone', true],
   ['man', 'women', 'woman', 'men', true],
   ['man', 'men', 'man', 'men', true],
+  ['non_binary', 'women', 'woman', 'everyone', true],
+  // "Everyone" removes the gender/seeking restriction entirely: the caller's own gender
+  // must never decide who is discoverable, and neither must the candidate's seeking.
+  // Regression for the live failure: a caller seeking Everyone could not see a friend
+  // whose own seeking did not accept the caller's gender.
+  ['man', 'everyone', 'man', 'women', true],
+  ['man', 'everyone', 'man', 'men', true],
+  ['woman', 'everyone', 'man', 'women', true],
+  ['woman', 'everyone', 'man', 'everyone', true],
+  ['woman', 'everyone', 'woman', 'everyone', true],
   ['man', 'everyone', 'woman', 'everyone', true],
   ['non_binary', 'everyone', 'man', 'everyone', true],
-  ['non_binary', 'everyone', 'woman', 'women', false],
-  ['non_binary', 'women', 'woman', 'everyone', true],
-  // prefer_not_to_say: only ever accepted by a candidate seeking 'everyone' — never weakened.
+  ['non_binary', 'everyone', 'woman', 'women', true],
   ['prefer_not_to_say', 'everyone', 'woman', 'everyone', true],
-  ['prefer_not_to_say', 'everyone', 'woman', 'women', false],
-  ['prefer_not_to_say', 'everyone', 'man', 'men', false],
+  ['prefer_not_to_say', 'everyone', 'woman', 'women', true],
+  ['prefer_not_to_say', 'everyone', 'man', 'men', true],
   ['woman', 'everyone', 'prefer_not_to_say', 'everyone', true],
-  ['woman', 'women', 'prefer_not_to_say', 'everyone', false],
-  ['woman', 'everyone', 'prefer_not_to_say', 'men', false],
+  ['woman', 'everyone', 'prefer_not_to_say', 'men', true],
   // A missing gender behaves like prefer_not_to_say; a missing seeking like 'everyone'.
   ['', 'everyone', 'woman', 'everyone', true],
-  ['', 'everyone', 'woman', 'women', false]
+  ['', 'everyone', 'woman', 'women', true],
+  // The prefer_not_to_say rule is unchanged for callers with an explicit preference:
+  // a prefer_not_to_say caller passes only candidates seeking 'everyone', and a
+  // prefer_not_to_say candidate is invisible to callers seeking a specific gender.
+  ['prefer_not_to_say', 'women', 'woman', 'everyone', true],
+  ['prefer_not_to_say', 'women', 'woman', 'women', false],
+  ['woman', 'women', 'prefer_not_to_say', 'everyone', false]
 ];
 for (const [cg, cs, tg, ts, expected] of MATRIX) {
   check(`gender "${cg || '∅'}" seeking "${cs}" vs gender "${tg}" seeking "${ts}" -> ${expected}`,

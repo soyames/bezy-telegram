@@ -1404,6 +1404,18 @@ try {
     for (const id of windowIds) await firestore.collection('users').doc(String(id)).delete();
   }
 
+  // Everyone semantics (live regression): a caller seeking Everyone must see every
+  // discoverable, otherwise-eligible profile — the caller's own gender must never decide
+  // discoverability, and neither must the candidate's seeking. The pair below was the exact
+  // live failure: caller male + Everyone could not see a male friend seeking Women.
+  await cleanup();
+  await seedAll();
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, gender: 'man', seeking: 'everyone' } });
+  r = await call('/api/discover', 'a');
+  check('Everyone: a male caller sees a male candidate who seeks women',
+    (r.data.profiles || []).some((p) => p.id === '900000002'), (r.data.profiles || []).map((p) => p.id).join(','));
+  check('Everyone: the deck is not reported empty', r.data.emptyReason === null, JSON.stringify(r.data.emptyReason));
+
   // Pagination: deciding through one page must surface the next, until every eligible
   // candidate has appeared — and only then may the deck report itself empty.
   await cleanup();

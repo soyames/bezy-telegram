@@ -30,3 +30,14 @@ test('the terms page renders in both languages on every engine', async ({ page }
   await page.goto('/terms?lang=fr');
   await expect(page.locator('#content h1')).toContainText('Conditions');
 });
+
+test('the gender select never pre-selects a value on every engine', async ({ page }) => {
+  // Regression for the live discovery failure: "I am" used to default to prefer_not_to_say,
+  // which made new accounts invisible to everyone seeking a specific gender. The profile
+  // form must start on the placeholder and require an explicit choice.
+  await page.goto('/?as=a');
+  const gender = page.locator('#gender');
+  await expect(gender).toHaveValue('');
+  await expect(gender.locator('option:checked')).toHaveText('Choose…');
+  await expect(gender).toHaveJSProperty('required', true);
+});
