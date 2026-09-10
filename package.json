@@ -13,7 +13,10 @@
     "test:e2e": "playwright test",
     "test:all": "npm test && npm run test:e2e",
     "test:security": "node tests/security.test.mjs",
-    "test:localization": "node tests/localization.test.mjs"
+    "test:localization": "node tests/localization.test.mjs",
+    "test:smoke": "node tests/smoke.test.mjs",
+    "retention": "node scripts/retention.mjs",
+    "reminders": "node scripts/profile-reminders.mjs"
   },
   "dependencies": {
     "firebase-admin": "^13.5.0"

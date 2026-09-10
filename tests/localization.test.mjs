@@ -42,7 +42,9 @@ for (const [lang, cat] of Object.entries(LOCALES)) {
 // A French catalogue that simply copies the English string is a silent fallback.
 const identical = Object.keys(en).filter((k) => en[k] === fr[k]);
 // Words that are legitimately identical in both languages.
-const ALLOWED_IDENTICAL = new Set(['messages', 'super', 'premium_title', 'plan', 'language_name', 'reason_spam']);
+const ALLOWED_IDENTICAL = new Set(['messages', 'super', 'premium_title', 'plan', 'language_name', 'reason_spam', 'notifications_title',
+  // Language names that are spelled the same in French.
+  'language_sw', 'language_yo']);
 const suspicious = identical.filter((k) => !ALLOWED_IDENTICAL.has(k));
 check('no French string silently duplicates the English one', suspicious.length === 0,
   suspicious.map((k) => `${k}="${en[k]}"`).join(' | '));
@@ -65,6 +67,9 @@ section('Dynamically built key families are complete');
 const FAMILIES = {
   'plan_': ['monthly', 'quarterly', 'yearly'],
   'reason_': ['harassment', 'spam', 'scam', 'fake_profile', 'inappropriate_content', 'underage', 'other'],
+  'prompt_': ['perfect_sunday', 'i_value', 'first_date', 'should_know', 'talk_for_hours'],
+  'notify_': ['matches', 'super_likes'],
+  'language_': ['en', 'fr', 'es', 'pt', 'ar', 'de', 'it', 'ru', 'sw', 'yo'],
   '': ['block', 'unmatch', 'block_confirm', 'unmatch_confirm', 'block_done', 'unmatch_done']
 };
 for (const [prefix, members] of Object.entries(FAMILIES)) {
@@ -82,7 +87,7 @@ const mapped = Object.fromEntries([...errorBlock.matchAll(/([A-Z_]{4,}):\s*'app\
 const USER_REACHABLE = [
   'RATE_LIMITED', 'PREMIUM_REQUIRED', 'AGE_CONFIRMATION_REQUIRED', 'TARGET_NOT_FOUND',
   'DATABASE_UNAVAILABLE', 'INVALID_SESSION', 'PROFILE_NOT_FOUND',
-  'DISCOVERY_LIMIT_REACHED', 'SUPER_LIKE_LIMIT_REACHED'
+  'DISCOVERY_LIMIT_REACHED', 'SUPER_LIKE_LIMIT_REACHED', 'PROCESSING_RESTRICTED'
 ];
 for (const code of USER_REACHABLE) {
   const key = mapped[code];
@@ -92,24 +97,119 @@ for (const code of USER_REACHABLE) {
 check('the typed delete confirmation stays the literal DELETE in every language',
   Object.values(LOCALES).every((cat) => /DELETE/.test(cat.delete_type)),
   `en="${en.delete_type}" fr="${fr.delete_type}"`);
+// Removed keys must not reappear. `premium_soon` in particular claimed Premium was
+// "coming soon" long after it shipped.
+for (const dead of ['premium_soon', 'people_nearby', 'adults_only']) {
+  check(`removed key "${dead}" has not come back`,
+    !(dead in en) && !(dead in fr) && !app.includes(`${dead}:`), `en=${dead in en} fr=${dead in fr}`);
+}
 check('the long-wait rate-limit variant keeps its {n} placeholder',
   en.rate_limited_minutes?.includes('{n}') && fr.rate_limited_minutes?.includes('{n}'));
+
+// Prompt ids are machine tokens shared between the Mini App and the API. If the two lists
+// drift, a stored answer renders as a raw token or is silently discarded on save.
+section('Prompt ids are machine tokens and stay in sync');
+const idList = (source, name) => {
+  const raw = new RegExp(`(?:export )?const ${name} = \\[([^\\]]*)\\]`).exec(source)?.[1] || '';
+  return [...raw.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
+};
+const apiPromptIds = idList(read('api/profile/me.js'), 'PROMPT_IDS');
+const appPromptIds = idList(app, 'PROMPT_IDS');
+check('the Mini App and the API agree on the prompt ids',
+  apiPromptIds.length > 0 && JSON.stringify(apiPromptIds) === JSON.stringify(appPromptIds),
+  `api=${apiPromptIds.join(',')} app=${appPromptIds.join(',')}`);
+
+// The same contract for notification categories, with one addition: `account` is deliberately
+// absent from the Mini App list. Transactional messages are not the user's to switch off, so a
+// toggle for them must never appear.
+const notify = read('api/_notify.js');
+const apiOptionalCategories = [...notify.matchAll(/^ {2}([a-z_]+): \{ optional: (true|false)/gm)]
+  .filter((m) => m[2] === 'true').map((m) => m[1]);
+const appCategories = idList(app, 'NOTIFICATION_CATEGORIES');
+check('the Mini App offers exactly the notification categories the API lets users control',
+  apiOptionalCategories.length > 0 && JSON.stringify(apiOptionalCategories) === JSON.stringify(appCategories),
+  `api=${apiOptionalCategories.join(',')} app=${appCategories.join(',')}`);
+check('transactional notifications are not offered as a toggle', !appCategories.includes('account'));
+check('every notification category has a label in both languages',
+  apiOptionalCategories.every((id) => en[`notify_${id}`] && fr[`notify_${id}`]),
+  apiOptionalCategories.filter((id) => !en[`notify_${id}`] || !fr[`notify_${id}`]).join(','));
+check('every prompt id has a question in both languages',
+  apiPromptIds.every((id) => en[`prompt_${id}`] && fr[`prompt_${id}`]),
+  apiPromptIds.filter((id) => !en[`prompt_${id}`] || !fr[`prompt_${id}`]).join(','));
+check('no prompt id leaked into either catalogue as a translatable value',
+  Object.values(en).concat(Object.values(fr)).every((value) => !apiPromptIds.includes(value)));
+
+// Language ids are ISO 639-1 codes stored on profiles and preferences. If the two lists drift,
+// a stored language renders as a raw code or is silently dropped on save.
+const apiLanguageIds = idList(read('api/profile/me.js'), 'LANGUAGE_IDS');
+const appLanguageIds = idList(app, 'LANGUAGE_IDS');
+check('the Mini App and the API agree on the language ids',
+  apiLanguageIds.length > 0 && JSON.stringify(apiLanguageIds) === JSON.stringify(appLanguageIds),
+  `api=${apiLanguageIds.join(',')} app=${appLanguageIds.join(',')}`);
+check('every language id has a display name in both languages',
+  apiLanguageIds.every((id) => en[`language_${id}`] && fr[`language_${id}`]),
+  apiLanguageIds.filter((id) => !en[`language_${id}`] || !fr[`language_${id}`]).join(','));
+check('language ids are never themselves used as a translated value',
+  Object.values(en).concat(Object.values(fr)).every((value) => !apiLanguageIds.includes(value)));
+// The catalogue must name the language, not echo the code — "fr" as a display name would be
+// a machine token leaking into the interface.
+check('language display names are real words, not codes',
+  apiLanguageIds.every((id) => en[`language_${id}`].length > 2 && fr[`language_${id}`].length > 2));
+for (const [key, token] of [['why_interests', '{values}'], ['why_city', '{values}'], ['starter_interest', '{value}'], ['starter_city', '{value}']]) {
+  check(`"${key}" keeps its ${token} placeholder in both languages`,
+    en[key]?.includes(token) && fr[key]?.includes(token), `en="${en[key]}" fr="${fr[key]}"`);
+}
 
 // ---------------------------------------------------------------- feature coverage
 section('Feature areas are covered in both languages');
 const AREAS = {
   'age gate': ['age_gate_title', 'age_gate_body', 'age_confirm', 'age_deny', 'age_note', 'age_blocked_title', 'age_blocked_body'],
-  premium: ['premium_intro', 'choose_plan', 'subscribe_with_stars', 'active_until', 'days_remaining', 'premium_active', 'stars_note', 'stars_needed', 'not_telegram_premium'],
+  premium: ['premium_intro', 'choose_plan', 'subscribe_with_stars', 'active_until', 'days_remaining', 'premium_active', 'stars_note', 'stars_needed', 'not_telegram_premium', 'premium_expired', 'premium_revoked', 'premium_lapsed_hint'],
   payment: ['preparing_checkout', 'payment_cancelled', 'payment_failed', 'payment_received', 'payment_pending', 'payment_processing'],
   deletion: ['delete_account', 'delete_explain', 'delete_retained', 'delete_type', 'delete_done_title', 'delete_done_body'],
   export: ['export_data', 'export_preparing', 'export_ready'],
   safety: ['block', 'unblock', 'report', 'unmatch', 'report_reason', 'report_send', 'report_note', 'blocked_people', 'no_blocked'],
   'empty and loading states': ['loading', 'no_matches', 'no_profiles', 'no_conversations', 'no_likes_yet', 'complete_profile'],
-  'rate limiting': ['rate_limited', 'rate_limited_minutes']
+  'rate limiting': ['rate_limited', 'rate_limited_minutes'],
+  prompts: ['prompts_title', 'prompts_hint', 'prompt_placeholder', 'prompt_none', 'prompts_select_label', 'prompts_answer_label'],
+  'profile preview': ['preview_profile', 'preview_title', 'preview_hint', 'preview_incomplete'],
+  'why you matched': ['why_matched', 'why_interests', 'why_city', 'why_age', 'why_none'],
+  'conversation starters': ['starters_title', 'starters_hint', 'starter_interest', 'starter_city', 'starter_generic', 'starter_copy', 'starter_copied'],
+  'notification preferences': ['notifications_title', 'notifications_hint', 'notify_matches', 'notify_super_likes', 'notify_super_likes_note', 'notify_profile_reminders', 'notify_profile_reminders_note', 'notifications_saved'],
+  languages: ['languages_label', 'languages_hint', 'filter_languages', 'filter_languages_hint'],
+  'restriction of processing': ['restrict_title', 'restrict_explain', 'restrict_action', 'restrict_confirm', 'restricted_badge', 'restricted_notice', 'unrestrict_action', 'restrict_done', 'unrestrict_done', 'restrict_note', 'error_processing_restricted'],
+  'objection to processing': ['objection_title', 'objection_explain', 'objection_confirm', 'object_action', 'objection_badge', 'objection_notice', 'unobject_action', 'objection_done', 'unobject_done', 'objection_note'],
+  'help and support': ['support_title', 'support_intro', 'support_email']
 };
 for (const [area, keys] of Object.entries(AREAS)) {
   const gaps = keys.filter((k) => !en[k] || !fr[k]);
   check(`${area} is fully localized`, gaps.length === 0, gaps.join(','));
+}
+
+// ---------------------------------------------------------------- static markup
+section('No hardcoded copy in runtime-populated elements');
+// Anything applyLocale() or a render function fills must ship empty. Otherwise a French user
+// sees an English flash on every load, and the markup can drift out of sync with the
+// catalogues — `people-label` once shipped "people nearby" after that key was deleted.
+{
+  const html = read('index.html');
+  const RUNTIME_FILLED = [
+    'discover-loading', 'premium-loading', 'people-label', 'match-label', 'new-label',
+    'my-name', 'profile-status', 'my-avatar', 'prompts-hint', 'prompts-list',
+    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice'
+  ];
+  for (const id of RUNTIME_FILLED) {
+    const m = new RegExp(`id="${id}"[^>]*>([^<]*)<`).exec(html);
+    check(`#${id} ships empty rather than hardcoded copy`, m !== null && m[1].trim() === '',
+      m ? `found ${JSON.stringify(m[1])}` : 'element not found');
+  }
+  // And each must actually be populated at runtime, or emptying it would leave a blank.
+  const populated = new Set([...app.matchAll(/setText\('([^']+)'/g)].map((m) => m[1]));
+  const byRender = ['my-name', 'profile-status', 'my-avatar', 'prompts-list', 'notification-list', 'restriction-notice', 'objection-notice'];
+  for (const id of RUNTIME_FILLED) {
+    check(`#${id} is populated at runtime`, populated.has(id) || byRender.includes(id),
+      'neither setText nor a render function fills it');
+  }
 }
 
 // ---------------------------------------------------------------- machine identifiers
@@ -122,7 +222,9 @@ const FORBIDDEN_IN_VALUES = [
   [/tg:\/\//, 'a Telegram deep link'],
   // `delete_type` is exempt on purpose: the word DELETE is a literal the user must type,
   // and the API compares it exactly, so translating it would break the confirmation.
-  [/\b[A-Z][A-Z_]{3,}\b/, 'a machine error code', ['delete_type']],
+  // `objection_explain` names the GDPR / RGPD and its article on purpose — a legal reference
+  // the user is entitled to see, not a machine token.
+  [/\b[A-Z][A-Z_]{3,}\b/, 'a machine error code', ['delete_type', 'objection_explain']],
   [/\bTELEGRAM_BOT_TOKEN|FIREBASE_[A-Z_]+|BEZY_MINI_APP_URL\b/, 'an environment variable']
 ];
 for (const [lang, cat] of Object.entries(LOCALES)) {
@@ -141,6 +243,19 @@ for (const route of CANONICAL_ROUTES) {
   check(`API constant still points at ${route}`, apiConst.includes(`'${route}'`), apiConst.slice(0, 200));
 }
 check('the API constant contains no localized route', !/decouvrir|matchs|profil['"]|compte|abonnement/.test(apiConst), apiConst.slice(0, 200));
+
+// The support address is a machine token: the in-app entry point and both catalogues must
+// all name the same canonical address, or a user could be pointed at a lookalike.
+const supportMailto = /id="support-email-btn"[^>]*href="mailto:([^"]+)"/.exec(read('index.html'))?.[1] || '';
+check('the support button links to the canonical support address',
+  supportMailto === 'contacts@digitalconcordia.com', supportMailto || 'element not found');
+check('both catalogues name the canonical support address',
+  en.rights_note.includes('contacts@digitalconcordia.com') && fr.rights_note.includes('contacts@digitalconcordia.com'));
+
+// The outside-Telegram gate is the only path a web visitor has into the app, so it must link
+// the canonical bot — a lookalike link here would hand every web visitor to an impostor.
+check('the outside-Telegram gate links the canonical bot',
+  /https:\/\/t\.me\/BezyDatingBot/.test(app), 'bot link not found in the gate');
 
 // Route files on disk must stay language-neutral.
 const apiFiles = [];

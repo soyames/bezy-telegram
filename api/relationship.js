@@ -1,6 +1,7 @@
 import { db } from './_firebase.js';
-import { requirePost, requireTelegramUser } from './_telegram.js';
+import { requirePost, requireTelegramUser, normalizedLanguage } from './_telegram.js';
 import { rateLimit } from './_ratelimit.js';
+import { deliverNotification } from './_notify.js';
 
 // Safety actions for a dating service: block, unblock, report and unmatch.
 // All of them are enforced server-side — hiding a button is not a safety control.
@@ -13,6 +14,20 @@ const DETAILS_MAX = 1000;
 
 function matchId(a, b) {
   return [String(a), String(b)].sort().join('_');
+}
+
+/**
+ * The one safety action that warrants a bot message: filing a report hands the matter to a
+ * human moderator, and the acknowledgment is the reporter's record that it was received.
+ * Deliberately identical whether or not the target account exists — a differing
+ * acknowledgment would let a caller probe account existence through the bot chat.
+ * Blocks, unblocks and unmatches stay silent: their effect is visible in the app itself.
+ */
+function reportAcknowledgment(language) {
+  if (language === 'fr') {
+    return 'Nous avons bien reçu votre signalement et nous allons l’examiner. En cas de danger immédiat, contactez les autorités locales.';
+  }
+  return 'We received your report and will look into it. If someone is in immediate danger, contact your local authorities.';
 }
 
 /**
@@ -160,7 +175,10 @@ export default async function handler(req, res) {
     if (action === 'report') {
       // A report about a non-existent account is accepted in appearance but not stored:
       // there is nothing to moderate, and storing it would let anyone fill the moderation
-      // queue with entries for arbitrary Telegram ids.
+      // queue with entries for arbitrary Telegram ids. The acknowledgment below is sent in
+      // both cases and is identical, so it cannot be used to tell the two apart.
+      const ack = reportAcknowledgment(normalizedLanguage(selfSnap.data()?.languageCode));
+      deliverNotification(firestore, selfSnap.data() || {}, 'account', { text: ack });
       if (!targetExists) return res.status(200).json({ ok: true, reported: true, reason: REPORT_REASONS.has(req.body?.reason) ? req.body.reason : 'other' });
       return res.status(200).json({ ok: true, ...(await report(firestore, userId, targetId, req.body)) });
     }

@@ -24,9 +24,18 @@
     .membership{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:18px;margin-bottom:12px}.membership .kv{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}.membership .kv:last-child{border-bottom:0}.membership .kv span{color:var(--muted)}
     .liker-list{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:10px}.liker{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden}.liker-photo{height:120px;display:grid;place-items:center;color:#fff;font-size:34px;font-weight:800;background:linear-gradient(145deg,#d9a7c8,#5f416f)}.liker-photo img{width:100%;height:100%;object-fit:cover}.liker-info{padding:10px}.liker-info b{font-size:13px}.liker-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}.liker-actions button{border:0;border-radius:10px;padding:8px 0;font-size:11px;font-weight:800;cursor:pointer}
     .locked{background:var(--card);border:1px dashed var(--line);border-radius:18px;padding:20px;text-align:center;color:var(--muted);font-size:13px;margin-top:10px}.locked b{display:block;color:var(--text);font-size:15px;margin-bottom:4px}
+    .lapsed-notice{background:#fff6f6;border:1px solid #f3c9c9;border-radius:18px;padding:16px 18px;color:var(--muted);font-size:13px;line-height:1.5;margin-bottom:12px}.lapsed-notice b{display:block;color:var(--text);font-size:15px;margin-bottom:4px}
     .quota-note{font-size:11px;color:var(--muted);margin-top:10px;text-align:center}
     .age-gate{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:26px 20px;text-align:center;margin-top:28px}.age-badge{width:64px;height:64px;border-radius:22px;margin:0 auto 16px;display:grid;place-items:center;font-size:22px;font-weight:900;color:#fff;background:linear-gradient(145deg,#8b5cf6,#ec4899)}.age-gate h2{font-size:20px;line-height:1.35;margin:0 0 10px;letter-spacing:-.4px}.age-gate p{color:var(--muted);font-size:13px;line-height:1.5;margin:0 0 18px}.age-gate .save-btn{margin-bottom:2px}
     body.age-gated .bottom{display:none}body.age-gated .top .icon-btn{visibility:hidden}
+    .prompt-row{display:grid;gap:6px;margin-bottom:10px}.prompt-row select,.prompt-row input{width:100%;border:1px solid var(--line);background:#fbfafc;border-radius:13px;padding:11px 12px;color:var(--text);outline:none}
+    .card-prompts{display:grid;gap:8px;padding:14px 15px 0}.card-prompt{background:var(--soft);border-radius:16px;padding:11px 13px}.card-prompt b{display:block;font-size:11px;color:#6d28d9;font-weight:800;margin-bottom:3px}.card-prompt p{margin:0;font-size:13px;line-height:1.4}
+    /* Scoped to beat ".match-info span", which these chips would otherwise inherit. */
+    .why-matched{margin-top:9px}.why-matched .why-label{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}.why-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}.why-chips .why-chip{display:inline-block;margin-top:0;background:var(--soft);color:#6d28d9;border-radius:999px;padding:4px 9px;font-size:10px;font-weight:700;line-height:1.3}
+    .field-label{font-size:11px;color:var(--muted);font-weight:700}.chip-set{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 6px}.chip{border:1px solid var(--line);background:#fbfafc;color:var(--muted);border-radius:999px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer}.chip[aria-pressed="true"]{border-color:#b794f6;background:var(--soft);color:#6d28d9}
+    .restricted-notice{background:#fff8ed;border:1px solid #f0d9b0;border-radius:18px;padding:14px 16px;color:var(--muted);font-size:12px;line-height:1.5;margin-bottom:10px}.restricted-notice b{display:block;color:var(--text);font-size:14px;margin-bottom:4px}
+    .notify-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.notify-row:last-child{border-bottom:0}.notify-row .notify-text{min-width:0}.notify-row b{display:block;font-size:13px}.notify-row small{display:block;color:var(--muted);font-size:11px;margin-top:3px;line-height:1.4}.notify-row input{accent-color:var(--accent);width:20px;height:20px;flex:0 0 auto;margin-top:2px}
+    .starter{background:#fbfafc;border:1px solid var(--line);border-radius:16px;padding:12px 13px;margin-bottom:9px}.starter p{margin:0 0 9px;font-size:13px;line-height:1.45}.starter button{border:0;background:var(--soft);color:#6d28d9;border-radius:11px;padding:7px 12px;font-size:11px;font-weight:800;cursor:pointer}
     @media(max-width:360px){.portrait{height:390px}.app{padding-left:12px;padding-right:12px}.hero h2{font-size:25px}.two-col{grid-template-columns:1fr}}
   </style>
 </head>
@@ -40,8 +49,8 @@
     <section class="view active" id="discover-view">
       <div class="hero"><h2 id="discover-title">Find your kind of connection.</h2><p id="discover-intro">Real people. Mutual interest. Conversations that stay on Telegram.</p></div>
       <div class="section-head"><h3 id="for-you">For you</h3><button id="filterBtn" type="button">Filters</button></div>
-      <div id="discover-content"><div class="loading" id="discover-loading">Loading…</div></div>
-      <div class="stats" id="discover-stats"><div class="stat"><b id="people-count">—</b><span id="people-label">people nearby</span></div><div class="stat"><b id="match-percent">—</b><span id="match-label">best match</span></div><div class="stat"><b id="new-count">—</b><span id="new-label">new today</span></div></div>
+      <div id="discover-content"><div class="loading" id="discover-loading"></div></div>
+      <div class="stats" id="discover-stats"><div class="stat"><b id="people-count">—</b><span id="people-label"></span></div><div class="stat"><b id="match-percent">—</b><span id="match-label"></span></div><div class="stat"><b id="new-count">—</b><span id="new-label"></span></div></div>
       <div class="premium"><div class="row"><div><h3 id="premium-card-title">✨ Bezy Premium</h3><p id="premium-copy">See who liked you, unlock advanced discovery and get more ways to connect.</p></div><div class="stars">⭐</div></div><button class="primary" id="premiumBtn" type="button">View membership</button></div>
     </section>
 
@@ -71,15 +80,15 @@
 
     <section class="view" id="premium-view">
       <div class="section-head"><h3 id="premium-title">Bezy Premium</h3><button type="button" id="premium-back">Discover</button></div>
-      <div id="premium-content"><div class="loading" id="premium-loading">Loading…</div></div>
+      <div id="premium-content"><div class="loading" id="premium-loading"></div></div>
     </section>
 
     <section class="view" id="profile-view">
       <div class="section-head"><h3 id="profile-title">My profile</h3><button type="button" id="profile-refresh">Refresh</button></div>
       <div class="settings-card">
-        <div class="big-avatar" id="my-avatar">B</div>
-        <h2 id="my-name">Bezy member</h2>
-        <p id="profile-status">Complete your profile to start discovering people.</p>
+        <div class="big-avatar" id="my-avatar"></div>
+        <h2 id="my-name"></h2>
+        <p id="profile-status"></p>
       </div>
       <form class="settings-card" id="profile-form">
         <h3 id="edit-profile">Edit profile</h3>
@@ -88,25 +97,44 @@
         <div class="two-col"><div class="field"><label for="gender" id="gender-label">I am</label><select id="gender"><option value="woman">Woman</option><option value="man">Man</option><option value="non_binary">Non-binary</option><option value="prefer_not_to_say">Prefer not to say</option></select></div><div class="field"><label for="seeking" id="seeking-label">Looking for</label><select id="seeking"><option value="women">Women</option><option value="men">Men</option><option value="everyone">Everyone</option></select></div></div>
         <div class="field"><label for="interests" id="interests-label">Interests</label><input id="interests" maxlength="240" placeholder="Travel, music, books"></div>
         <div class="field"><label for="bio" id="bio-label">About me</label><textarea id="bio" maxlength="500"></textarea></div>
+        <div class="field"><span class="field-label" id="languages-label">Languages I speak</span><div class="chip-set" id="languages-list" role="group" aria-labelledby="languages-label"></div><small class="filter-note" id="languages-hint" style="margin:0"></small></div>
+        <h3 id="prompts-title">Prompts</h3>
+        <p class="filter-note" id="prompts-hint" style="margin:0 2px 10px"></p>
+        <div id="prompts-list"></div>
         <label class="check"><input id="discoverable" type="checkbox"> <span id="discoverable-label">Show my profile in Discover</span></label>
         <button class="save-btn" type="submit" id="save-profile">Save profile</button>
+        <button class="ghost-btn" type="button" id="preview-profile-btn">Preview my profile</button>
       </form>
       <div class="settings-card">
         <h3 id="language-title">Language</h3>
         <div class="language-list"><button class="language-btn" data-language="en" type="button">🇬🇧 English</button><button class="language-btn" data-language="fr" type="button">🇫🇷 Français</button></div>
       </div>
       <div class="settings-card">
+        <h3 id="notifications-title">Notifications</h3>
+        <p class="filter-note" id="notifications-hint" style="margin:0 2px 12px"></p>
+        <div id="notification-list"></div>
+      </div>
+      <div class="settings-card">
         <h3 id="safety-title">Safety & privacy</h3>
         <p class="filter-note" id="safety-intro"></p>
+        <div id="restriction-notice"></div>
+        <div id="objection-notice"></div>
         <button class="ghost-btn" id="blocked-list-btn" type="button">Blocked people</button>
         <button class="ghost-btn" id="export-data-btn" type="button">Download my data</button>
+        <button class="ghost-btn" id="restrict-btn" type="button">Pause processing</button>
+        <button class="ghost-btn" id="object-btn" type="button">Object to processing</button>
         <button class="ghost-btn" id="delete-account-btn" type="button" style="color:var(--danger);border-color:#f3c9c9">Delete my account</button>
         <p class="filter-note" id="rights-note"></p>
       </div>
       <div class="settings-card">
         <h3 id="legal-title">Legal & privacy</h3>
         <div class="legal-links"><a href="/privacy?lang=en" id="privacy-link">Privacy</a><a href="/terms?lang=en" id="terms-link">Terms</a></div>
-    </div>
+      </div>
+      <div class="settings-card">
+        <h3 id="support-title">Help & support</h3>
+        <p class="filter-note" id="support-intro" style="margin:0 2px 12px"></p>
+        <a class="ghost-btn" id="support-email-btn" href="mailto:contacts@digitalconcordia.com">Email support</a>
+      </div>
     </section>
   </main>
 

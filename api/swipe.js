@@ -1,7 +1,9 @@
 import { db } from './_firebase.js';
-import { telegramApi, miniAppUrl, requirePost, requireTelegramUser, telegramUserLink, normalizedLanguage } from './_telegram.js';
+import { miniAppUrl, requirePost, requireTelegramUser, telegramUserLink, normalizedLanguage } from './_telegram.js';
 import { isPremiumActive, checkSwipeQuota } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
+import { deliverNotification } from './_notify.js';
+import { processingPaused } from './_privacy.js';
 
 const ACTIONS = new Set(['like', 'super', 'pass']);
 
@@ -19,15 +21,40 @@ function matchMessage(language, name) {
     : `💜 You matched with ${name}! You both liked each other.\n\nYour conversation continues on Telegram — messages, voice and video calls included.`;
 }
 
-async function notifyMatch(user, other, language) {
+async function notifyMatch(firestore, user, other, language) {
   const otherName = other.profile?.displayName || other.firstName || (language === 'fr' ? 'votre match' : 'your match');
   const openChatText = language === 'fr' ? '💬 Ouvrir la conversation' : '💬 Open Telegram chat';
   const openBezyText = language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy';
   const buttons = [[{ text: openChatText, url: telegramUserLink(other) }], [{ text: openBezyText, web_app: { url: miniAppUrl('matches') } }]];
-  await telegramApi('sendMessage', {
-    chat_id: user.telegramId,
+  return deliverNotification(firestore, user, 'matches', {
     text: matchMessage(language, otherName),
     reply_markup: { inline_keyboard: buttons }
+  });
+}
+
+/**
+ * Super Like notification.
+ *
+ * Deliberately anonymous. Naming the sender would hand out, for free and unprompted, exactly
+ * what /api/likes charges Premium members to see — and, more importantly, it would disclose
+ * someone's interest before the recipient has expressed any of their own. The message says
+ * that it happened and points back to the deck, where the recipient decides for themselves.
+ *
+ * It carries no name, no photo, no @username and no id, and it is sent only when the super
+ * like did not already produce a match: a match notification says more and supersedes it.
+ */
+function superLikeMessage(language) {
+  return language === 'fr'
+    ? '⭐ Quelqu’un vous a envoyé un Super Like sur Bezy.\n\nContinuez à découvrir — si vous l’aimez en retour, c’est un match.'
+    : '⭐ Someone super liked you on Bezy.\n\nKeep discovering — if you like them back, it\'s a match.';
+}
+
+async function notifySuperLike(firestore, recipient) {
+  const language = normalizedLanguage(recipient.languageCode);
+  const openBezyText = language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy';
+  return deliverNotification(firestore, recipient, 'super_likes', {
+    text: superLikeMessage(language),
+    reply_markup: { inline_keyboard: [[{ text: openBezyText, web_app: { url: miniAppUrl('discover') } }]] }
   });
 }
 
@@ -67,6 +94,11 @@ export default async function handler(req, res) {
       // here as well as in the profile endpoint so a direct API call cannot bypass the gate.
       // It is evaluated before anything about the target is considered, so an ineligible
       // caller learns nothing — not even whether a given profile exists.
+      // A paused account (Art. 18 restriction or Art. 21 objection) can neither act nor be
+      // acted on. It is evaluated before the target is considered, so a paused caller learns
+      // nothing. One error code covers both states: the operational effect is identical, and
+      // the account and profile endpoints report which legal state is in force.
+      if (processingPaused(currentData)) throw new Error('PROCESSING_RESTRICTED');
       if (currentData.ageEligibilityConfirmed !== true) throw new Error('AGE_CONFIRMATION_REQUIRED');
 
       // Anti-enumeration: "no account", "not discoverable" and "blocked in either
@@ -75,6 +107,9 @@ export default async function handler(req, res) {
       // for a dating service is exactly the kind of disclosure that must not be possible.
       const targetData = targetSnap.exists ? targetSnap.data() : null;
       const reachable = Boolean(targetData)
+        // A paused account is not processed for anyone, and is unreachable through the
+        // same identical error as every other unreachable case.
+        && !processingPaused(targetData)
         && targetData.profileComplete === true
         // A hidden profile is unreachable too. Without this, a caller could distinguish
         // "no Bezy account" from "has an account but is not discoverable".
@@ -122,6 +157,10 @@ export default async function handler(req, res) {
       return {
         matched,
         created: matched && !existingMatch.exists,
+        // A super like only warrants its own notification when the recipient has not already
+        // decided about the sender — telling someone about a profile they have already passed
+        // on is noise, not news.
+        superLiked: action === 'super' && !matched && !reciprocalSnap.exists && !alreadyActioned,
         target: targetSnap.data() || {}
       };
     });
@@ -132,9 +171,11 @@ export default async function handler(req, res) {
       const language = normalizedLanguage(user.language_code);
       const targetLanguage = normalizedLanguage(result.target.languageCode);
       await Promise.allSettled([
-        notifyMatch(current, result.target, language),
-        notifyMatch(result.target, current, targetLanguage)
+        notifyMatch(firestore, current, result.target, language),
+        notifyMatch(firestore, result.target, current, targetLanguage)
       ]);
+    } else if (result.superLiked) {
+      await notifySuperLike(firestore, result.target);
     }
 
     return res.status(200).json({ ok: true, action, matched: result.matched });
@@ -143,6 +184,7 @@ export default async function handler(req, res) {
     // Only the expected, user-meaningful case is surfaced; internal database errors
     // must not leak their text to the Mini App.
     if (error.message === 'TARGET_NOT_FOUND') return res.status(404).json({ error: error.message });
+    if (error.message === 'PROCESSING_RESTRICTED') return res.status(403).json({ error: error.message });
     if (error.message === 'AGE_CONFIRMATION_REQUIRED') return res.status(403).json({ error: error.message });
     if (error.quota) return res.status(403).json({ error: error.quota.reason, limits: error.quota.limits, isPremium: error.quota.isPremium });
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });

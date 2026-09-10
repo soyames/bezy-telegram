@@ -10,7 +10,7 @@ between the policy and the system is visible.
 
 - **Controller (public-facing):** DIGITAL CONCORDIA, Reg. No. RB/ABC/21 A 28773, registered
   25 March 2021 with the Cotonou Commercial Court, Abomey-Calavi, Benin, represented by its
-  owner Yao Amevi Amessinou Sossou. Contact: `contacts@digitalconcordia.com`.
+  owner Yao Sossou. Contact: `contacts@digitalconcordia.com`.
 - **Reviewed against commit:** the working tree at the time of the GDPR readiness audit.
 - **Data Protection Officer:** none appointed. **LEGAL REVIEW REQUIRED** — whether Art. 37
   requires one for this processing has not been assessed by a professional.
@@ -200,8 +200,8 @@ scheduled job that removes dormant accounts or ages out old records.
 | Portability (Art. 20) | **Implemented** — the same structured, machine-readable JSON |
 | Erasure (Art. 17) | **Implemented** — `POST /api/account {action:'delete'}` with typed confirmation |
 | Rectification (Art. 16) | **Partly implemented** — the profile is editable in-app; anything else via email |
-| Restriction (Art. 18) | **Manual** — via `contacts@digitalconcordia.com`. A user can also unset *discoverable* to stop being shown |
-| Objection (Art. 21) | **Manual** — via email |
+| Restriction (Art. 18) | **Automated, self-service** — Profile → Safety & privacy → *Pause processing*. Sets `processingRestricted` with a timestamp: the profile leaves every deck, the account can neither act nor be acted on, and engagement notifications stop. Nothing is deleted; access and erasure remain available throughout. Reversible by the user, and lifting does not republish the profile |
+| Objection (Art. 21) | **Automated, self-service** — Profile → Safety & privacy → *Object to processing* (Art. 21(5) allows objections by automated means). Sets `processingObjection` with a timestamp: the same operational pause as restriction — the profile leaves every deck, the account can neither act nor be acted on, and engagement notifications stop. Nothing is deleted; access and erasure remain available. The legal state stays distinct from restriction in storage and in the export, because the rights are distinct. Withdrawable by the user, and withdrawal does not republish the profile |
 | Withdraw consent (Art. 7(3)) | Not applicable unless consent becomes a basis (see §3) |
 | Complaint to a supervisory authority | The Privacy Policy should name the route. **LEGAL REVIEW REQUIRED** — which authority is competent depends on the establishment analysis |
 

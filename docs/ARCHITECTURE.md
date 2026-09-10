@@ -50,7 +50,7 @@ Practical consequences:
 
 Bezy is operated by **DIGITAL CONCORDIA**, a business registered in Benin under Registration
 No. `RB/ABC/21 A 28773`, registered on 25 March 2021 with the Cotonou Commercial Court,
-represented by its owner and legal representative Yao Amevi Amessinou Sossou. Registered
+represented by its owner and legal representative Yao Sossou. Registered
 address: Abomey-Calavi, Benin. Contact: `contacts@digitalconcordia.com`.
 
 Digital Concordia is the operating and trade name used for Bezy. The registration extract
@@ -172,6 +172,37 @@ The browser/Mini App must not connect directly to Firestore. `firestore.rules` t
 
 - `users/{telegramId}` — Telegram identity metadata, the user's Bezy dating profile and their
   saved discovery `preferences` (`minAge`, `maxAge`, `city`, `sameCityOnly`).
+  - `processingRestricted` / `processingRestrictedAt` / `processingRestrictionLiftedAt` —
+    restriction of processing (GDPR Art. 18) as a recorded, reversible legal state. While it is
+    true the account is stored and otherwise left alone: excluded from every deck, unable to act
+    or be acted on, and excluded from engagement notifications. It is deliberately stronger than
+    the `discoverable` preference — that is a visibility choice, this is a legal state — and is
+    checked before anything else in `api/discover.js` and `api/swipe.js`, so a restricted
+    account never causes another user's data to be read. Access (Art. 15) and erasure (Art. 17)
+    stay available throughout: restriction must not become a trap. Lifting it does not
+    republish the profile; `discoverable` stays false until the user turns it back on.
+  - `processingObjection` / `processingObjectedAt` / `processingObjectionLiftedAt` —
+    objection to processing (GDPR Art. 21) as a recorded, reversible legal state, kept distinct
+    from restriction because the rights themselves are distinct — the export must be able to say
+    which one happened. The operational effect is the same pause, and the two share one
+    predicate, `processingPaused()` (`api/_privacy.js`), so the enforcement points cannot drift:
+    discover, swipe, profile and notifications all check the same question. Art. 21(5) allows
+    an objection by automated means, which is what the Mini App control is. Bezy honours the
+    objection immediately by stopping processing; whether compelling legitimate grounds could
+    ever justify continuing is an operator legal-review question (P0-5 family), not code.
+    Withdrawal does not republish the profile, same as restriction.
+  - `notifications` — the engagement notifications the user has chosen to receive, as
+    `{ matches, super_likes, profile_reminders }`. Category ids are machine tokens (`api/_notify.js`) and are
+    never translated; the label comes from `notify_<id>`. Opt-out, not opt-in: an absent map
+    means everything is on, so an account written before this existed is never silently muted.
+    Transactional categories are deliberately **not** representable here — a payment, refund or
+    account event is the user's only record of something that happened to their money or their
+    account, so no payload can switch one off.
+  - `profile.prompts` — up to three `{ id, answer }` pairs. `id` is one of the machine tokens
+    in `PROMPT_IDS` (`api/profile/me.js`) and is never translated: only the id is stored, and
+    the question text is rendered from `prompt_<id>` in the reader's own locale, so a single
+    stored answer displays correctly in every language. Answers are trimmed to 200 characters.
+    Prompts are optional and never affect `profileComplete`.
 - `users/{telegramId}/actions/{targetTelegramId}` — the current user's like, super-like or pass decision for a target.
 - `matches/{sortedTelegramIdPair}` — a mutual like between two users.
 
@@ -185,13 +216,47 @@ The Mini App never receives Firestore credentials and never performs direct Fire
 ## Current API boundary
 
 - `POST /api/profile/me` — validate Telegram identity, create/load the Bezy account, and save the user's profile.
-- `POST /api/discover` — return eligible profiles after excluding the current user's previous actions.
-- `POST /api/swipe` — record pass/like/super and atomically create a match when interest is mutual; the Vercel function sends Telegram match notifications.
-- `POST /api/matches` — return the current user's matches.
+- `POST /api/discover` — return eligible profiles after excluding the current user's previous
+  actions. A deck card carries `prompts` but never `username` or `telegramId`.
+- `POST /api/swipe` — record pass/like/super and atomically create a match when interest is
+  mutual; the Vercel function sends Telegram match notifications. A super like that does *not*
+  produce a match notifies the recipient **anonymously**: the message carries no name, photo,
+  `@username` or id. Naming the sender would give away for free exactly what `/api/likes`
+  charges Premium members to see, and would disclose someone's interest before the recipient
+  has expressed any of their own. Ordinary likes stay silent — that is the "who liked you"
+  Premium feature, not a push. Both notifications are subject to the recipient's stored
+  `notifications` preferences and, for super likes, a daily flood ceiling.
+- Profile-completion reminders (`api/_reminders.js`, driven by `scripts/profile-reminders.mjs`,
+  dry-run by default) — one nudge for accounts that declared 18+ but never finished their
+  profile. The reminder is an optional notification category like the rest, capped at **one per
+  seven days** (the cap window is per-category in `NOTIFICATION_CATEGORIES` and stored in the
+  same `rateLimits` counters account deletion already erases). Accounts that never confirmed
+  18+ are not contacted, and a paused account (restriction or objection) is never selected,
+  because delivery goes through the same policy as every other message. Nothing runs on a
+  scheduler — the operator invokes the script.
+- Account events (N-3): filing a report, pausing or resuming processing, objecting or
+  withdrawing an objection, and deleting the account each send a transactional `account`
+  confirmation to the user's bot chat — the durable record of something that happened to
+  their account, delivered regardless of notification settings and even while the account is
+  paused. The report acknowledgment is identical whether or not the target account exists,
+  so the bot chat cannot be used to probe account existence. Blocks, unblocks and unmatches
+  stay silent: their effect is visible in the app itself.
+- `POST /api/matches` — return the current user's matches. Each match carries `sharedSignals`,
+  the deterministic "why you matched" explanation: `interests`, `city` and `age` tokens plus
+  values the counterpart already published in their own profile. It is computed only for
+  mutual matches, so it is unreachable before both people have opted in, and `gender`/`seeking`
+  are deliberately excluded — explaining a match in those terms would be a sensitive inference.
+  The Mini App renders each signal from the locale catalogue and derives its conversation
+  starters from the same list, so the explanation and the suggestions cannot disagree.
 - `POST /api/premium` — `action: 'status'` returns membership, plans, limits and usage;
   `action: 'invoice'` issues a Telegram Stars invoice link for a plan.
 - `POST /api/likes` — Premium-only: people who liked the current user. Free members receive
   `403 PREMIUM_REQUIRED` with a count only.
+- `POST /api/account` — the data-subject rights Bezy can honour automatically:
+  `action: 'export'` (Art. 15/20), `action: 'restrict'` / `'unrestrict'` (Art. 18),
+  `action: 'object'` / `'unobject'` (Art. 21) and `action: 'delete'` (Art. 17, guarded by a
+  typed confirmation). Identity comes only from validated `initData`, so there is no user id
+  parameter to tamper with.
 - `POST /api/telegram/webhook` — process localized bot commands, `pre_checkout_query` and
   `successful_payment`, and provide Mini App entry points.
 

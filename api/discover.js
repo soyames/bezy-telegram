@@ -2,6 +2,7 @@ import { db } from './_firebase.js';
 import { requirePost, requireTelegramUser } from './_telegram.js';
 import { isPremiumActive, limitsFor, currentUsage } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
+import { processingPaused } from './_privacy.js';
 
 // Premium members receive a small, deterministic ranking boost. It changes ordering only;
 // it never fabricates candidates and never guarantees a match.
@@ -42,6 +43,8 @@ function publicProfile(id, data) {
     city: profile.city || '',
     bio: profile.bio || '',
     interests: Array.isArray(profile.interests) ? profile.interests : [],
+    prompts: Array.isArray(profile.prompts) ? profile.prompts : [],
+    languages: Array.isArray(profile.languages) ? profile.languages : [],
     photoUrl: data.photoUrl || ''
   };
 }
@@ -53,32 +56,58 @@ function readPreferences(stored = {}) {
   const max = Number(stored.maxAge);
   const minAge = Number.isFinite(min) ? Math.min(Math.max(Math.trunc(min), 18), 100) : 18;
   const maxAge = Number.isFinite(max) ? Math.min(Math.max(Math.trunc(max), minAge), 100) : 100;
-  return { minAge, maxAge, city: String(stored.city || '').trim(), sameCityOnly: Boolean(stored.sameCityOnly) };
+  return {
+    minAge,
+    maxAge,
+    city: String(stored.city || '').trim(),
+    sameCityOnly: Boolean(stored.sameCityOnly),
+    languages: Array.isArray(stored.languages) ? stored.languages : []
+  };
 }
 
 function sameCity(a, b) {
   return Boolean(a) && Boolean(b) && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 }
 
-// Age range is available to everyone. City targeting and same-city-only are the
+// Age range and language are available to everyone. City targeting and same-city-only are the
 // "advanced discovery" filters and are applied only for active Premium members, so a
 // free user cannot get Premium filtering by writing preferences directly.
+//
+// Language is deliberately NOT behind Premium. Being unable to hold a conversation is not a
+// power-user concern, it is whether the product works at all — the same reasoning that keeps
+// the age range free. A candidate with no languages listed is never excluded, so the filter
+// narrows the deck for people who set it without punishing profiles that predate the field.
 function matchesPreferences(preferences, currentProfile, candidateProfile, isPremium) {
   const age = Number(candidateProfile?.age);
   if (Number.isFinite(age) && (age < preferences.minAge || age > preferences.maxAge)) return false;
+  const wanted = preferences.languages || [];
+  if (wanted.length) {
+    const spoken = candidateProfile?.languages || [];
+    if (spoken.length && !spoken.some((id) => wanted.includes(id))) return false;
+  }
   if (!isPremium) return true;
   if (preferences.city && !String(candidateProfile?.city || '').trim().toLowerCase().includes(preferences.city.toLowerCase())) return false;
   if (preferences.sameCityOnly && !sameCity(currentProfile?.city, candidateProfile?.city)) return false;
   return true;
 }
 
-// Deterministic compatibility derived from stored profile data — shared interests,
-// same city and age proximity. No randomness, no placeholder values.
+// Deterministic compatibility derived from stored profile data — shared interests, a shared
+// language, same city and age proximity. No randomness, no placeholder values, and nothing
+// inferred: every term is something both people typed into their own profile.
+//
+// Sensitive attributes are deliberately absent. `gender` and `seeking` already decide who is
+// eligible at all; letting them also weight the ranking would make an Article 9 attribute
+// drive the ordering of the deck, which is exactly what P0-5 is reviewing.
 function compatibility(current = {}, candidate = {}) {
   let score = 45;
   const mine = new Set((current.interests || []).map((value) => String(value).toLowerCase()));
   const shared = (candidate.interests || []).filter((value) => mine.has(String(value).toLowerCase())).length;
   score += Math.min(25, shared * 9);
+  // A language in common is what makes a conversation possible at all, so it is worth roughly
+  // as much as a shared city. Profiles that list no language are neither rewarded nor punished.
+  const myLanguages = current.languages || [];
+  const theirLanguages = candidate.languages || [];
+  if (myLanguages.length && theirLanguages.length && theirLanguages.some((id) => myLanguages.includes(id))) score += 15;
   if (sameCity(current.city, candidate.city)) score += 18;
   const currentAge = Number(current.age);
   const candidateAge = Number(candidate.age);
@@ -109,6 +138,19 @@ async function handleDiscover(req, res, user) {
   if (!currentSnap.exists) return res.status(404).json({ error: 'PROFILE_NOT_FOUND' });
 
   const currentData = currentSnap.data() || {};
+  // A paused account (GDPR Art. 18 restriction or Art. 21 objection) is checked before
+  // anything else: while it is in force Bezy must not process the account for discovery at
+  // all, so no deck is assembled and no other user's data is read on this account's behalf.
+  // The two legal states are reported separately so the Mini App can say which one is in force.
+  if (processingPaused(currentData)) {
+    return res.status(200).json({
+      ok: true,
+      profiles: [],
+      needsProfile: false,
+      processingRestricted: currentData.processingRestricted === true,
+      processingObjection: currentData.processingObjection === true
+    });
+  }
   // Bezy is 18+ only: no deck is served until the user has declared eligibility.
   if (currentData.ageEligibilityConfirmed !== true) {
     return res.status(200).json({ ok: true, profiles: [], needsProfile: true, needsAgeConfirmation: true });
@@ -141,6 +183,9 @@ async function handleDiscover(req, res, user) {
   for (const doc of candidatesSnap.docs) {
     if (doc.id === String(user.id) || excluded.has(doc.id)) continue;
     const data = doc.data() || {};
+    // A paused account is already undiscoverable, but it is excluded explicitly as well:
+    // the legal state, not a derived visibility flag, is what must govern here.
+    if (processingPaused(data)) continue;
     if (!data.profileComplete || !genderMatches(currentProfile, data.profile)) continue;
     if (!matchesPreferences(preferences, currentProfile, data.profile, isPremium)) continue;
     const createdAt = data.createdAt?.toMillis?.() ?? new Date(data.createdAt || 0).getTime();

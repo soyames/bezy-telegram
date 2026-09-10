@@ -4,11 +4,12 @@
 update it after. It is never replaced, only amended. A new idea *adds* to this document — it
 does not erase anything already in it.
 
-- **Last reconciled:** against the working tree at commit `6e692aa` **plus uncommitted work**
-  (see §0).
-- **Reconciliation method:** every status below was checked against the code, not carried over
-  from a previous summary. Where the owner's understanding and the repository disagreed, the
-  repository won and the difference is called out.
+- **Last reconciled:** commit `30ef891` plus uncommitted execution work (see §0).
+- **Reconciliation method:** every status was checked against the repository. Where the
+  owner's understanding and the code disagreed, the code won and the difference is recorded
+  in §4. Nothing is marked complete because it was mentioned in conversation.
+- **Coverage:** §2 maps all 24 defined workstreams to their tracking section. If a workstream
+  has no section, the roadmap is incomplete and §2 will show it.
 
 ## Status legend
 
@@ -32,64 +33,92 @@ verification is required and missing.
 
 ---
 
-## 0. Uncommitted work — READ FIRST
+## 0. Checkpoint status
 
-🟠 **The most recent session is not committed.** This is exactly the state that goes missing
-between sessions, so it is recorded first.
+🟢 **Working tree clean at `30ef891`** (`chore: establish Bezy master roadmap and continuity
+checkpoint`). Commit is **local only — not pushed**.
 
-| File | State | Contains |
-| --- | --- | --- |
-| `tests/localization.test.mjs` | **untracked** | The entire localization + machine-identifier suite (94 checks). Highest loss risk |
-| `app.js` | modified | Stars-requirement copy on the Premium screen; `stars_needed` / `not_telegram_premium` fallbacks |
-| `api/telegram/webhook.js` | modified | `/premium` states the Stars balance requirement and that Telegram Premium ≠ Bezy Premium, EN + FR |
-| `locales/en.json`, `locales/fr.json` | modified | `stars_needed`, `not_telegram_premium` |
-| `tests/backend.test.mjs` | modified | 4 assertions on the new bot wording |
-| `package.json` | modified | `npm test` runs localization + backend + security |
+This section always records unsaved or unpushed state, because that is what disappears
+between sessions. When work is left uncommitted, list the files and what they contain here
+before ending the session.
 
-**Owner instruction at time of writing: no commit, no push, no deploy.** Nothing has been
-committed. This section stays until the owner authorises a commit.
+| State | Detail |
+| --- | --- |
+| Uncommitted | T5, T1, Q-6, CN-3, CN-7, D-3, the demo-copy cleanup, P1-1/P1-2/P1-4/P1-5, N-1/N-2/N-3/N-4, RT-2, RT-3, the P1-3 `languages` sub-item, and the outside-Telegram gate fix — see §20 session log |
+| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3 and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
+| Unpushed | `main` is 1 commit ahead of `origin/main` |
 
 ---
 
 ## 1. Permanent architecture decisions
 
-Not revisitable without an explicit owner decision. Any request that conflicts with these must
-stop and be reported, per §15 of the control protocol.
+Not revisitable without an explicit owner decision. Any request that conflicts with these
+must stop and be reported rather than implemented. See §18 for known conflicts.
 
 - Telegram-native: Telegram owns identity, notifications, messaging and platform safety.
   Bezy owns profiles, discovery, matching, dating-specific safety, Premium and data controls.
 - Backend **Vercel**, database **Firestore**, auth **Telegram `initData`**.
 - Payments: **Telegram Stars (XTR) only.** No Smart Glocal, no cards, no other provider.
-- Photos: **Telegram photo URLs only.** No Firebase Storage, Cloudinary, S3, Vercel Blob, or
+- Photos: **Telegram photo URLs only.** No Firebase Storage, Cloudinary, S3, Vercel Blob or
   any Bezy-owned image storage. A feature needing persistent image storage must **stop and be
-  reported**, not implemented.
+  reported**.
 - Bot username **`@BezyDatingBot`** — must not be changed.
 - No analytics, tracking or unnecessary cookies.
-- Identity: Telegram numeric id is canonical and is the only basis for ownership; `@username`
-  is a mutable public locator, never a key; `displayName` is presentation.
+- Identity: Telegram numeric id is canonical and the only basis for ownership; `@username` is
+  a mutable public locator, never a key; `displayName` is presentation.
 - Localization is presentation only. Never translate API paths, URLs, Telegram links, JSON
   keys, Firestore collections/fields, error codes, environment variables, JS identifiers,
-  Telegram Bot API methods, or machine-readable confirmation tokens such as `DELETE`.
+  Telegram Bot API methods, or machine tokens such as `DELETE`.
 
 ---
 
-## 2. Completed work (verified in code)
+## 2. Workstream coverage index
 
-Each item was re-checked. Anything the owner listed as complete that does **not** meet the
-Definition of Done has been demoted and appears in §3 instead — those demotions are the point
-of this reconciliation.
+Every defined workstream maps to a tracking section. This table is the audit surface: if a
+workstream has no home, it is missing and must be added before work begins.
+
+| # | Workstream | Tracked in | Overall |
+| --- | --- | --- | --- |
+| WS1 | Telegram foundation | §3 C1–C8, §5 P0-4 | 🟡 |
+| WS2 | Profile | §3 C4, §7 P1-1, P1-2 | 🟢 |
+| WS3 | Discovery | §3 C5, C6, C13, C15, §7 P1-3, P1-6 | 🟡 |
+| WS4 | Matching | §3 C7, C14, §7 P1-4, P1-5 | 🟢 |
+| WS5 | Relationship / safety | §3 C12, §8 SF-1…SF-6 | 🟡 |
+| WS6 | Account / user rights | §3 C10, C11, §6 T1, §9 RT-1…RT-4 | 🟡 |
+| WS7 | GDPR / privacy | §5 P0-5…P0-11, §3 C22 | 🔴 |
+| WS8 | Age / adult safety | §3 C9, §5 P0-10 | 🟡 |
+| WS9 | Security | §3 C2, C13, C15, C16, C21, §6 T2, T4 | 🟡 |
+| WS10 | Localization | §3 C20, §6 T5 | 🟢 |
+| WS11 | Photo / media | §3 C17 | 🟢 |
+| WS12 | Premium / monetization | §4 R1–R3, §5 P0-1…P0-3, §10 PR-1…PR-8 | 🟡 |
+| WS13 | Consumer / commercial | §11 CN-1…CN-7 | 🔴 |
+| WS14 | Notifications | §7 P1-7, §9 N-1…N-4 | 🟡 |
+| WS15 | Match quality | §7 P1-6, §10 backlog | 🟡 |
+| WS16 | AI | §17 AI-1…AI-2 | ⚪ |
+| WS17 | Verification | §17 V-1 | ⚪ |
+| WS18 | Dating experiences | §17 EX-1 | ⚪ |
+| WS19 | Business / ecosystem | §17 BZ-1 | ⚪ |
+| WS20 | Growth / acquisition | §14 G-1…G-7 | 🔵 |
+| WS21 | Scale / infrastructure | §12 SC-1…SC-7 | 🔵 |
+| WS22 | Quality / regression | §13 Q-1…Q-6 | 🟡 |
+| WS23 | Documentation / governance | §15 D-1…D-4 | 🟡 |
+| WS24 | Launch | §16 L-1…L-4 | 🔴 |
+
+---
+
+## 3. Completed work (verified in code)
 
 | # | Item | Status | Evidence |
 | --- | --- | --- | --- |
-| C1 | Telegram-native architecture, `@BezyDatingBot` | 🟢 | `docs/ARCHITECTURE.md`; bot username unchanged |
+| C1 | Telegram-native architecture, `@BezyDatingBot` | 🟢 | `docs/ARCHITECTURE.md`; username unchanged |
 | C2 | `initData` validation (HMAC, timing-safe, 24h window) | 🟢 | `api/_telegram.js`; security suite |
 | C3 | Mini App shell, navigation, EN/FR | 🟢 | `index.html`, `app.js`; Playwright |
-| C4 | Profile create / edit / discoverability | 🟢 | `api/profile/me.js` |
+| C4 | Profile create / edit / discoverability / validation | 🟢 | `api/profile/me.js` |
 | C5 | Discovery, deterministic compatibility, real stats | 🟢 | `api/discover.js` |
 | C6 | Like / Pass / Super Like, daily quotas | 🟢 | `api/swipe.js` |
-| C7 | Mutual matching + Telegram handoff | 🟢 | `api/swipe.js`, `api/matches.js` |
+| C7 | Mutual matching + Telegram conversation handoff | 🟢 | `api/swipe.js`, `api/matches.js` |
 | C8 | Localized bot commands + webhook | 🟢 | `api/telegram/webhook.js` |
-| C9 | 18+ self-declaration, server-enforced | 🟢 | profile/discover/swipe/relationship; never called "verified age" |
+| C9 | 18+ self-declaration, server-enforced, never "verified" | 🟢 | profile / discover / swipe / relationship |
 | C10 | Account export (Art. 15/20) | 🟢 | `api/account.js` |
 | C11 | Account deletion (Art. 17) incl. mirror cleanup | 🟢 | `api/account.js`; backend + Playwright |
 | C12 | Block / Report / Unmatch, server-enforced | 🟢 | `api/relationship.js`; `scripts/list-reports.mjs` |
@@ -97,46 +126,43 @@ of this reconciliation.
 | C14 | Username disclosure boundary (released only on mutual match) | 🟢 | `api/discover.js` vs `api/matches.js` |
 | C15 | Rate limiting, per-user, fail-open, erased on deletion | 🟢 | `api/_ratelimit.js` |
 | C16 | Firestore deny-all client rules | 🟢 | `firestore.rules`, deployed |
-| C17 | Telegram-only photo architecture | 🟢 | Verified: no upload/blob/base64/bucket/CDN path; regression-locked |
-| C18 | Data minimisation (`lastName`, `isPremiumTelegram` no longer collected) | 🟢 | `api/profile/me.js`; security suite |
+| C17 | Telegram-only photo architecture | 🟢 | No upload/blob/base64/bucket/CDN path; regression-locked |
+| C18 | Data minimisation (`lastName`, `isPremiumTelegram` dropped) | 🟢 | `api/profile/me.js`; security suite |
 | C19 | Bezy Premium ≠ Telegram Premium, enforced and stated | 🟢 | `api/_premium.js`; UI + `/premium` copy |
-| C20 | EN/FR localization + integrity tests | 🟢 | `tests/localization.test.mjs` (**uncommitted**, §0) |
+| C20 | EN/FR localization + integrity tests | 🟢 | `tests/localization.test.mjs` (94 checks) |
 | C21 | Security documentation | 🟢 | `docs/SECURITY.md` |
 | C22 | Data-processing map | 🟢 | `docs/DATA_PROCESSING_MAP.md` |
 
 ---
 
-## 3. Reconciliation — items demoted from "complete"
+## 4. Reconciliation — demoted from "complete"
 
-**These were listed as verified-complete by the owner but do not meet the Definition of Done.**
-Recording them honestly is the whole purpose of this control system.
+Correctly built and tested, but missing a Definition-of-Done layer. Recording these honestly
+is the point of the control system.
 
-| # | Item | Claimed | Actual | Missing layer |
-| --- | --- | --- | --- | --- |
-| R1 | Telegram Stars invoice generation | complete | 🟡 PARTIALLY COMPLETE | Production verification. Verified live only as far as the native payment sheet opening with the server-derived price; no real payment completed |
-| R2 | Premium entitlement architecture | complete | 🟡 PARTIALLY COMPLETE | Backend, UI, tests and localization are done; the **paid** path has never run end to end in production |
-| R3 | Refund lifecycle | complete | 🟡 PARTIALLY COMPLETE | Code, idempotency and revocation are fully tested against mocks; no real `refundStarPayment` has been issued |
-| R4 | DPIA assessment | complete | 🟡 PARTIALLY COMPLETE | `docs/DPIA_ASSESSMENT.md` is a **screening**, not a DPIA. It says so itself and must never be presented as a completed DPIA |
-
-None of these are defects. They are correctly built and correctly tested — they simply require
-a real transaction or a professional assessment before they can be called complete.
+| # | Item | Actual | Missing layer |
+| --- | --- | --- | --- |
+| R1 | Telegram Stars invoice generation | 🟡 | Production verification. Verified live only to the payment sheet opening with the server-derived price |
+| R2 | Premium entitlement architecture | 🟡 | The **paid** path has never run end to end in production |
+| R3 | Refund lifecycle | 🟡 | No real `refundStarPayment` has been issued |
+| R4 | DPIA assessment | 🟡 | `docs/DPIA_ASSESSMENT.md` is a **screening**, not a DPIA, and says so itself |
 
 ---
 
-## 4. P0 — launch blockers
+## 5. P0 — launch blockers
 
-### 4.1 Production payment verification
+### 5.1 Production payment verification
 
 | # | Item | Status | Notes |
 | --- | --- | --- | --- |
-| P0-1 | Real Telegram Stars purchase (250 ⭐ monthly) | 🔴 BLOCKED | Blocked on a Stars balance. Observed balance was 0 |
-| P0-2 | Real Telegram Stars refund | 🔴 BLOCKED | Depends on P0-1. Use `scripts/refund-payment.mjs` |
+| P0-1 | Real Telegram Stars purchase (250 ⭐ monthly) | 🔴 BLOCKED | Blocked on a Stars balance; observed balance was 0 |
+| P0-2 | Real Telegram Stars refund | 🔴 BLOCKED | Depends on P0-1. `scripts/refund-payment.mjs` |
 | P0-3 | Full lifecycle verification in production | 🔴 BLOCKED | Depends on P0-1/P0-2. Procedure: `docs/TELEGRAM_SETUP.md` §2b |
-| P0-4 | Re-confirm `allowed_updates` before the test | 🔵 READY | Must include `pre_checkout_query`, or checkout times out. `scripts/set-webhook.ps1 -VerifyOnly` |
+| P0-4 | Re-confirm `allowed_updates` before the test | 🔵 READY | Must include `pre_checkout_query`. `scripts/set-webhook.ps1 -VerifyOnly` |
 
-Unblocking P0-1 clears the single largest technical unknown in the project.
+Clearing P0-1 promotes R1–R3 and removes the largest technical unknown in the project.
 
-### 4.2 Legal review — none of these may be answered by engineering
+### 5.2 Legal review — not answerable by engineering
 
 | # | Question | Status |
 | --- | --- | --- |
@@ -148,127 +174,453 @@ Unblocking P0-1 clears the single largest technical unknown in the project.
 | P0-10 | Legal sufficiency of 18+ self-declaration for an adult service | 🔴 LEGAL REVIEW REQUIRED |
 | P0-11 | Completed DPIA (see R4) | 🔴 LEGAL REVIEW REQUIRED |
 
-**P0-5 gates P1-3 and P1-6** (see §6): expanding `relationshipIntent` or similar sensitive
-signals before it resolves would widen the exact exposure under review.
+**P0-5 gates P1-3 and P1-6.** Expanding sensitive signals before it resolves widens the exact
+exposure under review.
 
-### 4.3 Legal content
+### 5.3 Legal content
 
 | # | Item | Status | Notes |
 | --- | --- | --- | --- |
 | P0-12 | Operator identity in legal pages | 🟢 COMPLETE | DIGITAL CONCORDIA, RB/ABC/21 A 28773, Abomey-Calavi, EN + FR |
-| P0-13 | Legal review of the pages themselves | 🔴 LEGAL REVIEW REQUIRED | Content is drafted, not reviewed by a qualified adviser |
+| P0-13 | Qualified legal review of Terms and Privacy | 🔴 LEGAL REVIEW REQUIRED | Drafted, not reviewed |
 
 ---
 
-## 5. Open technical work (not started)
+## 6. Technical hardening
 
 | # | Item | Priority | Status | Notes |
 | --- | --- | --- | --- | --- |
-| T1 | Automated retention / dormant-account expiry | P0 | 🔵 READY | Verified absent. Retention is documented but not enforced; deletion is user-initiated only |
-| T2 | Penetration / deeper security testing | P0 | 🔵 READY | Never performed |
-| T3 | Load and production-scale testing | P0 | 🔵 READY | Required before any 60k campaign |
-| T4 | Abuse / rate-limit tuning from real traffic | P3 | 🔵 READY | Current limits are estimates, unvalidated against real behaviour |
-| T5 | Remove dead locale keys | P4 | 🔵 READY | `adults_only`, `people_nearby`, `premium_expired`, `premium_soon`. **`premium_soon` says "Bezy Premium is coming soon", which contradicts shipped reality** |
-| T6 | Opaque per-viewer profile ids | P4 | ⚪ DEFERRED | Deck `id` is a real Telegram numeric id. Accepted residual risk; see `docs/SECURITY.md` §6 |
+| T1 | Retention enforcement framework | P0 | 🟡 PARTIAL | **Mechanism implemented**: `api/_retention.js` + `scripts/retention.mjs`, dry-run by default, 15 tests. Operational periods have defaults; payment and report periods are deliberately unset pending P0-8. **No scheduler** — runs are operator-invoked |
+| T2 | Penetration / external security review | P0 | 🔵 READY | Never performed |
+| T3 | Load and production-scale testing | P0 | 🔵 READY | See §12; required before any large campaign |
+| T4 | Abuse / rate-limit tuning from real traffic | P3 | 🔵 READY | Current limits are estimates, unvalidated |
+| T5 | Remove dead locale keys | P4 | 🟢 COMPLETE | `premium_soon`, `people_nearby`, `adults_only` removed; `premium_expired` was not dead but unwired — now drives a lapsed-membership notice. Guarded by a test so they cannot return |
+| T7 | Hardcoded English in runtime-populated markup | P4 | 🟢 COMPLETE | Eight elements shipped English that JS replaces, causing a flash for French users; `people-label` still shipped the deleted string "people nearby". Now empty in markup, localized at runtime, guarded by a test |
+| T6 | Opaque per-viewer profile ids | P4 | ⚪ DEFERRED | Deck `id` is a real Telegram numeric id. Accepted; `docs/SECURITY.md` §6 |
 
 ---
 
-## 6. P1 — core dating experience
+## 7. P1 — core dating experience
 
-**Verified: all seven are at zero references in the codebase. None is started.** The
-architecture supports them; that is not the same as having them.
-
-Each needs backend + UI + EN + FR + tests before it can go 🟢.
+Four of the seven are now shipped end to end (backend + UI + EN/FR + tests). The remaining
+three are blocked or partial for the reasons given below.
 
 | # | Item | Status | Dependencies / notes |
 | --- | --- | --- | --- |
-| P1-1 | Profile prompts | 🔵 READY | Structured optional free text. Same risk class as the existing `bio`; no new sensitive category |
-| P1-2 | Profile preview ("how others see me") | 🔵 READY | Must render the real discovery card and expose no Telegram id, internal id, moderation or payment data |
-| P1-3 | Expanded discovery filters | 🟡 PARTIAL | Age/city/same-city exist and are Premium-gated. **`relationshipIntent` is 🔴 BLOCKED on P0-5.** `languages` is non-sensitive and 🔵 READY |
-| P1-4 | Why you matched | 🔵 READY | Shared-signal computation; must reveal only what the other user put in their own profile |
-| P1-5 | Conversation starters | 🔵 READY | Shares P1-4's computation. Suggestion only — the conversation stays on Telegram |
-| P1-6 | Compatibility / ranking improvements | 🟡 PARTIAL | Deterministic scoring + Premium boost exist and are documented. Additional signals blocked on P0-5 where sensitive |
-| P1-7 | Improved Telegram notifications | 🟡 PARTIAL | Match and Premium-activation notifications exist and are localized. Super Like, profile-completion and safety notifications not built |
+| P1-1 | Profile prompts | 🟢 COMPLETE | Five prompts, up to three answers of ≤200 chars. Ids are machine tokens (`api/profile/me.js` `PROMPT_IDS`); question text lives in `prompt_<id>` in both catalogues, so one stored answer renders in the reader's language. Optional — never affects `profileComplete`. Published on the deck card and the match card |
+| P1-2 | Profile preview ("how others see me") | 🟢 COMPLETE | `openPreview()` renders the same `profileCardHtml()` the deck uses, from the form's current values. No swipe controls, no `username`, no `telegramId`. Incomplete profiles get `preview_incomplete` instead of an empty card |
+| P1-3 | Expanded discovery filters | 🟡 PARTIAL | Age/city/same-city exist and are Premium-gated. `languages` 🟢 implemented: profile chips, a free (non-Premium) discovery filter, a compatibility term, EN/FR, tests in all suites. **`relationshipIntent` 🔴 BLOCKED on P0-5** — the last remaining sub-item |
+| P1-4 | Why you matched | 🟢 COMPLETE | `sharedSignals()` in `api/matches.js` returns `interests`/`city`/`age` tokens plus values the counterpart already published. Attached to matches only, so it is unreachable before mutual consent. `gender`/`seeking` deliberately excluded — see §18 |
+| P1-5 | Conversation starters | 🟢 COMPLETE | Derived in the client from the same `sharedSignals`, so explanation and suggestion cannot disagree. Suggestion + copy only; the conversation still happens in Telegram. Reachable from Matches and Messages |
+| P1-6 | Compatibility / ranking improvements | 🟡 PARTIAL | Deterministic scoring + Premium boost exist and are documented. Sensitive signals blocked on P0-5 |
+| P1-7 | Improved Telegram notifications | 🟠 IN PROGRESS | Match and Premium-activation notifications exist and are localized; every §9 notification item (N-1…N-4) is now implemented, so the substance is complete — verification pending the fresh-quota suite run |
 
 ---
 
-## 7. P2 — Premium backlog
+## 8. Safety & moderation — beyond what exists
 
-Not promoted. Telegram Stars only.
+Bezy handles Bezy-level dating safety. **Telegram-level messaging safety is Telegram's and
+must not be duplicated.**
 
-⚪ Rewind · additional Super Likes · boosts · advanced filters · incognito · recently active ·
-new users · compatibility insights.
-
-**Recommended smallest high-value set when promoted:** Rewind, additional Super Likes, and
-"recently active" — each reuses existing data, needs no new sensitive field, and is
-independently testable.
-
----
-
-## 8. P3–P6 — backlog
-
-⚪ Optional verification (must not require Bezy photo storage) · AI profile assistant · AI
-conversation assistance · moderation assistance · events · date planning · gifts · community
-features.
-
-AI in any form requires a privacy, transfer, special-category-inference, retention and cost
-assessment **before** implementation.
+| # | Item | Priority | Status | Notes |
+| --- | --- | --- | --- | --- |
+| SF-1 | Moderation review tooling | P3 | 🟡 PARTIAL | `scripts/list-reports.mjs` gives visibility and resolve. No queue, no dashboard — deliberate |
+| SF-2 | Moderation queue / triage workflow | P3 | 🔵 READY | Only worth building when report volume justifies it |
+| SF-3 | Report category tuning from real reports | P3 | 🔵 READY | Current seven categories are untested against real usage |
+| SF-4 | Scam / spam detection | P3 | ⚪ DEFERRED | Needs volume first. Assess privacy impact before any automated inference |
+| SF-5 | Impersonation / fake-profile detection | P3 | ⚪ DEFERRED | Would likely require photo or identity signals — see V-1 and §1 photo constraint |
+| SF-6 | Suspicious-account signals | P3 | ⚪ DEFERRED | Depends on SF-4 |
 
 ---
 
-## 9. Quality gate — current
+## 9. Notifications & remaining user rights
 
-Run before declaring any workstream complete. Never weaken or delete a test.
+### Notifications (WS14)
 
-```
-Localization:   94 passed / 0 failed
-Backend:       281 passed / 0 failed
-Security:       84 passed / 0 failed
-Playwright:     29 passed / 0 failed
-Total:         488 passed / 0 failed
-```
+| # | Item | Priority | Status | Notes |
+| --- | --- | --- | --- | --- |
+| N-1 | Super Like notification | P1 | 🟠 IN PROGRESS | Implemented in `api/swipe.js`: anonymous by design — no name, photo, `@username` or id — and sent only when the super like did not already produce a match, since a match notification says more. Ordinary likes stay silent. **Tests written but not yet executed** — see the quota note below |
+| N-2 | Profile-completion reminder | P1 | 🟠 IN PROGRESS | Implemented: a `profile_reminders` optional notification category capped at **one per seven days** (per-category `windowMs`, counters in the existing `rateLimits` document, so no new retention surface), `api/_reminders.js` (plan/send split mirroring `_retention.js`) and `scripts/profile-reminders.mjs` (dry-run by default, `--apply` to send, `--limit`/`--protect`). Eligible: declared 18+, profile incomplete, account not paused by a legal state. Delivery goes through `deliverNotification`, so opt-out and legal pause are applied centrally — a paused account is not even selected. EN/FR. **Firestore-backed tests written but not executed** |
+| N-3 | Safety / account event notifications | P3 | 🟠 IN PROGRESS | Implemented: report acknowledgments, pause/resume and objection/withdrawal confirmations, and a deletion confirmation — all transactional `account` messages, delivered regardless of settings and even while the account is paused. The report ack is identical whether or not the target exists, so it cannot be used to probe account existence; blocks, unblocks and unmatches stay silent. EN/FR. **Firestore-backed tests written but not executed** |
+| N-4 | Notification frequency controls / user preferences | P1 | 🟠 IN PROGRESS | `api/_notify.js` + a Notifications card in the profile view, EN/FR. Opt-out, not opt-in. Transactional categories are structurally unrepresentable in the settings map, so no payload can mute a payment or account message. Super Likes carry a 5/day flood ceiling stored in the existing `rateLimits` document, so capping adds no new personal-data surface. **Tests written but not yet executed** |
 
-`npm test` runs the three Node suites; `npm run test:e2e` runs Playwright.
-Backend, security and Playwright need `BEZY_SERVICE_ACCOUNT`; localization is pure static
-analysis and needs nothing.
+Telegram is the only notification channel. **No email or SMS infrastructure** without explicit
+owner approval.
 
-**Production data:** 1 real user, 2 real invoices, 1 rate-limit record. Synthetic test data
-uses ids `9000000xx` only and is cleaned up before and after every run. Never mutate real
-records.
+**Notification policy (set by N-4, applies to everything above).** Engagement notifications are
+the user's choice and can be switched off. Transactional notifications — payment, refund,
+account events — are not, because they are the only record the user gets of something that
+happened to their money or their account. This is enforced structurally rather than by
+convention: the stored settings map contains only the optional categories, so there is no key a
+malicious or malformed payload could set to mute a receipt.
+
+### Data-subject rights (WS6)
+
+| # | Item | Priority | Status | Notes |
+| --- | --- | --- | --- | --- |
+| RT-1 | Rectification beyond profile editing | P0 | 🟡 PARTIAL | Profile is editable in-app; anything else is manual by email |
+| RT-2 | Restriction of processing | P0 | 🟠 IN PROGRESS | Implemented as self-service: `action: 'restrict'`/`'unrestrict'` on `/api/account`, a *Pause processing* control in Safety & privacy, EN/FR. A recorded legal state (`processingRestricted` + timestamps), not a visibility flag — enforced in `discover.js`, `swipe.js`, `profile/me.js` and `_notify.js`, and checked before any other user's data is read. A restricted target is unreachable through the same identical `TARGET_NOT_FOUND` as every other case, so restriction is undetectable from outside. Access and erasure stay available; lifting does not republish. Privacy Policy and `DATA_PROCESSING_MAP.md` §5 updated. **Firestore-backed tests written but not executed** |
+| RT-3 | Objection | P0 | 🟠 IN PROGRESS | Implemented as self-service — Art. 21(5) allows objections by automated means: `action: 'object'`/`'unobject'` on `/api/account`, an *Object to processing* control in Safety & privacy, EN/FR. A recorded `processingObjection` legal state kept distinct from restriction in storage and in the export (the rights are distinct, the record must say which happened), sharing one `processingPaused()` predicate (`api/_privacy.js`) across discover/swipe/profile/notify so the enforcement points cannot drift. An objecting target is unreachable through the same identical `TARGET_NOT_FOUND`, so the objection is undetectable from outside. Bezy honours the objection immediately; whether compelling legitimate grounds could ever justify continuing is an operator legal-review question (P0-5 family), not code. Privacy Policy and `DATA_PROCESSING_MAP.md` §5 updated. **Firestore-backed tests written but not executed** |
+| RT-4 | Consent withdrawal | 🔴 | 🔴 BLOCKED | Only applicable if P0-5 makes consent a basis |
+
+Documented in `docs/DATA_PROCESSING_MAP.md` §5. The Privacy Policy must not promise automation
+that does not exist.
 
 ---
 
-## 10. Readiness
+## 10. Premium backlog (WS12 / WS15)
 
-| Milestone | Status | Gate |
-| --- | --- | --- |
-| Internal testing | 🟢 Ready | — |
-| Small controlled pilot | 🟡 Ready with caveats | P0-1 through P0-3 |
-| Public launch | 🔴 Not ready | P0-5, P0-11 |
-| 60k campaign | 🔴 Not ready | All P0, plus T1 and T3 |
+Telegram Stars only. Not promoted; none started.
+
+| # | Item | Status | Notes |
+| --- | --- | --- | --- |
+| PR-1 | Rewind | ⚪ DEFERRED | Reuses existing action records; no new sensitive field |
+| PR-2 | Additional Super Likes | ⚪ DEFERRED | Quota change only |
+| PR-3 | Recently active | ⚪ DEFERRED | Needs a `lastActiveAt` field — new data, assess first |
+| PR-4 | Boosts | ⚪ DEFERRED | Interacts with the ranking boost already in `api/discover.js` |
+| PR-5 | Incognito | ⚪ DEFERRED | Interacts with discoverability and the enumeration model |
+| PR-6 | New users filter | ⚪ DEFERRED | `createdAt` already exists |
+| PR-7 | Unlimited likes | ⚪ DEFERRED | Effectively exists via the premium quota ceiling; clarify positioning |
+| PR-8 | Compatibility insights | 🔵 READY | Unblocked: P1-4 shipped the free deterministic explanation. PR-8 is now only the question of what, if anything, Premium adds on top — and it must not become sensitive inference |
+
+**Recommended smallest high-value set when promoted:** PR-1, PR-2, PR-6 — each reuses existing
+data and needs no new sensitive field.
+
+---
+
+## 11. Consumer & commercial (WS13)
+
+| # | Item | Priority | Status | Notes |
+| --- | --- | --- | --- | --- |
+| CN-1 | Operator identification / legal notice | P0 | 🟢 COMPLETE | See P0-12 |
+| CN-2 | Pricing transparency and plan duration | P0 | 🟢 COMPLETE | Server-authoritative; shown before purchase; Stars requirement stated |
+| CN-3 | Cancellation behaviour | P0 | 🟢 COMPLETE | Terms now state, EN and FR, that each purchase is a one-off fixed term that does not auto-renew, that there is no subscription to cancel, and that buying again extends the existing expiry |
+| CN-4 | Refund policy in Terms | P0 | 🟢 COMPLETE | Terms state a refund removes access immediately |
+| CN-5 | Digital-service withdrawal right / immediate-performance waiver | P0 | 🔴 LEGAL REVIEW REQUIRED | EU/Austrian consumer law question. Not implemented, not decided |
+| CN-6 | VAT / OSS obligations | P0 | 🔴 LEGAL REVIEW REQUIRED | **No tax conclusion has been drawn.** Do not assert VAT status |
+| CN-7 | Consumer support channel | P1 | 🟡 PARTIAL | In-app support route added: a *Help & support* card in the Mini App with a `mailto:` entry point, EN/FR — the canonical address is pinned by the localization suite and an e2e assertion so it cannot drift to a lookalike. An SLA remains an operational commitment to define (or deliberately decline) before launch — not code |
+
+---
+
+## 12. Scale & infrastructure (WS21)
+
+None started. No unnecessary infrastructure expansion.
+
+| # | Item | Priority | Status | Notes |
+| --- | --- | --- | --- | --- |
+| SC-1 | Vercel behaviour under load | P0 | 🔵 READY | Serverless cold starts, concurrency, function limits |
+| SC-2 | Firestore behaviour under load | P0 | 🔵 READY | Free-tier daily quotas are a real ceiling at campaign scale. **No longer theoretical:** on 2026-09-10 the Spark daily read quota was exhausted by development testing alone — several backend + Playwright runs against the one shared database — which aborted a suite mid-run and blocked all further Firestore reads for the day. Writes continued to work. Two consequences to design for: (a) the test suites and production share a quota, so a busy test day can degrade the live app; (b) an aborted suite can leave synthetic `9000000xx` profiles discoverable, since cleanup itself needs reads. Both argue for a separate test project or emulator before any campaign. **Billing must stay disabled**, so raising the quota is not an available answer |
+| SC-3 | Discovery query scalability | P0 | 🔵 READY | `where('discoverable','==',true).limit(100)` scans a fixed window; behaviour at large user counts is unmodelled |
+| SC-4 | Rate-limiter scalability | P1 | 🔵 READY | One document per user per request; read-then-write contention unmeasured |
+| SC-5 | Payment webhook reliability under load | P0 | 🔵 READY | Telegram retries on non-200; idempotency is tested but not load-tested |
+| SC-6 | Failure-mode catalogue | P1 | 🔵 READY | What happens when Firestore, Telegram or Vercel is degraded |
+| SC-7 | Observability | P1 | 🔵 READY | Verified absent (0 refs). Only `console` logging exists; no metrics, alerting or tracing |
+
+---
+
+## 13. Quality & regression (WS22)
+
+| # | Item | Priority | Status | Notes |
+| --- | --- | --- | --- | --- |
+| Q-1 | Backend suite | — | 🟢 COMPLETE | 307 checks |
+| Q-2 | Security suite | — | 🟢 COMPLETE | 102 checks |
+| Q-3 | Playwright suite | — | 🟢 COMPLETE | 42 specs |
+| Q-4 | Localization suite | — | 🟢 COMPLETE | 133 checks |
+| Q-5 | API contract tests | P1 | 🟡 PARTIAL | Contract fields, Firestore names and canonical routes are pinned in the localization suite; response *shapes* are not versioned |
+| Q-6 | Production smoke tests | P0 | 🟢 COMPLETE | `tests/smoke.test.mjs`, 40 checks. Read-only and unauthenticated: build freshness, live locale consistency, legal pages, and that all 8 endpoints reject unauthenticated and forged requests |
+| Q-7 | Browser / Telegram client compatibility | P1 | 🔵 READY | Playwright runs Chromium only; no iOS/Android Telegram WebView coverage |
+| Q-8 | Error-state coverage | P1 | 🟡 PARTIAL | Error codes are tested; degraded-dependency states are not |
+
+**Never reduce coverage to make the suite green.**
+
+---
+
+## 14. Growth & acquisition (WS20)
+
+**Entirely unstarted and previously untracked.** Verified: no referral, invite, attribution,
+campaign or `start_param` code exists.
+
+| # | Item | Priority | Status | Notes |
+| --- | --- | --- | --- | --- |
+| G-1 | Controlled pilot cohort | P5 | 🔵 READY | Gated by L-2 |
+| G-2 | Launch messaging / positioning | P5 | 🔵 READY | Must not claim age verification or GDPR compliance |
+| G-3 | Telegram deep-link attribution (`start_param`) | P5 | 🔵 READY | Telegram supports a start parameter; nothing consumes it today |
+| G-4 | Referral mechanism | P5 | ⚪ DEFERRED | Creates a user-to-user relationship graph — assess privacy before building |
+| G-5 | WhatsApp channel acquisition (~60k) | P5 | 🔴 BLOCKED | Blocked on L-4 |
+| G-6 | Country representatives / ambassadors | P5 | ⚪ DEFERRED | Operational, not technical |
+| G-7 | Growth analytics | P5 | 🔴 BLOCKED | **Conflicts with §1 "no analytics or tracking".** See §18-A |
+
+---
+
+## 15. Documentation & governance (WS23)
+
+| # | Item | Status | Notes |
+| --- | --- | --- | --- |
+| D-1 | Core docs | 🟢 COMPLETE | ARCHITECTURE, SECURITY, DATA_PROCESSING_MAP, DPIA_ASSESSMENT, TELEGRAM_SETUP, LAUNCH_CHECKLIST |
+| D-2 | This roadmap as source of truth | 🟢 COMPLETE | Referenced from `docs/ARCHITECTURE.md` |
+| D-3 | Launch checklist | 🟢 COMPLETE | `docs/LAUNCH_CHECKLIST.md` — the operational runbook behind the four §16 gates: per-level steps, commands and evidence, plus ongoing-operations discipline. Adds no new requirements; references existing procedures |
+| D-4 | Architecture decision records | 🟡 PARTIAL | Decisions are embedded in `ARCHITECTURE.md` prose rather than dated ADRs |
+
+---
+
+## 16. Launch gates (WS24)
+
+Four distinct levels. **Do not collapse them.** A feature can be technically complete while
+launch stays blocked.
+
+| # | Level | Status | Gated by |
+| --- | --- | --- | --- |
+| L-1 | Internal testing | 🟢 READY | — |
+| L-2 | Small controlled pilot | 🟡 READY WITH CAVEATS | P0-1…P0-3; pilot users told it is an early service |
+| L-3 | Public launch | 🔴 NOT READY | P0-5, P0-11, P0-13, CN-5, T1 |
+| L-4 | Large-scale campaign (~60k) | 🔴 NOT READY | All P0, plus T1, T2, SC-1…SC-3, SC-5, Q-6 |
 
 Bezy is **technically prepared for legal review**. It is not "GDPR compliant" and that phrase
 must not be used.
 
 ---
 
-## 11. Session log
+## 17. Long-horizon backlog
 
-Newest first. One entry per substantial session.
+Not promoted. Each requires an explicit decision before any work starts.
 
-### Session — master roadmap established
-- **Workstream:** project control / continuity.
-- **Done:** created this file; reconciled every claimed-complete item against the code.
-- **Found:** the previous session is entirely uncommitted, including the untracked
-  localization suite (§0); four items demoted from complete (§3); all seven P1 features
-  verified at zero references; four dead locale keys, one contradicting shipped reality (T5).
-- **Tests:** 488 passing, 0 failing.
-- **Not done:** no product feature implemented, per instruction.
-- **Next:** commit §0, then P0-1 (real Stars purchase) when a balance is available.
+| # | Item | Status | Gate before implementation |
+| --- | --- | --- | --- |
+| AI-1 | AI profile / conversation assistance | ⚪ DEFERRED | Assess personal-data processing, special-category inference, third-party transfer, retention, cost, user benefit |
+| AI-2 | AI moderation / scam detection | ⚪ DEFERRED | Same, plus accuracy and appeal implications. Relates to SF-4/SF-5 |
+| V-1 | Optional profile / photo / identity verification | ⚪ DEFERRED | **Distinct from the 18+ self-declaration (C9) — never conflate them.** Photo verification would likely require persistent image storage, which §1 forbids: must stop and be reported |
+| EX-1 | Dating experiences (events, speed dating, date ideas, games, gifts) | ⚪ DEFERRED | Virtual gifts must not introduce a payment path outside Telegram Stars. See §18-C |
+| BZ-1 | Business ecosystem (restaurants, hotels, partners, weddings) | ⚪ DEFERRED | Introduces third-party data sharing and new processors. See §18-B. Do not build until the core loop proves demand |
+
+---
+
+## 18. Known conflicts requiring an owner decision
+
+Surfaced by this audit. Each is a stated future intention that contradicts a permanent
+decision in §1. None may be resolved by engineering alone.
+
+**§18-A — Growth analytics vs "no tracking" (G-7).** WS20 contemplates growth analytics "if
+later legally/privacy approved". §1 forbids analytics and tracking, and the absence of any
+analytics is currently a load-bearing claim in the Privacy Policy, `DATA_PROCESSING_MAP.md`
+and `DPIA_ASSESSMENT.md` (it is part of why criterion 3 of the DPIA screening is *not* met).
+Introducing analytics would require updating all three documents and would likely change the
+DPIA outcome. **Decision required before any attribution beyond G-3.**
+
+**§18-B — Business ecosystem vs the transfer position (BZ-1).** Partner integrations would
+share personal data with new third parties, creating processors and possibly transfers that do
+not exist today. This intersects the unresolved P0-7. **Blocked behind P0-7.**
+
+**§18-C — Virtual gifts vs Stars-only (EX-1).** Gifts could imply a value transfer outside
+Telegram Stars, contradicting §1. If pursued, it must be implemented as Stars or not at all.
+
+**§18-D — `relationshipIntent` vs Art. 9 (P1-3).** Already tracked as blocked on P0-5, restated
+here so it is visible at the conflict level rather than only inside a feature row.
+
+---
+
+## 19. Quality gate — current baseline
+
+Last **fully executed** gate, covering everything through P1-1/P1-2/P1-4/P1-5:
+
+```
+Localization:  133 passed / 0 failed
+Backend:       307 passed / 0 failed
+Security:      102 passed / 0 failed
+Smoke:          40 passed / 0 failed   (read-only, against production)
+Playwright:     42 passed / 0 failed
+Total:         624 passed / 0 failed
+```
+
+Since then, localization has been re-run and is at **168 passed / 0 failed** (checks now pin
+the prompt, notification and language id lists to the API and guard the placeholders, and
+pin the canonical support address).
+
+⚠️ **The N-1/N-2/N-3/N-4, RT-2, RT-3 and P1-3 `languages` tests have been written but never
+executed.** The Firestore free-tier daily read quota was exhausted (see SC-2), which aborts
+any Firestore-backed suite part-way. The following must be run, green, before any of them may
+be marked 🟢:
+
+```bash
+BEZY_SERVICE_ACCOUNT=<path> node tests/backend.test.mjs
+BEZY_SERVICE_ACCOUNT=<path> node tests/security.test.mjs
+BEZY_SERVICE_ACCOUNT=<path> npx playwright test
+```
+
+Run them once, on a fresh quota day, rather than iteratively — the quota is shared with the
+live app. What *is* verified for N-1/N-4: `node --check` on every changed file, the localization
+suite, and the ten `api/_notify.js` pure-logic behaviours (defaults, normalization, unknown-key
+rejection, and that a transactional category cannot be disabled), executed standalone. For
+RT-2, RT-3 and P1-3 `languages` the same applies: `node --check` and the localization suite
+are green; the backend, security and Playwright suites remain unexecuted.
+
+`npm test` runs the three Node suites; `npm run test:e2e` runs Playwright; `npm run test:smoke` checks production; `npm run retention` dry-runs the retention policy. Backend, security
+and Playwright need `BEZY_SERVICE_ACCOUNT`; localization is pure static analysis.
+
+**Production data:** 1 real user, 2 real invoices, 1 rate-limit record. Synthetic test data
+uses ids `9000000xx` only and is cleaned before and after every run. Never mutate real records.
+
+---
+
+## 20. Session log
+
+Newest first.
+
+### Session — execution: D-3 launch checklist, gate fix, operator name
+- **Built:** `docs/LAUNCH_CHECKLIST.md` — the operational runbook behind the four §16 gates
+  (steps, commands, evidence per level, ongoing-ops discipline). Adds no new requirements.
+- **Fixed:** the outside-Telegram gate at the root URL was a bare "Bezy / Open Bezy from
+  Telegram to continue." with no way in and no logo. It now shows the Bezy mark
+  (`/assets/bezy-icon.png`) and a button linking the canonical bot
+  (`https://t.me/BezyDatingBot`), EN/FR by browser language. Pinned twice: a localization
+  check that the gate links the canonical bot, and an e2e test of the full gate screen.
+  **Requires a Vercel deploy to reach production.**
+- **Changed:** operator representative name "Yao Amevi Amessinou Sossou" → "Yao Sossou" in
+  ARCHITECTURE, DATA_PROCESSING_MAP, Privacy and Terms (EN + FR).
+- **Status changes:** D-3 🔵 → 🟢; D-1 core-docs list now includes LAUNCH_CHECKLIST.
+  Localization suite 168 → 169.
+- **Next:** Q-5 API contract tests.
+
+### Session — execution: CN-7 in-app support route
+- **Built:** a *Help & support* card in the Mini App profile view with a `mailto:` entry point
+  to `contacts@digitalconcordia.com`, EN/FR. The address is now pinned twice — a localization
+  check (markup + both catalogues) and an e2e attribute assertion — so the support route
+  cannot drift to a lookalike.
+- **Not built:** an SLA. It is an operational commitment (response time, hours) that the
+  operator either defines or deliberately declines before launch — the roadmap row now says
+  so, and no response-time promise was invented in the copy.
+- **Status changes:** CN-7 stays 🟡 (route done, SLA pending). Localization suite 165 → 168.
+- **Next:** D-3 launch checklist.
+
+### Session — execution: N-3 safety / account event notifications
+- **Built:** transactional `account` bot messages for the events that are a user's only
+  record of something that happened to their account: report acknowledgment, pause/resume
+  confirmation, objection/withdrawal confirmation, and a deletion confirmation sent while the
+  account still exists. All ride the existing `account` category, so no new settings surface
+  and no payload can mute them; they are delivered even while the account is paused.
+- **Design decisions worth keeping:** the report acknowledgment is identical whether or not
+  the target account exists — differing text would turn the bot chat into an
+  account-existence oracle. Blocks, unblocks and unmatches stay silent: their effect is
+  already visible in the app. Idempotent repeats send nothing — only an actual state change
+  is an event.
+- **Status changes:** N-3 🟡 → 🟠; P1-7 🟡 → 🟠 (its substance was the §9 items, now all
+  implemented).
+- **Tests:** backend additions written but unexecuted (Firestore quota). Localization suite
+  re-run: 165 passed / 0 failed.
+- **Next:** CN-7 in-app support route.
+
+### Session — execution: N-2 profile-completion reminders
+- **Built:** a `profile_reminders` optional notification category capped at one per seven
+  days — the cap window is now per-category (`windowMs` on `NOTIFICATION_CATEGORIES`), still
+  stored in the same `rateLimits` counters account deletion already erases. `api/_reminders.js`
+  mirrors the `_retention.js` plan/send split; `scripts/profile-reminders.mjs` is the
+  operator-invoked driver (dry-run by default, `--apply`, `--limit`, `--protect`), wired as
+  `npm run reminders`. The Mini App Notifications card gains the toggle (EN/FR).
+- **Design decisions worth keeping:** only accounts that declared 18+ and have an incomplete
+  profile are eligible — people who never confirmed never engaged and are not contacted. A
+  paused account is not even *selected* for a reminder, and delivery still goes through
+  `deliverNotification`, so opt-out and the cap are applied in one place, never by the script.
+  No scheduler was built — the operator invokes the script, like retention.
+- **Regression:** adding an optional category changed the default `notifications` map, so the
+  N-4 default/echo assertions were updated to include it (expected consequence, not a defect).
+- **Status changes:** N-2 🔵 → 🟠 (implemented, tests unexecuted). Localization suite stays
+  green at 165; the category pinning check now also covers the reminders toggle.
+- **Tests:** backend additions (plan selection, cap, opt-out, pause exclusion, language,
+  button deep link) written but unexecuted (Firestore quota).
+- **Next:** N-3 safety / account event notifications.
+
+### Session — execution: RT-2, RT-3 and the P1-3 `languages` sub-item
+- **Built:** RT-2 restriction of processing as self-service — `action: 'restrict'`/`'unrestrict'`
+  on `/api/account`, a recorded `processingRestricted` legal state (not a visibility flag)
+  enforced in `discover.js`, `swipe.js`, `profile/me.js` and `_notify.js`, a *Pause processing*
+  control in Safety & privacy, EN/FR, Privacy Policy and `DATA_PROCESSING_MAP.md` §5 updated.
+  RT-3 objection as self-service the same way — Art. 21(5) allows objections by automated
+  means: `action: 'object'`/`'unobject'`, a recorded `processingObjection` state kept distinct
+  from restriction, an *Object to processing* control, EN/FR. P1-3 `languages`: profile chips,
+  a free (non-Premium) discovery filter and a compatibility term, EN/FR.
+- **Design decisions worth keeping:** a paused account is excluded by the legal state itself
+  and returns the same identical `TARGET_NOT_FOUND` shape as every other case, so neither
+  restriction nor objection is detectable from outside. Both legal states share one
+  `processingPaused()` predicate (`api/_privacy.js`) across discover/swipe/profile/notify so
+  the enforcement points cannot drift, while staying distinct in storage and the export —
+  the rights are distinct, the record must say which happened. Language ids are ISO 639-1
+  machine tokens with a closed list pinned between API and Mini App by a localization check;
+  profiles listing no language are never excluded by the filter; the language filter is
+  deliberately not Premium-gated because being unable to hold a conversation is whether the
+  product works at all, not a power-user concern.
+- **Status changes:** P1-3 `languages` sub-item 🔵 → implemented (row stays 🟡 PARTIAL:
+  `relationshipIntent` remains blocked on P0-5). RT-3 🟡 → 🟠 (implemented, tests unexecuted).
+  §9 header renamed: these rights are no longer "not automated". Localization suite 143 → 165.
+- **Tests:** localization 165 passed / 0 failed. Backend, security and Playwright additions
+  for RT-2, RT-3 and `languages` are written but unexecuted (Firestore quota) — see §19.
+- **Next:** N-2 profile-completion reminder.
+
+### Session — execution: N-1 and N-4 (notifications)
+- **Built:** `api/_notify.js` — one place that decides what Bezy is allowed to send, wired into
+  `api/swipe.js`, `api/profile/me.js` and the data export, plus a Notifications card in the
+  profile view, EN + FR.
+- **Design decisions worth keeping:** the settings map contains *only* the categories a user may
+  control, so muting a payment receipt is not a validation rule that could be forgotten — it is
+  unrepresentable. The Super Like notification is anonymous because naming the sender would both
+  give away what `/api/likes` charges for and disclose someone's interest before the recipient
+  has expressed any of their own. The 5/day ceiling reuses the `rateLimits` document, which
+  account deletion already erases, so flood protection created no new retention obligation.
+- **Not finished:** the backend and e2e tests for this work are written but **have never run** —
+  the Firestore daily read quota was exhausted. See §19 for the exact commands. N-1 and N-4 are
+  therefore 🟠, not 🟢.
+- **Found while working:** SC-2 stopped being theoretical — development testing alone exhausted
+  the production database's daily read quota, and an aborted suite left synthetic profiles
+  behind because cleanup itself needs reads. Both are now recorded on SC-2. The leftover
+  `9000000xx` documents were removed by targeted delete (writes were still available).
+- **Tests:** localization 133 → 143. The rest of the gate is unchanged but unre-run.
+- **Next:** run the three suites on a fresh quota day and promote N-1/N-4, then P0-4.
+
+### Session — execution: P1-1, P1-2, P1-4, P1-5
+- **Shipped:** profile prompts (P1-1), profile preview (P1-2), why you matched (P1-4) and
+  conversation starters (P1-5) — each end to end: backend, Mini App, EN + FR, tests.
+- **Design decisions worth keeping:** prompt ids are machine tokens stored alone, so one
+  answer renders under the reader's own question — a test now pins the Mini App list to the
+  API list so they cannot drift. `sharedSignals()` is the single source for both the match
+  explanation and the openers, so the two cannot disagree, and it is attached only to
+  matches, which is what keeps it behind mutual consent. `gender`/`seeking` are excluded
+  from it by design (§18) and a test asserts they never appear.
+- **Regression caught and fixed:** the "Why you matched" label shipped as a `<b>` inside
+  `.match-info`, which broke two existing Playwright specs on strict mode and put a second
+  bold element in front of assistive technology. Now a `.why-label` span, with the chip CSS
+  scoped to beat the inherited `.match-info span` rule.
+- **Status changes:** P1-1/P1-2/P1-4/P1-5 🔵 → 🟢; WS2 and WS4 🟡 → 🟢; PR-8 ⚪ DEFERRED →
+  🔵 READY now that its stated blocker (build P1-4 first) is cleared.
+- **Tests:** 566 → 624, 0 failing.
+- **Next:** P0-4 then P0-1.
+
+### Session — execution: retention, smoke tests, demo-copy cleanup
+- **Fixed now:** T5 dead locale keys (and wired `premium_expired` into a real lapsed-membership
+  notice); T1 retention framework with dry-run script and 15 tests; Q-6 production smoke suite
+  (40 checks); CN-3 non-renewal clause in Terms EN/FR; T7 hardcoded English removed from eight
+  runtime-populated elements.
+- **Regressions caught and fixed:** the new lapsed notice reused `.locked` and broke Playwright
+  strict mode — given its own class, and coverage extended to the refunded case. The smoke test
+  initially failed on local-ahead-of-production drift; the assertion was wrong, not the system,
+  so it now checks live internal consistency and reports drift informationally.
+- **Tests:** 488 → 566, 0 failing.
+- **Next:** P0-4 then P0-1.
+
+### Session — workstream continuity audit
+- **Workstream:** governance. No code changed, nothing committed.
+- **Done:** reconciled the roadmap against all 24 defined workstreams; added §2 coverage index
+  and §18 conflicts register.
+- **Found:** six workstreams had no home at all (growth, scale, quality-beyond-suites,
+  governance artifacts, launch gates, consumer/commercial); notifications and user rights were
+  under-specified; four conflicts between stated future intentions and permanent decisions.
+- **Item count:** 71 → 108.
+- **Next:** P0-4 then P0-1.
+
+### Session — master roadmap established (`30ef891`)
+- Created the roadmap; reconciled claimed-complete items against code; demoted four to
+  PARTIALLY COMPLETE; committed the previously untracked localization suite. 488 tests passing.
 
 ### Session — launch-readiness check (`6e692aa`)
 - Found and fixed `RATE_LIMITED` unmapped in the Mini App; verified production served the
-  latest build. 390 tests passing at the time.
+  latest build.
 
 ### Session — pre-launch hardening (`011c999`)
 - Rate limiting; closed the `@username` pre-match disclosure and a second enumeration leak;
@@ -285,17 +637,21 @@ Newest first. One entry per substantial session.
 
 ---
 
-## 12. How to use this file
+## 21. How to use this file
 
-**Starting a session:** read §0 (uncommitted), §4 (P0), §6 (P1); state the current workstream,
-what is already complete, what is still open, and the next action.
+**Starting a session:** read §0 (unsaved state), §2 (coverage), §5 (P0), §7 (P1). State the
+current workstream, what is complete, what is open, and the next action.
 
 **A new idea arrives:** do not start coding. Record it as `NEW IDEA / AFFECTED WORKSTREAM /
-PRIORITY / DEPENDENCIES / CONFLICTS / PREVIOUS WORK THAT MUST REMAIN`, add it here, then
-report the resulting order. If it conflicts with §1, stop and explain.
+PRIORITY / DEPENDENCIES / CONFLICTS / PREVIOUS WORK THAT MUST REMAIN`, add it to the right
+section, and report the resulting order. If it contradicts §1, add it to §18 and stop.
 
 **Ending a session:** update statuses, preserve everything unfinished, add what was newly
-discovered, record blockers and test counts, and append a session-log entry.
+discovered, record blockers and test counts, update §0 with any unsaved state, and append a
+session-log entry.
+
+**Auditing completeness:** walk §2. Every workstream must map to a section containing real
+items. A workstream with no home means the roadmap is incomplete.
 
 **Never** treat a prompt as a clean slate, and never mark something complete because the code
 exists.

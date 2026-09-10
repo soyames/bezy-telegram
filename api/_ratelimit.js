@@ -31,7 +31,10 @@ export const RATE_LIMITS = {
   premium_status: [{ limit: 120, windowSeconds: 3600 }],
   // The export runs six collection queries, so it is the most expensive call in the product.
   account_export: [{ limit: 3, windowSeconds: 3600 }],
-  account_delete: [{ limit: 5, windowSeconds: 3600 }]
+  account_delete: [{ limit: 5, windowSeconds: 3600 }],
+  // Restriction is a data-subject right, so the ceiling is loose enough that exercising it —
+  // including changing one's mind a few times — is never obstructed.
+  account_restrict: [{ limit: 20, windowSeconds: 3600 }]
 };
 
 export class RateLimitError extends Error {
