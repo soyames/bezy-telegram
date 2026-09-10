@@ -35,8 +35,9 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `8592bc2`** (`feat: reciprocal matching, honest discovery, docs
-reconciliation and Stage 4 prep`). Commit is **local only — not pushed**.
+🟢 **Working tree clean at `ad8731b`** (`chore: record post-commit checkpoint state in the
+roadmap`). **Pushed — `main` is in sync with `origin/main`, and the Vercel production build
+was verified to match the working tree (smoke suite deploy-freshness check, 2026-09-10).**
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -46,7 +47,7 @@ before ending the session.
 | --- | --- |
 | Uncommitted | Nothing — everything since `d3cb87f` is in `8592bc2`; see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
-| Unpushed | `main` is 6 commits ahead of `origin/main` (through `8592bc2`) |
+| Unpushed | Nothing — pushed at `ad8731b` |
 
 ---
 
