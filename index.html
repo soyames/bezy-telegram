@@ -115,29 +115,31 @@
         <div id="notification-list"></div>
       </div>
       <div class="settings-card">
-        <h3 id="safety-title">Safety & privacy</h3>
-        <p class="filter-note" id="safety-intro"></p>
-        <div id="restriction-notice"></div>
-        <div id="objection-notice"></div>
+        <h3 id="safety-title">Safety</h3>
+        <p class="filter-note" id="safety-intro" style="margin:0 2px 12px"></p>
         <button class="ghost-btn" id="blocked-list-btn" type="button">Blocked people</button>
-        <button class="ghost-btn" id="export-data-btn" type="button">Download my data</button>
-        <button class="ghost-btn" id="restrict-btn" type="button">Pause processing</button>
-        <button class="ghost-btn" id="object-btn" type="button">Object to processing</button>
-        <button class="ghost-btn" id="delete-account-btn" type="button" style="color:var(--danger);border-color:#f3c9c9">Delete my account</button>
-        <p class="filter-note" id="rights-note"></p>
       </div>
       <div class="settings-card">
-        <h3 id="legal-title">Legal & privacy</h3>
-        <div class="legal-links"><a href="/privacy?lang=en" id="privacy-link">Privacy</a><a href="/terms?lang=en" id="terms-link">Terms</a></div>
+        <h3 id="data-title">Privacy & your data</h3>
+        <div id="restriction-notice"></div>
+        <div id="objection-notice"></div>
+        <button class="ghost-btn" id="export-data-btn" type="button">Download my data</button>
+        <button class="ghost-btn" id="data-controls-btn" type="button">Data & privacy controls</button>
+        <button class="ghost-btn" id="delete-account-btn" type="button" style="color:var(--danger);border-color:#f3c9c9">Delete my account</button>
+        <p class="filter-note" id="rights-note" style="margin:12px 2px 0"></p>
       </div>
       <div class="settings-card">
         <h3 id="support-title">Help & support</h3>
         <p class="filter-note" id="support-intro" style="margin:0 2px 12px"></p>
-        <a class="ghost-btn" id="support-bot-btn" href="https://t.me/BezyDatingBot">Get help in @BezyDatingBot</a>
-        <button class="ghost-btn" id="support-contact-btn" type="button">Contact support</button>
+        <a class="ghost-btn" id="support-bot-btn" href="https://t.me/BezyDatingBot">Get help</a>
         <button class="ghost-btn" id="support-history-btn" type="button">My support requests</button>
-        <small class="filter-note" id="support-expectation" style="display:block;margin:0 2px 12px"></small>
-        <a class="ghost-btn" id="support-email-btn" href="mailto:contacts@digitalconcordia.com">Email support</a>
+        <small class="filter-note" id="support-formal" style="display:block;margin:12px 2px 6px"></small>
+        <a class="filter-note" id="support-email-btn" href="mailto:contacts@digitalconcordia.com" style="display:inline-block">Email support</a>
+        <small class="filter-note" id="support-expectation" style="display:block;margin:4px 2px 0"></small>
+      </div>
+      <div class="settings-card">
+        <h3 id="legal-title">Legal</h3>
+        <div class="legal-links"><a href="/privacy?lang=en" id="privacy-link">Privacy</a><a href="/terms?lang=en" id="terms-link">Terms</a></div>
       </div>
     </section>
   </main>

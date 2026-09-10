@@ -174,13 +174,16 @@ test('account deletion requires typed confirmation and removes the account', asy
   expect(bosMatches.matches).toHaveLength(0);
 });
 
-test('the Mini App support form creates a request and shows the reference', async ({ page }) => {
+test('the support card leads with the bot and files requests from the history sheet', async ({ page }) => {
   await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
   // The primary support entry point is the canonical bot, not an email form.
   await expect(page.locator('#support-bot-btn')).toHaveAttribute('href', 'https://t.me/BezyDatingBot');
-  await page.locator('#support-contact-btn').click();
+  await expect(page.locator('#support-bot-btn')).toHaveText('Get help');
+  // Intake lives behind the history: one secondary CTA, no competing primary buttons.
+  await page.locator('#support-history-btn').click();
+  await page.locator('#support-new-btn').click();
   await page.locator('#support-category').selectOption('premium');
   await page.locator('#support-details').fill('E2E support test.');
   await page.locator('#support-submit').click();
@@ -197,13 +200,19 @@ test('safety and privacy controls are localized in French', async ({ page }) => 
   await page.locator('.nav button[data-view="profile"]').click();
   const profile = await page.locator('#profile-view').innerText();
   expect(profile).not.toMatch(/\bapp\.[a-z_]+/);
-  expect(profile).toContain('Sécurité et confidentialité');
+  expect(profile).toContain('Sécurité');
+  expect(profile).toContain('Confidentialité et vos données');
   expect(profile).toContain('Télécharger mes données');
   expect(profile).toContain('Supprimer mon compte');
+  expect(profile).toContain('Mentions légales');
   expect(profile).toContain('Aide et assistance');
   expect(profile).toContain('3 jours ouvrés');
   // The support entry point is a machine token: it always links the canonical address.
   await expect(page.locator('#support-email-btn')).toHaveAttribute('href', 'mailto:contacts@digitalconcordia.com');
+  // The two legal states sit behind one human-readable entry point.
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#sheet-host')).toContainText('Contrôles des données');
+  await expect(page.locator('#controls-restrict')).toHaveText('Suspendre le traitement');
 
   await page.locator('.nav button[data-view="matches"]').click();
   await page.locator('[data-actions]').click();

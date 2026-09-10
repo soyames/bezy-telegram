@@ -329,20 +329,23 @@ test('language chips are localized in French', async ({ page }) => {
 
 // --------------------------------------------------- restriction of processing (RT-2)
 
-test('processing can be paused and resumed from Safety & privacy', async ({ page }) => {
+test('processing can be paused and resumed from the data controls sheet', async ({ page }) => {
   const users = await seedProfiles(page);
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
-  await expect(page.locator('#restrict-btn')).toHaveText(en.restrict_action);
   await expect(page.locator('#restriction-notice .restricted-notice')).toHaveCount(0);
 
-  await page.locator('#restrict-btn').click();
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#controls-restrict')).toHaveText(en.restrict_action);
+  await page.locator('#controls-restrict').click();
   await expect(page.locator('.sheet')).toContainText(en.restrict_explain);
   await page.locator('#restrict-go').click();
   await expect(page.locator('#toast')).toContainText(en.restrict_done);
 
   await expect(page.locator('#restriction-notice .restricted-notice')).toContainText(en.restricted_badge);
-  await expect(page.locator('#restrict-btn')).toHaveText(en.unrestrict_action);
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#controls-restrict')).toHaveText(en.unrestrict_action);
+  await page.locator('[data-sheet-close]').last().click();
   // Server-enforced, not merely hidden.
   const me = await (await page.request.post('/api/profile/me', { data: { initData: users.a.initData } })).json();
   expect(me.processingRestricted).toBe(true);
@@ -353,7 +356,8 @@ test('processing can be paused and resumed from Safety & privacy', async ({ page
   await expect(page.locator('#discover-content')).toContainText(en.restricted_badge);
 
   await page.locator('.nav button[data-view="profile"]').click();
-  await page.locator('#restrict-btn').click();
+  await page.locator('#data-controls-btn').click();
+  await page.locator('#controls-restrict').click();
   await expect(page.locator('#toast')).toContainText(en.unrestrict_done);
   await expect(page.locator('#restriction-notice .restricted-notice')).toHaveCount(0);
   const resumed = await (await page.request.post('/api/profile/me', { data: { initData: users.a.initData } })).json();
@@ -382,32 +386,37 @@ test('restriction of processing is localized in French', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('bezy-language', 'fr'));
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
-  await expect(page.locator('#restrict-btn')).toHaveText(fr.restrict_action);
-  await page.locator('#restrict-btn').click();
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#controls-restrict')).toHaveText(fr.restrict_action);
+  await page.locator('#controls-restrict').click();
   await expect(page.locator('.sheet .sheet-head h3')).toHaveText(fr.restrict_title);
   await expect(page.locator('.sheet')).toContainText(fr.restrict_explain);
   await expect(page.locator('#restrict-go')).toHaveText(fr.restrict_confirm);
   await page.locator('#restrict-go').click();
   await expect(page.locator('#restriction-notice .restricted-notice')).toContainText(fr.restricted_badge);
-  await expect(page.locator('#restrict-btn')).toHaveText(fr.unrestrict_action);
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#controls-restrict')).toHaveText(fr.unrestrict_action);
 });
 
 // ------------------------------------------------------- objection to processing (RT-3)
 
-test('processing can be objected to and the objection withdrawn from Safety & privacy', async ({ page }) => {
+test('processing can be objected to and the objection withdrawn from the data controls sheet', async ({ page }) => {
   const users = await seedProfiles(page);
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
-  await expect(page.locator('#object-btn')).toHaveText(en.object_action);
   await expect(page.locator('#objection-notice .restricted-notice')).toHaveCount(0);
 
-  await page.locator('#object-btn').click();
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#controls-object')).toHaveText(en.object_action);
+  await page.locator('#controls-object').click();
   await expect(page.locator('.sheet')).toContainText(en.objection_explain);
   await page.locator('#objection-go').click();
   await expect(page.locator('#toast')).toContainText(en.objection_done);
 
   await expect(page.locator('#objection-notice .restricted-notice')).toContainText(en.objection_badge);
-  await expect(page.locator('#object-btn')).toHaveText(en.unobject_action);
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#controls-object')).toHaveText(en.unobject_action);
+  await page.locator('[data-sheet-close]').last().click();
   // Server-enforced, not merely hidden — and distinct from restriction.
   const me = await (await page.request.post('/api/profile/me', { data: { initData: users.a.initData } })).json();
   expect(me.processingObjection).toBe(true);
@@ -424,7 +433,8 @@ test('processing can be objected to and the objection withdrawn from Safety & pr
 
   // Withdrawing restores the account without silently returning it to the deck.
   await page.locator('.nav button[data-view="profile"]').click();
-  await page.locator('#object-btn').click();
+  await page.locator('#data-controls-btn').click();
+  await page.locator('#controls-object').click();
   await expect(page.locator('#toast')).toContainText(en.unobject_done);
   await expect(page.locator('#objection-notice .restricted-notice')).toHaveCount(0);
   const resumed = await (await page.request.post('/api/profile/me', { data: { initData: users.a.initData } })).json();
@@ -437,14 +447,16 @@ test('objection to processing is localized in French', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('bezy-language', 'fr'));
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
-  await expect(page.locator('#object-btn')).toHaveText(fr.object_action);
-  await page.locator('#object-btn').click();
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#controls-object')).toHaveText(fr.object_action);
+  await page.locator('#controls-object').click();
   await expect(page.locator('.sheet .sheet-head h3')).toHaveText(fr.objection_title);
   await expect(page.locator('.sheet')).toContainText(fr.objection_explain);
   await expect(page.locator('#objection-go')).toHaveText(fr.objection_confirm);
   await page.locator('#objection-go').click();
   await expect(page.locator('#objection-notice .restricted-notice')).toContainText(fr.objection_badge);
-  await expect(page.locator('#object-btn')).toHaveText(fr.unobject_action);
+  await page.locator('#data-controls-btn').click();
+  await expect(page.locator('#controls-object')).toHaveText(fr.unobject_action);
 });
 
 // ------------------------------------------------------------------ French
