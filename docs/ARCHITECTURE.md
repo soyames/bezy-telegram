@@ -222,7 +222,12 @@ The Mini App never receives Firestore credentials and never performs direct Fire
 
 - `POST /api/profile/me` — validate Telegram identity, create/load the Bezy account, and save the user's profile.
 - `POST /api/discover` — return eligible profiles after excluding the current user's previous
-  actions. A deck card carries `prompts` but never `username` or `telegramId`.
+  actions. A deck card carries `prompts` but never `username` or `telegramId`. Premium callers
+  additionally receive `breakdown` on each card (PR-8): the deterministic score explained
+  with terms the card itself already shows — shared interests, shared languages, the
+  candidate's city, age proximity. Derived from on-card fields only, so it discloses nothing
+  new and infers nothing sensitive; the field is simply absent for free callers, keeping the
+  gate server-side.
 - `POST /api/swipe` — record pass/like/super and atomically create a match when interest is
   mutual; the Vercel function sends Telegram match notifications. A super like that does *not*
   produce a match notifies the recipient **anonymously**: the message carries no name, photo,
@@ -262,6 +267,19 @@ The Mini App never receives Firestore credentials and never performs direct Fire
   `action: 'object'` / `'unobject'` (Art. 21) and `action: 'delete'` (Art. 17, guarded by a
   typed confirmation). Identity comes only from validated `initData`, so there is no user id
   parameter to tamper with.
+- Support (CN-7): the **bot is the primary support channel**. `/support` (FR `/assistance`)
+  opens a category menu; deterministic troubleshooting (Premium, Profile, Discovery,
+  Likes & Matches) answers only from the caller's own document; "still need help?" starts an
+  intake where the user's next plain message becomes a structured request. Requests live in
+  `supportRequests/BZ-XXXX` (`api/_support.js`) — category, description, status
+  (`open → in_progress → resolved/closed`), timestamps, nothing else — created from
+  validated update context or, for the Mini App form and history (`POST /api/support`), from
+  validated `initData`. The operator works the queue through `scripts/list-support.mjs`
+  (credential-gated, like moderation); there is no HTTP route that lists or changes a
+  request, and no external ticketing platform. Requests appear in the account export, are
+  erased with the account, and are governed by the retention mechanism
+  (`BEZY_RETENTION_SUPPORT_DAYS`, deliberately unset). Email stays the fallback for formal
+  legal/privacy matters.
 - `POST /api/telegram/webhook` — process localized bot commands, `pre_checkout_query` and
   `successful_payment`, and provide Mini App entry points.
 

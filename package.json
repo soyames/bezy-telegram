@@ -11,13 +11,19 @@
     "harness": "node tests/harness.mjs",
     "test": "node tests/contract.test.mjs && node tests/localization.test.mjs && node tests/backend.test.mjs && node tests/security.test.mjs",
     "test:contract": "node tests/contract.test.mjs",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --project=chromium",
+    "test:e2e:browsers": "playwright test tests/e2e/browsers.spec.js",
+    "test:e2e:degraded": "playwright test tests/e2e/degraded.spec.js --project=chromium",
     "test:all": "npm test && npm run test:e2e",
     "test:security": "node tests/security.test.mjs",
     "test:localization": "node tests/localization.test.mjs",
     "test:smoke": "node tests/smoke.test.mjs",
     "retention": "node scripts/retention.mjs",
-    "reminders": "node scripts/profile-reminders.mjs"
+    "reminders": "node scripts/profile-reminders.mjs",
+    "support": "node scripts/list-support.mjs",
+    "reports": "node scripts/report-stats.mjs",
+    "rate-limits": "node scripts/rate-limit-status.mjs",
+    "sync:fallback": "node scripts/sync-fallback-locale.mjs"
   },
   "dependencies": {
     "firebase-admin": "^13.5.0"

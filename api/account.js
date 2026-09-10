@@ -61,13 +61,14 @@ async function exportData(firestore, userId) {
   if (!snap.exists) return { account: null, note: 'No Bezy account exists for this Telegram user.' };
   const data = snap.data() || {};
 
-  const [actions, blocks, likesReceived, matchesSnap, payments, reports] = await Promise.all([
+  const [actions, blocks, likesReceived, matchesSnap, payments, reports, supportSnap] = await Promise.all([
     userRef.collection('actions').get(),
     userRef.collection('blocks').get(),
     userRef.collection('likesReceived').get(),
     firestore.collection('matches').where('participants', 'array-contains', userId).get(),
     firestore.collection('bezyPayments').where('telegramUserId', '==', userId).get(),
-    firestore.collection('reports').where('reporterId', '==', userId).get()
+    firestore.collection('reports').where('reporterId', '==', userId).get(),
+    firestore.collection('supportRequests').where('telegramUserId', '==', userId).get()
   ]);
 
   return {
@@ -115,6 +116,13 @@ async function exportData(firestore, userId) {
       endedAt: iso(d.data().endedAt)
     })),
     reportsYouFiled: reports.docs.map((d) => ({ reason: d.data().reason, status: d.data().status, at: iso(d.data().createdAt) })),
+    supportRequests: supportSnap.docs.map((d) => ({
+      reference: d.data().reference || d.id,
+      category: d.data().category,
+      status: d.data().status,
+      details: String(d.data().details || '').slice(0, 500),
+      createdAt: iso(d.data().createdAt)
+    })),
     payments: payments.docs.map((d) => ({
       chargeId: d.id, planId: d.data().planId, stars: d.data().stars, currency: d.data().currency,
       status: d.data().status, refundStatus: d.data().refundStatus ?? 'none',
@@ -272,6 +280,13 @@ async function deleteAccount(firestore, userId) {
   // Sent while the account still exists: the user's durable record that erasure happened.
   // Transactional, so it is delivered regardless of notification choices.
   await sendAccountEvent(firestore, data, 'deleted');
+
+  // Support requests are the caller's own personal data, so erasure covers them too. They
+  // reference the user by Telegram id only, like everything else in the request.
+  const supportSnap = await firestore.collection('supportRequests').where('telegramUserId', '==', userId).get();
+  const supportBatch = firestore.batch();
+  for (const doc of supportSnap.docs) supportBatch.delete(doc.ref);
+  await supportBatch.commit();
 
   // Removes the user document and every subcollection: profile, actions, likesReceived,
   // blocks and blockedBy.

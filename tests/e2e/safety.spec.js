@@ -174,6 +174,21 @@ test('account deletion requires typed confirmation and removes the account', asy
   expect(bosMatches.matches).toHaveLength(0);
 });
 
+test('the Mini App support form creates a request and shows the reference', async ({ page }) => {
+  await seedMatched(page);
+  await openApp(page);
+  await page.locator('.nav button[data-view="profile"]').click();
+  // The primary support entry point is the canonical bot, not an email form.
+  await expect(page.locator('#support-bot-btn')).toHaveAttribute('href', 'https://t.me/BezyDatingBot');
+  await page.locator('#support-contact-btn').click();
+  await page.locator('#support-category').selectOption('premium');
+  await page.locator('#support-details').fill('E2E support test.');
+  await page.locator('#support-submit').click();
+  await expect(page.locator('#toast')).toContainText('BZ-');
+  await page.locator('#support-history-btn').click();
+  await expect(page.locator('#sheet-host')).toContainText('BZ-');
+});
+
 test('safety and privacy controls are localized in French', async ({ page }) => {
   await seedMatched(page);
   await page.addInitScript(() => window.localStorage.setItem('bezy-language', 'fr'));
@@ -186,6 +201,7 @@ test('safety and privacy controls are localized in French', async ({ page }) => 
   expect(profile).toContain('Télécharger mes données');
   expect(profile).toContain('Supprimer mon compte');
   expect(profile).toContain('Aide et assistance');
+  expect(profile).toContain('3 jours ouvrés');
   // The support entry point is a machine token: it always links the canonical address.
   await expect(page.locator('#support-email-btn')).toHaveAttribute('href', 'mailto:contacts@digitalconcordia.com');
 

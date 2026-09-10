@@ -44,7 +44,7 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Nothing — Q-5/D-4 and the governance clarifications are in `ed7f326`; see §20 session log |
+| Uncommitted | CN-7 bot-first support rework, PR-8, SF-2/SF-3, T4 tooling, SC-6 catalogue — see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3 and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
 | Unpushed | `main` is 3 commits ahead of `origin/main` |
 
@@ -100,7 +100,7 @@ workstream has no home, it is missing and must be added before work begins.
 | WS19 | Business / ecosystem | §17 BZ-1 | ⚪ |
 | WS20 | Growth / acquisition | §14 G-1…G-7 | 🔵 |
 | WS21 | Scale / infrastructure | §12 SC-1…SC-7 | 🔵 |
-| WS22 | Quality / regression | §13 Q-1…Q-6 | 🟡 |
+| WS22 | Quality / regression | §13 Q-1…Q-8 | 🟢 |
 | WS23 | Documentation / governance | §15 D-1…D-4 | 🟢 |
 | WS24 | Launch | §16 L-1…L-4 | 🔴 |
 
@@ -193,7 +193,7 @@ exposure under review.
 | T1 | Retention enforcement framework | P0 | 🟡 PARTIAL | **Mechanism implemented**: `api/_retention.js` + `scripts/retention.mjs`, dry-run by default, 15 tests. Operational periods have defaults; payment and report periods are deliberately unset pending P0-8. **No scheduler** — runs are operator-invoked |
 | T2 | Penetration / external security review | P0 | 🔵 READY | Never performed |
 | T3 | Load and production-scale testing | P0 | 🔵 READY | See §12; required before any large campaign |
-| T4 | Abuse / rate-limit tuning from real traffic | P3 | 🔵 READY | Current limits are estimates, unvalidated |
+| T4 | Abuse / rate-limit tuning from real traffic | P3 | 🟡 PARTIAL | Instrumentation complete: every `RATE_LIMITED` trip is logged (`[bezy-ratelimit] limit_reached` — bucket, id, wait; counts only), `scripts/rate-limit-status.mjs` (`npm run rate-limits`) shows live windows per bucket, and the launch checklist documents the tuning procedure (lower never, loosen only with trip evidence). Final tuning requires real traffic by definition |
 | T5 | Remove dead locale keys | P4 | 🟢 COMPLETE | `premium_soon`, `people_nearby`, `adults_only` removed; `premium_expired` was not dead but unwired — now drives a lapsed-membership notice. Guarded by a test so they cannot return |
 | T7 | Hardcoded English in runtime-populated markup | P4 | 🟢 COMPLETE | Eight elements shipped English that JS replaces, causing a flash for French users; `people-label` still shipped the deleted string "people nearby". Now empty in markup, localized at runtime, guarded by a test |
 | T6 | Opaque per-viewer profile ids | P4 | ⚪ DEFERRED | Deck `id` is a real Telegram numeric id. Accepted; `docs/SECURITY.md` §6 |
@@ -225,8 +225,8 @@ must not be duplicated.**
 | # | Item | Priority | Status | Notes |
 | --- | --- | --- | --- | --- |
 | SF-1 | Moderation review tooling | P3 | 🟡 PARTIAL | `scripts/list-reports.mjs` gives visibility and resolve. No queue, no dashboard — deliberate |
-| SF-2 | Moderation queue / triage workflow | P3 | 🔵 READY | Only worth building when report volume justifies it |
-| SF-3 | Report category tuning from real reports | P3 | 🔵 READY | Current seven categories are untested against real usage |
+| SF-2 | Moderation queue / triage workflow | P3 | 🟢 COMPLETE | The credential-gated workflow now has a defined lifecycle — open → resolved/dismissed — in `api/_moderation.js`, one module shared by the script and the contract tests so they cannot drift. `scripts/list-reports.mjs` gains `--status` filtering, triage notes and `--dismiss`. Still deliberately no dashboard: a queue UI stays off the table until volume justifies it |
+| SF-3 | Report category tuning from real reports | P3 | 🟡 PARTIAL | Instrumentation complete: `scripts/report-stats.mjs` (`npm run reports`, read-only) prints reason/status/day distributions from a pure, contract-tested aggregation — the tuning evidence exists the moment real reports do. The tuning decision itself remains traffic-dependent by nature |
 | SF-4 | Scam / spam detection | P3 | ⚪ DEFERRED | Needs volume first. Assess privacy impact before any automated inference |
 | SF-5 | Impersonation / fake-profile detection | P3 | ⚪ DEFERRED | Would likely require photo or identity signals — see V-1 and §1 photo constraint |
 | SF-6 | Suspicious-account signals | P3 | ⚪ DEFERRED | Depends on SF-4 |
@@ -281,7 +281,7 @@ Telegram Stars only. Not promoted; none started.
 | PR-5 | Incognito | ⚪ DEFERRED | Interacts with discoverability and the enumeration model |
 | PR-6 | New users filter | ⚪ DEFERRED | `createdAt` already exists |
 | PR-7 | Unlimited likes | ⚪ DEFERRED | Effectively exists via the premium quota ceiling; clarify positioning |
-| PR-8 | Compatibility insights | 🔵 READY | Unblocked: P1-4 shipped the free deterministic explanation. PR-8 is now only the question of what, if anything, Premium adds on top — and it must not become sensitive inference |
+| PR-8 | Compatibility insights | 🟠 IN PROGRESS | Implemented: Premium members see a `breakdown` on every deck card — the deterministic score explained with terms the card already shows (shared interests, shared languages, candidate's city, age proximity). Derived from on-card fields only: no new disclosure, no sensitive inference. Server-gated: the field is absent for free callers. EN/FR, contract-pinned, backend tests written. **Firestore-backed tests not executed** (quota) |
 
 **Recommended smallest high-value set when promoted:** PR-1, PR-2, PR-6 — each reuses existing
 data and needs no new sensitive field.
@@ -298,7 +298,7 @@ data and needs no new sensitive field.
 | CN-4 | Refund policy in Terms | P0 | 🟢 COMPLETE | Terms state a refund removes access immediately |
 | CN-5 | Digital-service withdrawal right / immediate-performance waiver | P0 | 🔴 LEGAL REVIEW REQUIRED | EU/Austrian consumer law question. Not implemented, not decided |
 | CN-6 | VAT / OSS obligations | P0 | 🔴 LEGAL REVIEW REQUIRED | **No tax conclusion has been drawn.** Do not assert VAT status |
-| CN-7 | Consumer support channel | P1 | 🟡 PARTIAL | In-app support route added: a *Help & support* card in the Mini App with a `mailto:` entry point, EN/FR — the canonical address is pinned by the localization suite and an e2e assertion so it cannot drift to a lookalike. An SLA remains an operational commitment to define (or deliberately decline) before launch — not code |
+| CN-7 | Consumer support channel | P1 | 🟠 IN PROGRESS | **Reworked to bot-first (product decision):** `/support` (FR `/assistance`) opens a category menu in `@BezyDatingBot`; deterministic troubleshooting (Premium, Profile, Discovery, Likes & Matches) answers only from the caller's own document; "still need help?" starts an intake where the next plain message becomes a structured request `BZ-XXXX` (`supportRequests`, four-state lifecycle). The Mini App card links the bot first, then offers the same intake form and the caller's own history. Operator queue: `scripts/list-support.mjs`. Requests are exported, erased with the account, retention-integrated (`BEZY_RETENTION_SUPPORT_DAYS`, unset). Email stays the fallback for formal legal/privacy matters, with the 3-working-days aim. EN/FR. **Firestore-backed tests written but not executed** (quota) |
 
 ---
 
@@ -313,8 +313,8 @@ None started. No unnecessary infrastructure expansion.
 | SC-3 | Discovery query scalability | P0 | 🔵 READY | `where('discoverable','==',true).limit(100)` scans a fixed window; behaviour at large user counts is unmodelled |
 | SC-4 | Rate-limiter scalability | P1 | 🔵 READY | One document per user per request; read-then-write contention unmeasured |
 | SC-5 | Payment webhook reliability under load | P0 | 🔵 READY | Telegram retries on non-200; idempotency is tested but not load-tested |
-| SC-6 | Failure-mode catalogue | P1 | 🔵 READY | What happens when Firestore, Telegram or Vercel is degraded |
-| SC-7 | Observability | P1 | 🔵 READY | Verified absent (0 refs). Only `console` logging exists; no metrics, alerting or tracing |
+| SC-6 | Failure-mode catalogue | P1 | 🟢 COMPLETE | `docs/FAILURE_MODES.md` — per dependency: what the user sees, what the operator sees in the `[bezy-*]` logs, and the response; tied to the deterministic degraded-state e2e spec and the payment symptom table in TELEGRAM_SETUP §2b |
+| SC-7 | Observability | P1 | 🔵 READY | Structured `[bezy-*]` console-log conventions now cover payments, privacy actions, notifications, rate-limit trips and support; the failure-mode catalogue maps them. Metrics, alerting and tracing remain deliberately unbuilt until load justifies them — and any analytics-shaped system must clear ADR 0006 first |
 
 ---
 
@@ -328,8 +328,8 @@ None started. No unnecessary infrastructure expansion.
 | Q-4 | Localization suite | — | 🟢 COMPLETE | 133 checks |
 | Q-5 | API contract tests | P1 | 🟢 COMPLETE | `docs/API_CONTRACT.md` version 1 + `tests/contract.test.mjs` (35 checks, **pure — runs without Firestore**): exact key sets and types for every public shape, the disclosure boundary (no `username`/`telegramId`/`gender`/`seeking` off the match card), and the error catalogue pinned both ways against the Mini App mapping. Its first run caught a real TDZ crash in `api/_notify.js`. Runs first in `npm test` |
 | Q-6 | Production smoke tests | P0 | 🟢 COMPLETE | `tests/smoke.test.mjs`, 40 checks. Read-only and unauthenticated: build freshness, live locale consistency, legal pages, and that all 8 endpoints reject unauthenticated and forged requests |
-| Q-7 | Browser / Telegram client compatibility | P1 | 🔵 READY | Playwright runs Chromium only; no iOS/Android Telegram WebView coverage |
-| Q-8 | Error-state coverage | P1 | 🟡 PARTIAL | Error codes are tested; degraded-dependency states are not |
+| Q-7 | Browser / Telegram client compatibility | P1 | 🟢 COMPLETE | Playwright now runs a three-engine matrix (chromium, webkit, firefox). The Firestore-backed specs stay Chromium-only by quota discipline; `tests/e2e/browsers.spec.js` is the Firestore-free set (gate + legal pages, EN/FR) and runs on all three — 9/9 green. Telegram WebView on real iOS/Android cannot be automated outside the Telegram client and is a documented manual L-1 step (`LAUNCH_CHECKLIST.md` 1.13) |
+| Q-8 | Error-state coverage | P1 | 🟢 COMPLETE | `tests/e2e/degraded.spec.js` drives degraded states deterministically through route interception (no Firestore): whole-API down → typed toast + navigable shell; locale outage → complete built-in English fallback; rate limit → the wait is named. The fallback catalogue is now generated from `locales/en.json` (`npm run sync:fallback`) and pinned by the localization suite — the spec's first run caught it stale, rendering raw keys |
 
 **Never reduce coverage to make the suite green.**
 
@@ -356,7 +356,7 @@ campaign or `start_param` code exists.
 
 | # | Item | Status | Notes |
 | --- | --- | --- | --- |
-| D-1 | Core docs | 🟢 COMPLETE | ARCHITECTURE, SECURITY, DATA_PROCESSING_MAP, DPIA_ASSESSMENT, TELEGRAM_SETUP, LAUNCH_CHECKLIST, API_CONTRACT, `docs/adr/` |
+| D-1 | Core docs | 🟢 COMPLETE | ARCHITECTURE, SECURITY, DATA_PROCESSING_MAP, DPIA_ASSESSMENT, TELEGRAM_SETUP, LAUNCH_CHECKLIST, API_CONTRACT, FAILURE_MODES, `docs/adr/` |
 | D-2 | This roadmap as source of truth | 🟢 COMPLETE | Referenced from `docs/ARCHITECTURE.md` |
 | D-3 | Launch checklist | 🟢 COMPLETE | `docs/LAUNCH_CHECKLIST.md` — the operational runbook behind the four §16 gates: per-level steps, commands and evidence, plus ongoing-operations discipline. Adds no new requirements; references existing procedures |
 | D-4 | Architecture decision records | 🟢 COMPLETE | Eight dated ADRs in `docs/adr/` (Telegram-native, platform stack, Stars-only, photos, identity model, no-analytics, localization, billing/quota discipline) — referenced from `ARCHITECTURE.md`, pinned by the contract suite |
@@ -459,8 +459,10 @@ suite, and the ten `api/_notify.js` pure-logic behaviours (defaults, normalizati
 rejection, and that a transactional category cannot be disabled), executed standalone. For
 RT-2, RT-3 and P1-3 `languages` the same applies: `node --check` and the localization suite
 are green; the backend, security and Playwright suites remain unexecuted. The **contract
-suite** (`tests/contract.test.mjs`, 35 checks) runs without Firestore and is part of this
-verified set — it caught a module-load crash the quota-gated suites could not.
+suite** (`tests/contract.test.mjs`, 44 checks) runs without Firestore and is part of this
+verified set — it caught a module-load crash the quota-gated suites could not. Two
+Firestore-free e2e sets are also verified: the degraded-state spec (3 checks, route
+interception) and the three-engine browser spec (9 checks across chromium/webkit/firefox).
 
 `npm test` runs the three Node suites; `npm run test:e2e` runs Playwright; `npm run test:smoke` checks production; `npm run retention` dry-runs the retention policy. Backend, security
 and Playwright need `BEZY_SERVICE_ACCOUNT`; localization is pure static analysis.
@@ -473,6 +475,62 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — execution: SF-2/SF-3, T4 tooling, SC-6 catalogue
+- **Built:** `api/_moderation.js` — the report lifecycle (open → resolved/dismissed) and a
+  pure aggregation shared by the scripts and the contract tests. `list-reports.mjs` gains
+  `--status`, notes and `--dismiss`; `report-stats.mjs` (`npm run reports`) prints the
+  reason/status/day distributions that justify category tuning. `RATE_LIMITED` trips are now
+  logged (`[bezy-ratelimit] limit_reached`), `rate-limit-status.mjs` (`npm run rate-limits`)
+  inspects live windows, and the launch checklist documents the tuning procedure.
+  `docs/FAILURE_MODES.md` catalogues every degraded dependency: user view, operator view,
+  response.
+- **Status changes:** SF-2 🔵 → 🟢; SF-3 🔵 → 🟡 (instrumentation done, tuning is
+  traffic-dependent); T4 🔵 → 🟡 (same shape); SC-6 🔵 → 🟢; SC-7 note updated; D-1 list
+  gains FAILURE_MODES. Contract 59 → 66.
+
+### Session — execution: PR-8 compatibility insights
+- **Built:** Premium members see a `breakdown` on every deck card — the deterministic score
+  explained with terms the card already shows (shared interests, shared languages,
+  candidate's city, age proximity), so it discloses nothing new and infers nothing
+  sensitive. The field is absent for free callers: the server is the gate. EN/FR
+  (`why_languages` added), contract-pinned (v1.1), backend tests written but unexecuted
+  (quota). PR-8 🔵 → 🟠.
+
+### Session — execution: CN-7 reworked to bot-first support
+- **Product decision applied:** the Bezy bot is the primary support channel; email is the
+  formal fallback. `/support`/`/assistance` (registered commands) opens a category menu via
+  callbacks; Premium/Profile/Discovery/Likes&Matches are diagnosed deterministically from
+  the caller's own document only; "still need help?" sets a transient
+  `pendingSupportRequest` on the user doc and the next plain message becomes a structured
+  request `BZ-XXXX` in `supportRequests` (counter-keyed references, four-state lifecycle,
+  minimal fields). The Mini App card now leads with the bot link (canonical URL pinned),
+  then the same intake form and the caller's own history via `POST /api/support`; the
+  operator works the queue with `scripts/list-support.mjs` (no HTTP route, no external
+  platform). Privacy: requests are exported, erased with the account, rate-limited
+  (`support_create`, one bucket across both channels) and retention-integrated with the
+  period deliberately unset. Email keeps the 3-working-days aim in the app, Privacy and
+  Terms.
+- **Status changes:** CN-7 🟢 → 🟠 (reworked, Firestore-backed tests unexecuted). Contract
+  51 → 59; localization 175 → 180; API contract v1.2; data map §1.6 added.
+- **Next:** SF-2 triage, SF-3 report stats, T4 rate-limit tooling.
+
+### Session — execution: Q-7 browser matrix and Q-8 degraded states
+- **Built:** a three-engine Playwright matrix (chromium/webkit/firefox) with the
+  Firestore-backed specs pinned to Chromium by quota discipline, plus a Firestore-free
+  cross-browser spec (gate + legal pages, EN/FR — 9/9 green across engines). Degraded
+  dependency states are now driven deterministically through route interception:
+  whole-API-down, locale outage, and rate limiting each degrade to a typed, navigable app.
+  The built-in fallback catalogue is generated from `locales/en.json`
+  (`npm run sync:fallback`) and pinned by the localization suite.
+- **Caught and fixed:** the fallback catalogue was stale — a locale outage rendered raw
+  `app.*` keys across the profile form. The harness always injected the Telegram stub, so
+  the outside-Telegram gate was unreachable in tests; it now serves a hermetic `?plain=1`
+  mode with the Telegram script removed.
+- **Status changes:** Q-7 🔵 → 🟢 (WebView check is a documented manual L-1 step, checklist
+  1.13); Q-8 🟡 → 🟢; WS22 🟡 → 🟢.
+- **Tests:** browsers 9 passed / 0 failed across three engines; degraded 3 passed / 0
+  failed; localization 169 → 171.
 
 ### Session — execution: governance clarifications (RT-1, G-3)
 - **RT-1 closed by analysis:** everything Bezy controls is editable in-app; the remainder is

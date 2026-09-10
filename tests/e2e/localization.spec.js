@@ -178,9 +178,9 @@ test('legal pages are fully French, including chrome', async ({ page }) => {
 });
 
 test('the outside-Telegram gate shows the logo and links to the bot', async ({ page }) => {
-  // No ?as= param: the harness serves the page without the Telegram stub, which is exactly
+  // ?plain=1 makes the harness serve the page without the Telegram script, which is exactly
   // what a web visitor gets at bezy-telegram.vercel.app.
-  await page.goto('/');
+  await page.goto('/?plain=1');
   await expect(page.locator('main')).toContainText('Open Bezy from Telegram to continue.');
   const link = page.locator('main a[href="https://t.me/BezyDatingBot"]');
   await expect(link).toHaveCount(1);

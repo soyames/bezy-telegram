@@ -81,7 +81,8 @@ export async function configureLocalizedCommands() {
     { command: 'discover', description: 'Discover people' },
     { command: 'matches', description: 'My matches' },
     { command: 'premium', description: 'Bezy Premium' },
-    { command: 'settings', description: 'Settings' }
+    { command: 'settings', description: 'Settings' },
+    { command: 'support', description: 'Help & support' }
   ];
   const french = [
     { command: 'demarrer', description: 'Démarrer Bezy' },
@@ -90,7 +91,8 @@ export async function configureLocalizedCommands() {
     { command: 'decouvrir', description: 'Découvrir des personnes' },
     { command: 'matchs', description: 'Mes matchs' },
     { command: 'premium', description: 'Bezy Premium' },
-    { command: 'parametres', description: 'Paramètres' }
+    { command: 'parametres', description: 'Paramètres' },
+    { command: 'assistance', description: 'Aide et assistance' }
   ];
   await Promise.all([
     telegramApi('setMyCommands', { commands: english, scope, language_code: 'en' }),

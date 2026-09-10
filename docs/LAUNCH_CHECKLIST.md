@@ -35,6 +35,7 @@ Owner walks the whole product on the live bot before anyone else is invited.
 | 1.10 | Data-subject rights by hand | Profile → Safety & privacy | export downloads; pause and objection pause the deck and confirm in the bot chat; withdrawal does not republish; deletion confirms and removes the account |
 | 1.11 | Legal pages on the live domain | `/privacy`, `/terms`, both languages | operator identity (DIGITAL CONCORDIA), rights, support address all correct |
 | 1.12 | Outside-Telegram gate | open `https://bezy-telegram.vercel.app/` in a plain browser | logo shows, the button links `https://t.me/BezyDatingBot` |
+| 1.13 | Real Telegram WebView, both platforms (Q-7) | open `@BezyDatingBot` on an iOS device and an Android device, launch the Mini App | profile → discover → like → match → bot notification, on both OSes — the one surface Playwright cannot cover, done by hand |
 
 ## L-2 — Small controlled pilot (🟡 READY WITH CAVEATS)
 
@@ -82,7 +83,12 @@ Nothing below can be checked off by engineering.
 - **Reminders:** dry-run `npm run reminders` whenever run; `--apply` is a deliberate send.
 - **Retention:** dry-run `npm run retention`; `--apply` only after the L-3 legal periods are
   configured.
-- **Reports:** `scripts/list-reports.mjs` reviewed on a set cadence once volume exists (SF-2
-  is deliberately not built yet).
+- **Reports:** `scripts/list-reports.mjs` reviewed on a set cadence — triage is
+  `--resolve`/`--dismiss` with a note; `npm run reports` shows the reason/status/day
+  distributions that justify category tuning (SF-3).
+- **Rate limits (T4):** watch `[bezy-ratelimit] limit_reached` log lines and inspect
+  `npm run rate-limits` before tuning. Tune `RATE_LIMITS` from real traffic only — the
+  current values are estimates designed to stop automation, not humans; lower never,
+  loosen only with trip evidence.
 - **Never claim** "GDPR compliant", age verification, or identity verification anywhere in
   copy (roadmap §16).

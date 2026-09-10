@@ -37,6 +37,7 @@ Ground rules that are part of the contract itself:
 | `photoUrl` | string | Telegram photo URL only |
 | `compatibility` | number | deterministic score |
 | `isNew` | boolean | |
+| `breakdown` | object | **Premium only** (v1.1) — `{ sharedInterests: string[], sharedLanguages: string[], sharedCity: string \| null, closeInAge: boolean }`. Absent for free callers; the server is the gate. Derived exclusively from fields this same card already shows |
 
 `/api/discover` (200) additionally carries `stats { available, bestMatch, newToday, inYourCity }`,
 `preferences { minAge, maxAge, city, sameCityOnly, languages }`, `needsProfile: false`,
@@ -92,8 +93,23 @@ Free members receive `403 { error: 'PREMIUM_REQUIRED', likeCount }` — a count 
 `object`/`unobject`: `{ ok, objected, alreadyInState }` ·
 `delete`: `{ ok, deleted, alreadyDeleted?, matchesEnded?, retained }`.
 
+### `/api/support` (v1.2)
+
+`create`: `{ ok, reference }` — `reference` is `BZ-<zero-padded counter>`; the category must
+be one of the documented machine tokens and the description is required, ≤1000 chars;
+creation is rate-limited (`support_create`, shared with the bot channel). `list`:
+`{ ok, requests[] }` — the caller's own requests only, each
+`{ reference, category, status, details, createdAt }` with `status` ∈
+`open | in_progress | resolved | closed`. Requests are also created from the bot intake
+(webhook) with the same shape; they appear in the account export and are erased with the
+account.
+
 ## Changelog
 
+- **v1.2** — `/api/support` (CN-7): structured support requests with the documented
+  category and status machine tokens.
+- **v1.1** — deck cards gain an optional `breakdown` field for Premium callers only
+  (PR-8); the base shapes and the disclosure boundary are unchanged.
 - **v1** — initial versioning. Producers exported (`publicProfile`, `publicMatch`,
   `publicLiker`, `publicPlans`, `normalizeProfile`, `normalizePreferences`); pinned by
   `tests/contract.test.mjs`, which runs without Firestore. The suite caught a real

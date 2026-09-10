@@ -118,6 +118,32 @@ function compatibility(current = {}, candidate = {}) {
   return Math.max(1, Math.min(99, score));
 }
 
+/**
+ * "Why this score" — the Premium compatibility insight (PR-8). It explains the deterministic
+ * score with exactly the terms the card already shows: shared interests, shared languages,
+ * the candidate's city, age proximity. A Premium member therefore learns nothing new about
+ * the person — only why the number says what it says. No sensitive attribute and no
+ * inference, by the same rule as the score itself.
+ *
+ * The handler attaches this to deck cards for Premium callers only; free cards simply have
+ * no `breakdown` field, so the server — not the client — is the gate.
+ */
+export function compatibilityBreakdown(current = {}, candidate = {}) {
+  const mine = new Set((current.interests || []).map((value) => String(value).toLowerCase()));
+  const sharedInterests = (candidate.interests || []).filter((value) => mine.has(String(value).toLowerCase()));
+  const myLanguages = current.languages || [];
+  const theirLanguages = candidate.languages || [];
+  const sharedLanguages = theirLanguages.filter((id) => myLanguages.includes(id));
+  const currentAge = Number(current.age);
+  const candidateAge = Number(candidate.age);
+  return {
+    sharedInterests,
+    sharedLanguages,
+    sharedCity: sameCity(current.city, candidate.city) ? String(candidate.city || '') : null,
+    closeInAge: Number.isFinite(currentAge) && Number.isFinite(candidateAge) && Math.abs(currentAge - candidateAge) <= 5
+  };
+}
+
 export default async function handler(req, res) {
   if (!requirePost(req, res)) return;
   const user = requireTelegramUser(req, res);
@@ -194,7 +220,9 @@ async function handleDiscover(req, res, user) {
     eligible.push({
       ...publicProfile(doc.id, data),
       compatibility: candidateIsPremium ? Math.min(99, score + PREMIUM_VISIBILITY_BOOST) : score,
-      isNew: Number.isFinite(createdAt) && createdAt >= dayAgo
+      isNew: Number.isFinite(createdAt) && createdAt >= dayAgo,
+      // Premium insight, server-gated: the field is simply absent for free callers.
+      breakdown: isPremium ? compatibilityBreakdown(currentProfile, data.profile) : undefined
     });
   }
 

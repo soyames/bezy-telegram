@@ -86,7 +86,20 @@ message content never reaches Bezy's servers or database.
 reporter types. No profile snapshot is copied into a report, so an erasure request does not
 leave stale personal data inside the moderation record.
 
-### 1.6 Payments (Telegram Stars)
+### 1.6 Support requests (CN-7)
+
+| Field | Where | Why |
+| --- | --- | --- |
+| `telegramUserId`, `category`, `details`, `status`, `createdAt`, `languageCode` | `supportRequests/BZ-XXXX` | The bot-first support flow: troubleshooting, then structured intake with a `BZ-` reference |
+
+Minimised by design: the category is a machine token, `details` is the user's own
+description capped at 1000 characters, and nothing else is copied into the request. Requests
+are included in the account export, **erased with the account**, and governed by the
+retention mechanism (`BEZY_RETENTION_SUPPORT_DAYS` — deliberately unset until the operator
+chooses a period). The transient `pendingSupportRequest` field on the user document records
+an intake in progress and disappears with the document.
+
+### 1.7 Payments (Telegram Stars)
 
 | Field | Where | Why |
 | --- | --- | --- |

@@ -34,7 +34,10 @@ export const RATE_LIMITS = {
   account_delete: [{ limit: 5, windowSeconds: 3600 }],
   // Restriction is a data-subject right, so the ceiling is loose enough that exercising it —
   // including changing one's mind a few times — is never obstructed.
-  account_restrict: [{ limit: 20, windowSeconds: 3600 }]
+  account_restrict: [{ limit: 20, windowSeconds: 3600 }],
+  // Support requests share one bucket across the bot and the Mini App, so neither channel
+  // can flood the queue. Genuine support needs are nowhere near this ceiling.
+  support_create: [{ limit: 3, windowSeconds: 3600 }, { limit: 10, windowSeconds: 86400 }]
 };
 
 export class RateLimitError extends Error {
@@ -111,6 +114,9 @@ export async function rateLimit(firestore, res, userId, bucket) {
     return true;
   } catch (error) {
     if (!error.rateLimited) throw error;
+    // Trip logging (T4): the operator's tuning evidence. Bucket, id and wait only — no
+    // request content, no profile data, nothing that analytics would collect.
+    console.log(`[bezy-ratelimit] limit_reached ${JSON.stringify({ userId: String(userId), bucket, retryAfter: error.retryAfter })}`);
     res.setHeader('Retry-After', String(error.retryAfter));
     res.status(429).json({ error: 'RATE_LIMITED', retryAfter: error.retryAfter });
     return false;
