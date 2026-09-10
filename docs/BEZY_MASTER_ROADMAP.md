@@ -45,7 +45,7 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Discovery candidate-window fix (see §20 "discovery candidate window removed"): `api/discover.js` (where-only query, in-memory newest-first sort, whole-pool eligibility), `app.js` (cleared filter input → default bound, not 0), `firestore.indexes.json` (users composite index removed), `tests/discovery.test.mjs` (new pure suite, wired into `npm test`), `tests/backend.test.mjs` (Firestore-backed regression scenarios), `tests/contract.test.mjs` (index-free/window-free pins), `scripts/diagnose-discover.mjs` (read-only operator diagnostic) + its `api/discover.js` predicate exports, this roadmap |
+| Uncommitted | Discovery candidate-window fix, filter-serialization fix, gender-default fix + eligibility self-diagnosis (see §20 "discovery candidate window removed" and "Everyone discovery fixed + match→chat hand-off fixed"): `api/discover.js` (where-only query, in-memory newest-first sort, whole-pool eligibility, Everyone semantics in `genderMatches`), `app.js` (filter defaults, gender placeholder, eligibility self-display, match→chat hand-off with `tg://user?id=` and Start/Continue labels), `firestore.indexes.json` (users composite index removed), `tests/discovery.test.mjs` (new pure suite, 50 checks), `tests/backend.test.mjs` (Firestore-backed regressions incl. Everyone), `tests/contract.test.mjs` (window-free + hand-off pins), `tests/e2e/browsers.spec.js` (gender placeholder regression), `scripts/diagnose-discover.mjs` (read-only operator diagnostic), locales EN/FR, docs (ARCHITECTURE, this roadmap) |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regression scenarios are likewise written but unexecuted |
 | Unpushed | Nothing — pushed at `ad8731b` |
 
@@ -484,6 +484,33 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 
 Newest first.
 
+### Session — Everyone discovery fixed + match→chat hand-off fixed (both live, user-confirmed)
+- **Everyone bug (confirmed live):** a caller whose `seeking` was `everyone` could not see a
+  friend whose own `seeking` did not accept the caller's `gender` — the reciprocal check
+  overrode Everyone. **Fixed:** in `genderMatches` (api/discover.js), a caller seeking
+  `everyone` passes the gender/seeking gate entirely — the caller's own gender never decides
+  discoverability. Everyone removes only the gender/seeking restriction: completeness, age,
+  filters, blocks, decisions and paused states all still apply, and a match still requires
+  the candidate to have liked the caller first. Explicit preferences (`women`/`men`) keep the
+  fully reciprocal rule, including `prefer_not_to_say` matching only candidates seeking
+  `everyone`. ARCHITECTURE "CURRENT" discovery strategy updated. Pure matrix expanded to the
+  Everyone semantics (50/0); Firestore-backed scenario added (male caller + Everyone sees a
+  male candidate seeking women) — written, not executed (quota).
+- **Match→chat bug (confirmed live):** the chat entry only worked for matched users with a
+  `@username` — the primary button was a dead toast or absent otherwise. **Fixed:** the
+  hand-off now uses the public `t.me/<username>` link when a username exists and Telegram's
+  numeric-user deep link `tg://user?id=<id>` (the id the match card already carries) when it
+  does not; `tg://` links route through Telegram's native opener, never the in-app browser.
+  The primary action is labelled "Start conversation" and flips to "Continue conversation"
+  after the first tap via a device-local marker (Telegram still owns the actual chat); safety
+  actions remain available behind it. EN/FR keys added (`start_conversation`,
+  `continue_conversation`; `open_chat` removed), fallback catalogue synced, contract pins
+  added (95/0), localization 188/0, cross-engine e2e 12/12.
+- **Remaining manual verification:** on a real device, match two accounts where one has no
+  `@username` and confirm "Start conversation" opens that user's Telegram conversation (the
+  `tg://user?id=` deep link). Code-level tests cannot prove Telegram's client-side resolution.
+- No commit, no push, no deploy in this session.
+
 ### Session — discovery candidate window removed (live failure: an eligible user never reached a deck)
 - **Live incident:** a real, actively-used account with `discoverable: true` never appeared in
   the caller's Discovery deck; the deck was empty. Root cause class: the SC-3 candidate query
@@ -498,6 +525,18 @@ Newest first.
 - **Also fixed:** the Mini App filter form serialized a cleared age input as `0`, which the
   backend clamps to `maxAge 18` — an accidental all-hiding filter. A missing value now means
   the default bound.
+- **Live follow-up (same incident):** the caller's actual empty deck reported
+  `emptyReason: 'eligibility'` — the reciprocal gender/seeking rule excluded every
+  discoverable candidate, and the screen gave no clue what the caller's own stored values
+  were. Two defects fixed without touching the rule: (1) the profile form **pre-selected**
+  "I am: Prefer not to say" for accounts that never consciously chose — the most
+  exclusionary value as the implicit default, making such accounts invisible to everyone
+  seeking a specific gender; the select now starts on a placeholder and `required` forces an
+  affirmative choice. (2) The eligibility empty state now shows the caller their **own**
+  stored "I am" / "Looking for" with an "Update my profile" action — own values only,
+  frontend-only, no new backend field, no public-card change (the gender/seeking privacy
+  boundary is untouched and still contract-pinned). New EN/FR keys, fallback catalogue
+  synced, cross-engine e2e regression added (Firestore-free, 12/12 green).
 - **Coverage:** new pure suite `tests/discovery.test.mjs` (45 checks — the full reciprocal
   gender/seeking matrix incl. the prefer_not_to_say rule, the eligibility-≠-ranking invariant
   across pairCompatibility/preferenceFit/freshness/page-diversity/Premium, broad default
@@ -507,8 +546,12 @@ Newest first.
   truncated, pagination serves every eligible candidate before an honest `pool` empty state).
   Contract suite re-pins discovery as index-free and window-free (92/0). Localization 188/0.
   Firestore-backed suites remain **written but unexecuted — credentials/quota unavailable**.
-- Production is **affected** and requires redeployment: the live static bundle matches the
-  working tree, but the fix is not deployed. No deploy was performed in this session.
+- **Deployed (2026-09-10):** the working tree (window fix, filter fix, gender-default fix and
+  the eligibility self-diagnosis) was deployed to production with the Vercel CLI as
+  Environment: Production, and the production smoke suite passed 40/0 against the new
+  deployment — the live bundle carries the new code (`empty_eligibility_you`,
+  `gender_placeholder`, the filter-serialization fix). No git commit or push was part of this
+  deployment.
 
 ### Session — P0-4 cleared: webhook re-registered with the secret
 - The operator re-ran `set-webhook.ps1` with `TELEGRAM_WEBHOOK_SECRET` set to the Vercel

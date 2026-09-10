@@ -107,6 +107,27 @@ section('Match card (version 1)');
     !JSON.stringify(signals).includes('gender') && !JSON.stringify(signals).includes('seeking'));
 }
 
+// --------------------------------------------- conversation hand-off (match -> Telegram)
+section('Conversation hand-off');
+{
+  // Pinned after a live failure: the chat entry only worked for matched users with a
+  // @username, leaving a dead button when the matched user had none. The hand-off must
+  // support both mechanisms — the public t.me link, and Telegram's numeric-user deep link
+  // for username-less accounts (the numeric id is already released on the match card) —
+  // and tg:// links must route through Telegram's native opener, never the in-app browser.
+  const appSource = read('app.js');
+  check('the chat entry supports matched users without a username',
+    appSource.includes('tg://user?id='), 'tg://user?id= missing from app.js');
+  check('tg:// links route through the Telegram native opener',
+    appSource.includes('url.startsWith(\'tg://\')'), 'tg:// handling missing from openTelegramLink');
+  check('the primary conversation action is labelled by state',
+    appSource.includes('start_conversation') && appSource.includes('continue_conversation'),
+    'start/continue conversation labels missing');
+  // The deck card carries the numeric target id by documented design (the client must be
+  // able to name who it is swiping on); the @username remains the match-gated handle and is
+  // pinned by the match-card checks above.
+}
+
 // ---------------------------------------------------------------- premium insight (PR-8)
 section('Compatibility breakdown (contract version 1.1)');
 {

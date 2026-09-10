@@ -16,8 +16,14 @@ export function genderMatches(current, candidate) {
   const currentSeeking = current?.seeking || 'everyone';
   const candidateSeeking = candidate?.seeking || 'everyone';
 
-  const wantsCandidate = currentSeeking === 'everyone'
-    || (currentSeeking === 'women' && candidateGender === 'woman')
+  // "Everyone" removes the gender/seeking restriction entirely: the caller's own gender
+  // must never decide who is discoverable, and neither must the candidate's seeking. Every
+  // other constraint — completeness, age, filters, blocks, decisions, paused legal states —
+  // still applies. A like against a candidate who does not accept the caller can never match,
+  // because a match requires the candidate to have liked the caller first.
+  if (currentSeeking === 'everyone') return true;
+
+  const wantsCandidate = (currentSeeking === 'women' && candidateGender === 'woman')
     || (currentSeeking === 'men' && candidateGender === 'man');
   const candidateWantsCurrent = candidateSeeking === 'everyone'
     || (candidateSeeking === 'women' && currentGender === 'woman')
@@ -341,7 +347,7 @@ async function handleDiscover(req, res, user) {
   // Zero-result attribution: why did each candidate fail? Counted from data this request
   // already read, so the honest empty-deck explanation costs no extra query and discloses
   // nothing about any individual candidate.
-  let hardMisses = 0;    // incomplete profile, or reciprocal gender/seeking mismatch
+  let hardMisses = 0;    // incomplete profile, or gender/seeking mismatch (never for Everyone callers)
   let decidedMisses = 0; // previously acted on or blocked in either direction
   let preferenceMisses = 0; // excluded by the caller's own filters
   for (const doc of candidates) {

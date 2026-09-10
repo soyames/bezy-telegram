@@ -260,6 +260,13 @@ The Mini App never receives Firestore credentials and never performs direct Fire
   are deliberately excluded — explaining a match in those terms would be a sensitive inference.
   The Mini App renders each signal from the locale catalogue and derives its conversation
   starters from the same list, so the explanation and the suggestions cannot disagree.
+  The conversation hand-off itself stays Telegram-native: the primary action opens the
+  counterpart's Telegram conversation via the public `t.me/<username>` link or, for a
+  matched user without a `@username`, Telegram's numeric-user deep link (`tg://user?id=<id>`
+  — the id the match card already carries), both through Telegram's native opener. The Mini
+  App labels the action "Start conversation" until first opened, then "Continue
+  conversation", using a device-local marker only — the actual conversation is entirely
+  Telegram's.
 - `POST /api/premium` — `action: 'status'` returns membership, plans, limits and usage;
   `action: 'invoice'` issues a Telegram Stars invoice link for a plan.
 - `POST /api/likes` — Premium-only: people who liked the current user. Free members receive
@@ -297,6 +304,15 @@ exists. Each stage is gated on data governance, not just engineering.
   zero-result deck is honest: `emptyReason: 'filters' | 'pool'` tells the user why the deck
   is empty and offers explicit actions (adjust filters, reset with a tap, check later) —
   decided candidates are never recycled to make the deck look populated.
+  **Everyone exception (live regression, 2026-09-10):** a caller whose `seeking` is
+  `everyone` is shown every otherwise-eligible discoverable profile — the caller's own
+  `gender` never decides who is discoverable, and neither does the candidate's `seeking`.
+  Everyone removes only the gender/seeking restriction; completeness, age, filters, blocks,
+  decisions and paused legal states all still apply. Safety is unchanged: a match still
+  requires the candidate to have liked the caller first, and a like by the caller against
+  someone who would not see them can never match. Callers with an explicit preference
+  (`women`/`men`) keep the fully reciprocal rule, including `prefer_not_to_say` matching
+  only candidates seeking `everyone`.
 - **FUTURE — reciprocal and adaptive matching.** Extend the deterministic engine with
   reciprocal compatibility (how well the *candidate* matches the *caller*, symmetric with
   the current one-way score), profile-quality signals, freshness weighting and controlled
@@ -368,8 +384,9 @@ caller's own directional score — the other side is never disclosed or implied:
 outrank a balanced one (70/70), and it hides *which* side is cold. The designed pair model
 distinguishes five cases explicitly:
 
-1. **Hard incompatibility** — reciprocal `gender`/`seeking`, blocks, paused states, age
-   bounds. Exclusion. Never relaxed, never re-ranked around.
+1. **Hard incompatibility** — reciprocal `gender`/`seeking` (with the Everyone exception
+   above), blocks, paused states, age bounds. Exclusion. Never relaxed, never re-ranked
+   around.
 2. **Preference mismatch** — one side's soft filter misses (city/languages/age band). The
    pair stays visible but is deprioritised; the explanation says why.
 3. **Mutual compatibility** — both directional scores are high and close. Promoted.
