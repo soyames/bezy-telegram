@@ -13,11 +13,11 @@ Configure in @BotFather:
 people, like, match and start conversations — all directly in Telegram. 18+ only.
 ```
 
-- **Username:** the intended username is `@BezyBot` (moving from `@BezyDatingBot`).
-  Confirm availability in @BotFather before announcing it; a username change does not
-  affect the bot token, the Telegram user IDs, or any stored data. After changing it,
-  update any `t.me` links you have published — the Mini App itself derives links from
-  `BEZY_MINI_APP_URL` and stored usernames, so no code change is required.
+- **Username:** `@BezyDatingBot` — a **permanent decision** (roadmap §1, ADR 0001): it must
+  not be changed. The bot token, the Telegram user IDs and all stored data are independent
+  of the username, but every published `t.me` link and the localization suite's identity
+  checks assume this name. Renaming would be an owner decision recorded in the roadmap
+  first, with every reference updated in the same change.
 
 Bot copy must say "18+ only" and must never claim age or identity verification. See the
 age policy in `docs/ARCHITECTURE.md`.

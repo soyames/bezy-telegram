@@ -44,7 +44,7 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Nothing — the CN-7/PR-8/SF-2/SF-3/T4/SC-6 batch is in `2c71d53`; see §20 session log |
+| Uncommitted | CN-7 closure decision + the bot-identity contradiction fix and its regression checks — see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3 and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
 | Unpushed | `main` is 4 commits ahead of `origin/main` |
 
@@ -298,7 +298,7 @@ data and needs no new sensitive field.
 | CN-4 | Refund policy in Terms | P0 | 🟢 COMPLETE | Terms state a refund removes access immediately |
 | CN-5 | Digital-service withdrawal right / immediate-performance waiver | P0 | 🔴 LEGAL REVIEW REQUIRED | EU/Austrian consumer law question. Not implemented, not decided |
 | CN-6 | VAT / OSS obligations | P0 | 🔴 LEGAL REVIEW REQUIRED | **No tax conclusion has been drawn.** Do not assert VAT status |
-| CN-7 | Consumer support channel | P1 | 🟠 IN PROGRESS | **Reworked to bot-first (product decision):** `/support` (FR `/assistance`) opens a category menu in `@BezyDatingBot`; deterministic troubleshooting (Premium, Profile, Discovery, Likes & Matches) answers only from the caller's own document; "still need help?" starts an intake where the next plain message becomes a structured request `BZ-XXXX` (`supportRequests`, four-state lifecycle). The Mini App card links the bot first, then offers the same intake form and the caller's own history. Operator queue: `scripts/list-support.mjs`. Requests are exported, erased with the account, retention-integrated (`BEZY_RETENTION_SUPPORT_DAYS`, unset). Email stays the fallback for formal legal/privacy matters, with the 3-working-days aim. EN/FR. **Firestore-backed tests written but not executed** (quota) |
+| CN-7 | Consumer support channel | P1 | 🟢 COMPLETE | **Owner decision: complete — do not reopen.** `@BezyDatingBot` is the primary support channel (`/support` / FR `/assistance`: category menu, deterministic troubleshooting from the caller's own document, structured intake → `BZ-XXXX` requests with a four-state lifecycle); the Mini App leads with the bot link and offers the same intake and history; the operator queue is `scripts/list-support.mjs`. Email is only the formal/fallback channel. Requests are exported, erased with the account, and retention-integrated. (The Firestore-backed test execution for this feature is still pending the fresh-quota run in §19 — a verification note, not an open item) |
 
 ---
 
@@ -475,6 +475,24 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — fix: canonical bot identity contradiction
+- **Fixed:** `docs/TELEGRAM_SETUP.md` §0 claimed the "intended" username was `@BezyBot`
+  (moving from `@BezyDatingBot`) — contradicting the permanent §1 decision. §0 now states
+  `@BezyDatingBot` is permanent (roadmap §1, ADR 0001) and that renaming would be an owner
+  decision recorded in the roadmap first. This was the only stale reference in the
+  repository.
+- **Regression added:** two localization checks — a repository-wide sweep that fails on a
+  bare `@BezyBot` in any tracked file type (docs, pages, scripts, JSON, PowerShell), and a
+  pin that the roadmap §1 decision line still exists. The check's own literals are excluded
+  from the sweep.
+- **Tests:** localization 180 → 182 passed / 0 failed; contract 66 passed / 0 failed;
+  degraded e2e 3/3; cross-browser e2e 9/9. All quota-free suites green.
+
+### Session — owner decision: CN-7 closed
+- The owner declared CN-7 **complete**: the bot is the primary support channel and email is
+  only the formal/fallback channel. The row is now 🟢 with that decision recorded; the
+  pending Firestore-backed test execution stays noted in §19 as verification, not scope.
 
 ### Session — execution: SF-2/SF-3, T4 tooling, SC-6 catalogue
 - **Built:** `api/_moderation.js` — the report lifecycle (open → resolved/dismissed) and a
