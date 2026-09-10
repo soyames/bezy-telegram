@@ -44,7 +44,7 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Nothing — the execution work through CN-7/D-3 is in `3a6c874`; see §20 session log |
+| Uncommitted | Q-5 contract suite + `API_CONTRACT.md` + the `_notify.js` TDZ fix + D-4 ADR set + RT-1/G-3 governance clarifications — see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3 and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
 | Unpushed | `main` is 2 commits ahead of `origin/main` |
 
@@ -101,7 +101,7 @@ workstream has no home, it is missing and must be added before work begins.
 | WS20 | Growth / acquisition | §14 G-1…G-7 | 🔵 |
 | WS21 | Scale / infrastructure | §12 SC-1…SC-7 | 🔵 |
 | WS22 | Quality / regression | §13 Q-1…Q-6 | 🟡 |
-| WS23 | Documentation / governance | §15 D-1…D-4 | 🟡 |
+| WS23 | Documentation / governance | §15 D-1…D-4 | 🟢 |
 | WS24 | Launch | §16 L-1…L-4 | 🔴 |
 
 ---
@@ -258,7 +258,7 @@ malicious or malformed payload could set to mute a receipt.
 
 | # | Item | Priority | Status | Notes |
 | --- | --- | --- | --- | --- |
-| RT-1 | Rectification beyond profile editing | P0 | 🟡 PARTIAL | Profile is editable in-app; anything else is manual by email |
+| RT-1 | Rectification beyond profile editing | P0 | 🟢 COMPLETE | Analysis closed: everything Bezy controls is editable in-app. Telegram-owned identity (`first_name`, `username`, photo) is corrected in Telegram itself; matches and blocks carry their own actions (unmatch, unblock); usage and rate-limit counters are transient. The genuine remainder — the 18+ declaration and payment records — stays via `contacts@digitalconcordia.com`; nothing further is automatable |
 | RT-2 | Restriction of processing | P0 | 🟠 IN PROGRESS | Implemented as self-service: `action: 'restrict'`/`'unrestrict'` on `/api/account`, a *Pause processing* control in Safety & privacy, EN/FR. A recorded legal state (`processingRestricted` + timestamps), not a visibility flag — enforced in `discover.js`, `swipe.js`, `profile/me.js` and `_notify.js`, and checked before any other user's data is read. A restricted target is unreachable through the same identical `TARGET_NOT_FOUND` as every other case, so restriction is undetectable from outside. Access and erasure stay available; lifting does not republish. Privacy Policy and `DATA_PROCESSING_MAP.md` §5 updated. **Firestore-backed tests written but not executed** |
 | RT-3 | Objection | P0 | 🟠 IN PROGRESS | Implemented as self-service — Art. 21(5) allows objections by automated means: `action: 'object'`/`'unobject'` on `/api/account`, an *Object to processing* control in Safety & privacy, EN/FR. A recorded `processingObjection` legal state kept distinct from restriction in storage and in the export (the rights are distinct, the record must say which happened), sharing one `processingPaused()` predicate (`api/_privacy.js`) across discover/swipe/profile/notify so the enforcement points cannot drift. An objecting target is unreachable through the same identical `TARGET_NOT_FOUND`, so the objection is undetectable from outside. Bezy honours the objection immediately; whether compelling legitimate grounds could ever justify continuing is an operator legal-review question (P0-5 family), not code. Privacy Policy and `DATA_PROCESSING_MAP.md` §5 updated. **Firestore-backed tests written but not executed** |
 | RT-4 | Consent withdrawal | 🔴 | 🔴 BLOCKED | Only applicable if P0-5 makes consent a basis |
@@ -326,7 +326,7 @@ None started. No unnecessary infrastructure expansion.
 | Q-2 | Security suite | — | 🟢 COMPLETE | 102 checks |
 | Q-3 | Playwright suite | — | 🟢 COMPLETE | 42 specs |
 | Q-4 | Localization suite | — | 🟢 COMPLETE | 133 checks |
-| Q-5 | API contract tests | P1 | 🟡 PARTIAL | Contract fields, Firestore names and canonical routes are pinned in the localization suite; response *shapes* are not versioned |
+| Q-5 | API contract tests | P1 | 🟢 COMPLETE | `docs/API_CONTRACT.md` version 1 + `tests/contract.test.mjs` (35 checks, **pure — runs without Firestore**): exact key sets and types for every public shape, the disclosure boundary (no `username`/`telegramId`/`gender`/`seeking` off the match card), and the error catalogue pinned both ways against the Mini App mapping. Its first run caught a real TDZ crash in `api/_notify.js`. Runs first in `npm test` |
 | Q-6 | Production smoke tests | P0 | 🟢 COMPLETE | `tests/smoke.test.mjs`, 40 checks. Read-only and unauthenticated: build freshness, live locale consistency, legal pages, and that all 8 endpoints reject unauthenticated and forged requests |
 | Q-7 | Browser / Telegram client compatibility | P1 | 🔵 READY | Playwright runs Chromium only; no iOS/Android Telegram WebView coverage |
 | Q-8 | Error-state coverage | P1 | 🟡 PARTIAL | Error codes are tested; degraded-dependency states are not |
@@ -344,7 +344,7 @@ campaign or `start_param` code exists.
 | --- | --- | --- | --- | --- |
 | G-1 | Controlled pilot cohort | P5 | 🔵 READY | Gated by L-2 |
 | G-2 | Launch messaging / positioning | P5 | 🔵 READY | Must not claim age verification or GDPR compliance |
-| G-3 | Telegram deep-link attribution (`start_param`) | P5 | 🔵 READY | Telegram supports a start parameter; nothing consumes it today |
+| G-3 | Telegram deep-link attribution (`start_param`) | P5 | 🔴 BLOCKED | "Attribution" as named is tracking and conflicts with ADR 0006 — see §18-E. A non-tracking entry-point use (e.g. language selection) is possible if the owner decides; nothing consumes `start_param` today |
 | G-4 | Referral mechanism | P5 | ⚪ DEFERRED | Creates a user-to-user relationship graph — assess privacy before building |
 | G-5 | WhatsApp channel acquisition (~60k) | P5 | 🔴 BLOCKED | Blocked on L-4 |
 | G-6 | Country representatives / ambassadors | P5 | ⚪ DEFERRED | Operational, not technical |
@@ -356,10 +356,10 @@ campaign or `start_param` code exists.
 
 | # | Item | Status | Notes |
 | --- | --- | --- | --- |
-| D-1 | Core docs | 🟢 COMPLETE | ARCHITECTURE, SECURITY, DATA_PROCESSING_MAP, DPIA_ASSESSMENT, TELEGRAM_SETUP, LAUNCH_CHECKLIST |
+| D-1 | Core docs | 🟢 COMPLETE | ARCHITECTURE, SECURITY, DATA_PROCESSING_MAP, DPIA_ASSESSMENT, TELEGRAM_SETUP, LAUNCH_CHECKLIST, API_CONTRACT, `docs/adr/` |
 | D-2 | This roadmap as source of truth | 🟢 COMPLETE | Referenced from `docs/ARCHITECTURE.md` |
 | D-3 | Launch checklist | 🟢 COMPLETE | `docs/LAUNCH_CHECKLIST.md` — the operational runbook behind the four §16 gates: per-level steps, commands and evidence, plus ongoing-operations discipline. Adds no new requirements; references existing procedures |
-| D-4 | Architecture decision records | 🟡 PARTIAL | Decisions are embedded in `ARCHITECTURE.md` prose rather than dated ADRs |
+| D-4 | Architecture decision records | 🟢 COMPLETE | Eight dated ADRs in `docs/adr/` (Telegram-native, platform stack, Stars-only, photos, identity model, no-analytics, localization, billing/quota discipline) — referenced from `ARCHITECTURE.md`, pinned by the contract suite |
 
 ---
 
@@ -416,6 +416,13 @@ Telegram Stars, contradicting §1. If pursued, it must be implemented as Stars o
 **§18-D — `relationshipIntent` vs Art. 9 (P1-3).** Already tracked as blocked on P0-5, restated
 here so it is visible at the conflict level rather than only inside a feature row.
 
+**§18-E — Deep-link attribution vs no analytics (G-3).** G-3 contemplates `start_param`
+attribution. ADR 0006 forbids analytics and tracking, and the Privacy Policy relies on that
+absence. Attribution as named is tracking. A start parameter that only selects the language
+or an entry point carries no tracking and could be implemented, but that is not what G-3
+names. **Decision required before any `start_param` work beyond a non-tracking entry-point
+use.**
+
 ---
 
 ## 19. Quality gate — current baseline
@@ -451,7 +458,9 @@ live app. What *is* verified for N-1/N-4: `node --check` on every changed file, 
 suite, and the ten `api/_notify.js` pure-logic behaviours (defaults, normalization, unknown-key
 rejection, and that a transactional category cannot be disabled), executed standalone. For
 RT-2, RT-3 and P1-3 `languages` the same applies: `node --check` and the localization suite
-are green; the backend, security and Playwright suites remain unexecuted.
+are green; the backend, security and Playwright suites remain unexecuted. The **contract
+suite** (`tests/contract.test.mjs`, 35 checks) runs without Firestore and is part of this
+verified set — it caught a module-load crash the quota-gated suites could not.
 
 `npm test` runs the three Node suites; `npm run test:e2e` runs Playwright; `npm run test:smoke` checks production; `npm run retention` dry-runs the retention policy. Backend, security
 and Playwright need `BEZY_SERVICE_ACCOUNT`; localization is pure static analysis.
@@ -464,6 +473,41 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — execution: governance clarifications (RT-1, G-3)
+- **RT-1 closed by analysis:** everything Bezy controls is editable in-app; the remainder is
+  Telegram-owned identity (corrected in Telegram), self-correcting transient counters, or
+  records with their own actions (unmatch/unblock). The 18+ declaration and payment records
+  stay on the email path — nothing further is automatable. Documented in the roadmap and
+  `DATA_PROCESSING_MAP.md`.
+- **G-3 blocked and recorded:** "attribution" as named is tracking and conflicts with
+  ADR 0006 — recorded as §18-E per the roadmap's own conflict rule. A non-tracking
+  entry-point use is possible only on an owner decision.
+- **Status changes:** RT-1 🟡 → 🟢; G-3 🔵 → 🔴 BLOCKED.
+
+### Session — execution: Q-5 contract tests and D-4 ADRs
+- **Built:** the API contract suite (Q-5, 44 checks) and the ADR set (D-4, eight records in
+  `docs/adr/`). The ADRs are the full record of the §1 permanent decisions, referenced from
+  `ARCHITECTURE.md`, and the contract suite pins that the ADR directory holds exactly the
+  documented set with status/decision/consequences sections.
+- **Status changes:** Q-5 🟡 → 🟢; D-4 🟡 → 🟢; WS23 🟡 → 🟢 (all four D-* items complete).
+- **Tests:** contract 44 passed / 0 failed; localization 169 passed / 0 failed.
+- **Next:** governance clarifications (RT-1 remainder, G-3 vs ADR 0006).
+
+### Session — execution: Q-5 API contract tests
+- **Built:** `docs/API_CONTRACT.md` version 1 plus `tests/contract.test.mjs` (35 checks) — a
+  pure suite that pins every public response shape (exact key sets and types), the disclosure
+  boundary (no `username`/`telegramId`/`gender`/`seeking` off the match card) and the error
+  catalogue both ways against the Mini App mapping. Producers were exported
+  (`publicProfile`, `publicMatch`, `publicLiker`, `publicPlans`, `normalizeProfile`,
+  `normalizePreferences`). Wired as `npm run test:contract` and runs first in `npm test`.
+- **Caught immediately:** a temporal-dead-zone crash in `api/_notify.js` — `DAY_MS` was used
+  in `NOTIFICATION_CATEGORIES` before its declaration, which would have crashed every route
+  importing the module in production. The quota-gated suites could not have caught it; the
+  pure suite can. Fixed by moving the constant above the categories.
+- **Status changes:** Q-5 🟡 → 🟢. D-1 core-docs list now includes API_CONTRACT.
+- **Tests:** contract 35 passed / 0 failed; localization re-run 169 passed / 0 failed.
+- **Next:** D-4 architecture decision records.
 
 ### Session — execution: D-3 launch checklist, gate fix, operator name
 - **Built:** `docs/LAUNCH_CHECKLIST.md` — the operational runbook behind the four §16 gates

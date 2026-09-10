@@ -3,7 +3,7 @@ import { requirePost, requireTelegramUser } from './_telegram.js';
 import { isPremiumActive } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 
-function publicLiker(id, data) {
+export function publicLiker(id, data) {
   const profile = data.profile || {};
   return {
     id: String(id),

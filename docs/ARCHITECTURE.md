@@ -5,6 +5,11 @@
 > done, blocked and outstanding*. Read the roadmap before starting work and update it after.
 > A new idea adds to the roadmap; it never replaces it.
 
+> **Permanent decisions are recorded as dated ADRs in [`docs/adr/`](adr/)** — one per
+> decision, with context and consequences. The roadmap §1 lists them at the summary level;
+> the ADRs are the full record. The API shapes are versioned separately in
+> [`API_CONTRACT.md`](API_CONTRACT.md).
+
 ## Product boundary
 
 Bezy is a Telegram-native product. Telegram is the user-facing application, identity layer, notification channel and messaging environment. The Bezy Mini App is the rich UI and is opened from the Bezy bot inside Telegram.

@@ -1,7 +1,7 @@
 import { db } from './_firebase.js';
 import { requirePost, requireTelegramUser } from './_telegram.js';
 
-function publicMatch(id, data) {
+export function publicMatch(id, data) {
   const profile = data.profile || {};
   return {
     id: String(id),
