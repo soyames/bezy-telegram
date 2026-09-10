@@ -1351,6 +1351,95 @@ try {
     JSON.stringify(r.data.emptyReason));
   check('eligibility is never silently relaxed', (r.data.profiles || []).length === 0);
 
+  // --------------------------- production regression: an eligible, discoverable user must
+  // reach the deck (live incident: a discoverable, active user never appeared in a deck).
+  // Mirrors the exact reported pair — caller and candidate both complete, discoverable,
+  // mutually eligible, unblocked, within default filters — and pins the two window defects
+  // the incident exposed: a query-level newest-100 window truncated the eligible set, and
+  // ordering dropped candidates the window left out.
+  section('Regression: a mutually eligible discoverable user must reach the deck');
+  await cleanup();
+  await seedAll();
+  // Hermetic start: no prior decisions or blocks for the caller.
+  for (const sub of ['actions', 'blocks', 'blockedBy']) {
+    for (const doc of (await firestore.collection('users').doc('900000001').collection(sub).get()).docs) {
+      await doc.ref.delete();
+    }
+  }
+
+  r = await call('/api/discover', 'a');
+  check('the mutually eligible pair appears in the deck',
+    (r.data.profiles || []).some((p) => p.id === '900000002'), (r.data.profiles || []).map((p) => p.id).join(','));
+  check('a non-empty deck never reports an empty reason', r.data.emptyReason === null, JSON.stringify(r.data.emptyReason));
+  check('the full eligible pool is counted, not a bounded window',
+    r.data.stats.available === (r.data.profiles || []).length, `available=${r.data.stats?.available}`);
+
+  // A pool larger than the former 100-document window must not truncate the eligible set,
+  // and a candidate older than the 100 newest must still be eligible.
+  const windowIds = [];
+  try {
+    for (let i = 0; i < 105; i++) {
+      const id = 900000100 + i;
+      windowIds.push(id);
+      await firestore.collection('users').doc(String(id)).set({
+        telegramId: id, firstName: `Window ${i}`, ageEligibilityConfirmed: true,
+        profileComplete: true, discoverable: true, createdAt: new Date(), updatedAt: new Date(),
+        profile: { displayName: `Window ${i}`, age: 30, city: 'Paris', gender: 'man', seeking: 'women', interests: ['music'], languages: ['en'], discoverable: true, profileComplete: true }
+      });
+    }
+    const eldest = 900000300;
+    windowIds.push(eldest);
+    await firestore.collection('users').doc(String(eldest)).set({
+      telegramId: eldest, firstName: 'Eldest', ageEligibilityConfirmed: true,
+      profileComplete: true, discoverable: true,
+      createdAt: new Date(Date.now() - 365 * 86400000), updatedAt: new Date(Date.now() - 365 * 86400000),
+      profile: { displayName: 'Eldest', age: 30, city: 'Paris', gender: 'man', seeking: 'women', interests: ['music'], languages: ['en'], discoverable: true, profileComplete: true }
+    });
+    r = await call('/api/discover', 'a');
+    check('a pool above 100 does not truncate the eligible set',
+      r.data.stats.available === 109, `available=${r.data.stats?.available} (expected 109)`);
+    check('an old but eligible candidate is never dropped by newest-first ordering',
+      r.data.stats.available === 109, 'the oldest account must still count as eligible');
+  } finally {
+    for (const id of windowIds) await firestore.collection('users').doc(String(id)).delete();
+  }
+
+  // Pagination: deciding through one page must surface the next, until every eligible
+  // candidate has appeared — and only then may the deck report itself empty.
+  await cleanup();
+  await seedAll();
+  const pagerIds = [];
+  try {
+    for (let i = 0; i < 25; i++) {
+      const id = 900000400 + i;
+      pagerIds.push(id);
+      await firestore.collection('users').doc(String(id)).set({
+        telegramId: id, firstName: `Pager ${i}`, ageEligibilityConfirmed: true,
+        profileComplete: true, discoverable: true, createdAt: new Date(), updatedAt: new Date(),
+        profile: { displayName: `Pager ${i}`, age: 30, city: 'Paris', gender: 'man', seeking: 'women', interests: [], languages: [], discoverable: true, profileComplete: true }
+      });
+    }
+    const seen = new Set();
+    let pages = 0;
+    for (;;) {
+      r = await call('/api/discover', 'a');
+      const page = r.data.profiles || [];
+      if (!page.length) {
+        check('the deck only reports empty after every eligible candidate was served',
+          r.data.emptyReason === 'pool' && seen.size === 28, `emptyReason=${r.data.emptyReason} seen=${seen.size}`);
+        break;
+      }
+      pages++;
+      page.forEach((p) => seen.add(p.id));
+      for (const p of page) await call('/api/swipe', 'a', { targetId: p.id, action: 'pass' });
+      check(`page ${pages} is bounded by the documented size`, page.length <= 20, String(page.length));
+    }
+    check('pagination reached every eligible candidate across pages', seen.size === 28, `seen=${seen.size}`);
+    check('no page ever reported a false empty reason', pages > 0, `pages=${pages}`);
+  } finally {
+    for (const id of pagerIds) await firestore.collection('users').doc(String(id)).delete();
+  }
+
   // -------------------------------------------------- restriction of processing (Art. 18)
   section('Restriction of processing (pure logic)');
   check('a restricted account receives no engagement notifications',
