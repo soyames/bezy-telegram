@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { publicProfile } from '../api/discover.js';
+import { publicProfile, compatibilityBreakdown } from '../api/discover.js';
 import { publicMatch, sharedSignals } from '../api/matches.js';
 import { publicLiker } from '../api/likes.js';
 import { publicPlans } from '../api/premium.js';
@@ -16,6 +16,9 @@ import { defaultNotificationSettings, normalizeNotificationSettings, OPTIONAL_CA
 import { processingPaused } from '../api/_privacy.js';
 import { reminderMessage } from '../api/_reminders.js';
 import { retentionPolicy, isConfigured } from '../api/_retention.js';
+import { SUPPORT_CATEGORIES, SUPPORT_STATUSES, SUPPORT_DETAILS_MAX, formatSupportReference, normalizeSupportRequest, diagnosePremium, diagnoseDiscovery, diagnoseProfile } from '../api/_support.js';
+import { REPORT_STATUSES, triageTransition, summarizeReports } from '../api/_moderation.js';
+import { RATE_LIMITS } from '../api/_ratelimit.js';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -103,6 +106,26 @@ section('Match card (version 1)');
     !JSON.stringify(signals).includes('gender') && !JSON.stringify(signals).includes('seeking'));
 }
 
+// ---------------------------------------------------------------- premium insight (PR-8)
+section('Compatibility breakdown (contract version 1.1)');
+{
+  const breakdown = compatibilityBreakdown(
+    { interests: ['Music', 'travel'], languages: ['en', 'fr'], city: 'Paris', age: 29 },
+    { interests: ['music', 'Travel'], languages: ['fr'], city: 'paris', age: 31 }
+  );
+  check('the breakdown carries exactly the documented fields',
+    JSON.stringify(keys(breakdown)) === JSON.stringify(['closeInAge', 'sharedCity', 'sharedInterests', 'sharedLanguages'].sort()),
+    keys(breakdown).join(','));
+  check('shared interests are matched case-insensitively and keep the candidate\'s own spelling',
+    JSON.stringify(breakdown.sharedInterests) === JSON.stringify(['music', 'Travel']), JSON.stringify(breakdown.sharedInterests));
+  check('shared languages are matched on machine tokens', JSON.stringify(breakdown.sharedLanguages) === JSON.stringify(['fr']));
+  check('the shared city is the candidate\'s own published value', breakdown.sharedCity === 'paris');
+  check('age proximity uses the documented 5-year window',
+    breakdown.closeInAge === true && compatibilityBreakdown({ age: 29 }, { age: 35 }).closeInAge === false);
+  check('the breakdown never carries sensitive attributes', !('gender' in breakdown) && !('seeking' in breakdown));
+  check('the base deck card shape has no breakdown key', !('breakdown' in publicProfile('900000001', ADA_DOC)));
+}
+
 // ---------------------------------------------------------------- likes
 section('Liker card (version 1)');
 {
@@ -183,6 +206,56 @@ section('Error catalogue (version 1)');
     mapped.every((code) => DOCUMENTED.includes(code)), mapped.filter((code) => !DOCUMENTED.includes(code)).join(','));
   // The mapping values pointing at real catalogue keys is enforced by the localization
   // suite's usage-coverage walk.
+}
+
+// ---------------------------------------------------------------- support flow (CN-7)
+section('Support flow (contract version 1.2)');
+{
+  check('support categories are a closed machine-token list',
+    SUPPORT_CATEGORIES.length > 0 && SUPPORT_CATEGORIES.every((id) => /^[a-z_]+$/.test(id)));
+  check('support statuses are the documented four-state lifecycle',
+    JSON.stringify(SUPPORT_STATUSES) === JSON.stringify(['open', 'in_progress', 'resolved', 'closed']));
+  check('references are dense, zero-padded and prefixed',
+    formatSupportReference(7) === 'BZ-0007' && formatSupportReference(1042) === 'BZ-1042');
+  check('request normalization validates the category and truncates details',
+    normalizeSupportRequest({ category: 'premium', details: 'x'.repeat(2000) }).details.length === SUPPORT_DETAILS_MAX
+    && normalizeSupportRequest({ category: 'invented', details: 'y' }).category === null);
+  check('premium diagnostics expose only user-visible membership facts',
+    keys(diagnosePremium({ bezyPremium: { active: true, planId: 'monthly', expiresAt: new Date(Date.now() + 86400000) } }))
+      .join(',') === ['active', 'daysRemaining', 'expiresAt', 'planId', 'revoked'].sort().join(','));
+  check('discovery diagnostics name states, never other users',
+    keys(diagnoseDiscovery({})).sort().join(',') === ['ageEligibilityConfirmed', 'discoverable', 'discoveryRemaining', 'filtersActive', 'processingObjection', 'processingRestricted', 'profileComplete'].sort().join(','));
+  check('profile diagnostics list only the documented required fields',
+    diagnoseProfile({ profile: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman' } }).missing.join(',') === 'seeking');
+  check('retention policy covers support requests', 'supportRequests' in retentionPolicy());
+}
+
+// ---------------------------------------------------------------- moderation tooling (SF-2/SF-3)
+section('Moderation tooling (contract)');
+{
+  check('the report lifecycle is the documented three-state set',
+    JSON.stringify(REPORT_STATUSES) === JSON.stringify(['open', 'resolved', 'dismissed']));
+  check('open reports may be resolved or dismissed',
+    triageTransition('open', 'resolved').update.status === 'resolved'
+    && triageTransition('open', 'dismissed').update.status === 'dismissed');
+  check('terminal states reject further transitions',
+    triageTransition('resolved', 'dismissed').error === 'INVALID_TRANSITION'
+    && triageTransition('dismissed', 'resolved').error === 'INVALID_TRANSITION');
+  check('a triage note is bounded',
+    triageTransition('open', 'resolved', 'x'.repeat(1000)).update.statusNote.length <= 500);
+  const summary = summarizeReports([
+    { reason: 'spam', status: 'open', createdAt: new Date() },
+    { reason: 'spam', status: 'resolved', createdAt: new Date(Date.now() - 40 * 86400000) },
+    { reason: 'other', status: 'open', createdAt: new Date() }
+  ]);
+  check('summarization counts reasons and statuses',
+    summary.total === 3 && summary.byReason.spam === 2 && summary.byReason.other === 1
+    && summary.byStatus.open === 2 && summary.byStatus.resolved === 1);
+  check('the daily distribution covers only the last 30 days',
+    Object.values(summary.byDay).reduce((a, b) => a + b, 0) === 2, JSON.stringify(summary.byDay));
+  check('the support bucket exists and shares one ceiling across both channels',
+    Array.isArray(RATE_LIMITS.support_create) && RATE_LIMITS.support_create.some((w) => w.windowSeconds === 86400),
+    JSON.stringify(RATE_LIMITS.support_create));
 }
 
 // ---------------------------------------------------------------- governance records

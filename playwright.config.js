@@ -14,7 +14,14 @@ export default defineConfig({
     viewport: { width: 420, height: 860 },
     trace: 'retain-on-failure'
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // WebKit and Firefox mirror Safari and Firefox users. The Firestore-backed specs are
+    // Chromium-only (quota discipline, see roadmap SC-2); tests/e2e/browsers.spec.js is the
+    // Firestore-free set that runs on all three engines.
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } }
+  ],
   webServer: {
     command: `node tests/harness.mjs`,
     url: `http://localhost:${process.env.E2E_PORT || 3311}/locales/en.json`,

@@ -161,11 +161,17 @@ export function startHarness({ port = 3310 } = {}) {
 
     const ext = path.extname(file).toLowerCase();
     if (ext === '.html') {
-      const who = url.searchParams.get('as') || 'a';
-      const html = fs.readFileSync(file, 'utf8').replace(
-        /<script src="https:\/\/telegram\.org\/js\/telegram-web-app\.js"><\/script>/,
-        `<script src="/__tg-stub.js?as=${encodeURIComponent(who)}"></script>`
-      );
+      let html = fs.readFileSync(file, 'utf8');
+      const telegramScript = /<script src="https:\/\/telegram\.org\/js\/telegram-web-app\.js"><\/script>/;
+      if (url.searchParams.has('plain')) {
+        // Hermetic "opened outside Telegram" simulation: the Telegram script is removed
+        // entirely, so window.Telegram is undefined and the app renders its gate — with no
+        // dependency on the real telegram.org script's behaviour in a plain browser.
+        html = html.replace(telegramScript, '');
+      } else {
+        const who = url.searchParams.get('as') || 'a';
+        html = html.replace(telegramScript, `<script src="/__tg-stub.js?as=${encodeURIComponent(who)}"></script>`);
+      }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       return res.end(html);
     }

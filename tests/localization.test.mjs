@@ -44,7 +44,9 @@ const identical = Object.keys(en).filter((k) => en[k] === fr[k]);
 // Words that are legitimately identical in both languages.
 const ALLOWED_IDENTICAL = new Set(['messages', 'super', 'premium_title', 'plan', 'language_name', 'reason_spam', 'notifications_title',
   // Language names that are spelled the same in French.
-  'language_sw', 'language_yo']);
+  'language_sw', 'language_yo',
+  // The bot username is a machine token and stays identical in both languages.
+  'support_bot']);
 const suspicious = identical.filter((k) => !ALLOWED_IDENTICAL.has(k));
 check('no French string silently duplicates the English one', suspicious.length === 0,
   suspicious.map((k) => `${k}="${en[k]}"`).join(' | '));
@@ -130,6 +132,23 @@ check('the Mini App offers exactly the notification categories the API lets user
   apiOptionalCategories.length > 0 && JSON.stringify(apiOptionalCategories) === JSON.stringify(appCategories),
   `api=${apiOptionalCategories.join(',')} app=${appCategories.join(',')}`);
 check('transactional notifications are not offered as a toggle', !appCategories.includes('account'));
+
+// The same contract for support categories (CN-7): machine tokens shared between the bot
+// intake, the API and the Mini App form, with a localized label per id and per status.
+const supportSource = read('api/_support.js');
+const apiSupportCategories = idList(supportSource, 'SUPPORT_CATEGORIES');
+const appSupportCategories = idList(app, 'SUPPORT_CATEGORIES');
+check('the Mini App and the API agree on the support categories',
+  apiSupportCategories.length > 0 && JSON.stringify(apiSupportCategories) === JSON.stringify(appSupportCategories),
+  `api=${apiSupportCategories.join(',')} app=${appSupportCategories.join(',')}`);
+check('every support category has a label in both languages',
+  apiSupportCategories.every((id) => en[`support_cat_${id}`] && fr[`support_cat_${id}`]),
+  apiSupportCategories.filter((id) => !en[`support_cat_${id}`] || !fr[`support_cat_${id}`]).join(','));
+check('every support status has a label in both languages',
+  idList(supportSource, 'SUPPORT_STATUSES').every((id) => en[`support_status_${id}`] && fr[`support_status_${id}`]));
+check('the support card links the canonical bot',
+  /id="support-bot-btn"[^>]*href="https:\/\/t\.me\/BezyDatingBot"/.test(read('index.html')), 'bot link not found on the support card');
+
 check('every notification category has a label in both languages',
   apiOptionalCategories.every((id) => en[`notify_${id}`] && fr[`notify_${id}`]),
   apiOptionalCategories.filter((id) => !en[`notify_${id}`] || !fr[`notify_${id}`]).join(','));
@@ -173,13 +192,13 @@ const AREAS = {
   'rate limiting': ['rate_limited', 'rate_limited_minutes'],
   prompts: ['prompts_title', 'prompts_hint', 'prompt_placeholder', 'prompt_none', 'prompts_select_label', 'prompts_answer_label'],
   'profile preview': ['preview_profile', 'preview_title', 'preview_hint', 'preview_incomplete'],
-  'why you matched': ['why_matched', 'why_interests', 'why_city', 'why_age', 'why_none'],
+  'why you matched': ['why_matched', 'why_interests', 'why_city', 'why_age', 'why_languages', 'why_none'],
   'conversation starters': ['starters_title', 'starters_hint', 'starter_interest', 'starter_city', 'starter_generic', 'starter_copy', 'starter_copied'],
   'notification preferences': ['notifications_title', 'notifications_hint', 'notify_matches', 'notify_super_likes', 'notify_super_likes_note', 'notify_profile_reminders', 'notify_profile_reminders_note', 'notifications_saved'],
   languages: ['languages_label', 'languages_hint', 'filter_languages', 'filter_languages_hint'],
   'restriction of processing': ['restrict_title', 'restrict_explain', 'restrict_action', 'restrict_confirm', 'restricted_badge', 'restricted_notice', 'unrestrict_action', 'restrict_done', 'unrestrict_done', 'restrict_note', 'error_processing_restricted'],
   'objection to processing': ['objection_title', 'objection_explain', 'objection_confirm', 'object_action', 'objection_badge', 'objection_notice', 'unobject_action', 'objection_done', 'unobject_done', 'objection_note'],
-  'help and support': ['support_title', 'support_intro', 'support_email']
+  'help and support': ['support_title', 'support_intro', 'support_bot', 'support_contact', 'support_history', 'support_history_empty', 'support_form_title', 'support_form_category', 'support_form_details', 'support_form_placeholder', 'support_submit', 'support_required', 'support_done', 'support_email', 'support_expectation']
 };
 for (const [area, keys] of Object.entries(AREAS)) {
   const gaps = keys.filter((k) => !en[k] || !fr[k]);
@@ -196,7 +215,7 @@ section('No hardcoded copy in runtime-populated elements');
   const RUNTIME_FILLED = [
     'discover-loading', 'premium-loading', 'people-label', 'match-label', 'new-label',
     'my-name', 'profile-status', 'my-avatar', 'prompts-hint', 'prompts-list',
-    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice'
+    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice', 'support-intro', 'support-expectation'
   ];
   for (const id of RUNTIME_FILLED) {
     const m = new RegExp(`id="${id}"[^>]*>([^<]*)<`).exec(html);
@@ -237,7 +256,7 @@ for (const [lang, cat] of Object.entries(LOCALES)) {
 }
 
 // The API surface is one stable machine interface with canonical English paths.
-const CANONICAL_ROUTES = ['/api/profile/me', '/api/discover', '/api/swipe', '/api/matches', '/api/premium', '/api/likes', '/api/relationship', '/api/account'];
+const CANONICAL_ROUTES = ['/api/profile/me', '/api/discover', '/api/swipe', '/api/matches', '/api/premium', '/api/likes', '/api/relationship', '/api/account', '/api/support'];
 const apiConst = /const API = \{([^}]*)\}/.exec(app)?.[1] || '';
 for (const route of CANONICAL_ROUTES) {
   check(`API constant still points at ${route}`, apiConst.includes(`'${route}'`), apiConst.slice(0, 200));
@@ -256,6 +275,19 @@ check('both catalogues name the canonical support address',
 // the canonical bot — a lookalike link here would hand every web visitor to an impostor.
 check('the outside-Telegram gate links the canonical bot',
   /https:\/\/t\.me\/BezyDatingBot/.test(app), 'bot link not found in the gate');
+
+// The built-in fallback catalogue renders when the locale fetch fails (the degraded-state
+// e2e spec drives that path). It is generated from locales/en.json by
+// scripts/sync-fallback-locale.mjs; this check pins that it cannot drift.
+const fallbackBlock = /BEGIN fallback catalogue[\s\S]*?\n {6}app: (\{.*\}),\n {6}\/\/ END fallback catalogue/.exec(app);
+check('the built-in fallback catalogue is present in app.js', Boolean(fallbackBlock), 'marker block not found');
+if (fallbackBlock) {
+  let fallbackKeys = [];
+  try { fallbackKeys = Object.keys(JSON.parse(fallbackBlock[1])); } catch (error) { check(`fallback catalogue parses`, false, error.message); }
+  check('the fallback catalogue holds exactly the English catalogue keys',
+    JSON.stringify(fallbackKeys) === JSON.stringify(Object.keys(en)),
+    fallbackKeys.filter((k) => !(k in en)).concat(Object.keys(en).filter((k) => !fallbackKeys.includes(k))).join(','));
+}
 
 // Route files on disk must stay language-neutral.
 const apiFiles = [];

@@ -50,6 +50,15 @@ export function retentionPolicy() {
       legalReviewRequired: false,
       description: 'Rate-limit counters whose windows have long expired.'
     },
+    supportRequests: {
+      // Deliberately unset, like payments: support requests are personal data and the
+      // operator chooses the period (BEZY_RETENTION_SUPPORT_DAYS). They are also erased
+      // with the account itself, so the only requests that ever reach a retention run are
+      // from accounts that still exist.
+      days: envDays('BEZY_RETENTION_SUPPORT_DAYS', null),
+      legalReviewRequired: false,
+      description: 'Support requests (CN-7). Period is the operator\'s to set.'
+    },
     payments: {
       // Deliberately unset. Accounting/tax retention is P0-8 in the roadmap.
       days: envDays('BEZY_RETENTION_PAYMENT_DAYS', null),
@@ -92,7 +101,7 @@ function olderThan(value, days, now) {
 export async function planRetention(firestore, { now = Date.now(), protectedIds = [] } = {}) {
   const policy = retentionPolicy();
   const guard = new Set(protectedIds.map(String));
-  const plan = { policy, users: [], matches: [], invoices: [], rateLimits: [], payments: [], reports: [], skipped: [] };
+  const plan = { policy, users: [], matches: [], invoices: [], rateLimits: [], payments: [], reports: [], supportRequests: [], skipped: [] };
 
   for (const [name, rule] of Object.entries(policy)) {
     if (!isConfigured(rule)) {
@@ -152,14 +161,21 @@ export async function planRetention(firestore, { now = Date.now(), protectedIds 
     }
   }
 
+  if (isConfigured(policy.supportRequests)) {
+    for (const doc of (await firestore.collection('supportRequests').get()).docs) {
+      const d = doc.data() || {};
+      if (olderThan(d.createdAt, policy.supportRequests.days, now)) plan.supportRequests.push(doc.id);
+    }
+  }
+
   plan.total = plan.users.length + plan.matches.length + plan.invoices.length
-    + plan.rateLimits.length + plan.payments.length + plan.reports.length;
+    + plan.rateLimits.length + plan.payments.length + plan.reports.length + plan.supportRequests.length;
   return plan;
 }
 
 /** Executes a plan produced by planRetention. Users are removed recursively with their subcollections. */
 export async function applyRetention(firestore, plan) {
-  const applied = { users: 0, matches: 0, invoices: 0, rateLimits: 0, payments: 0, reports: 0 };
+  const applied = { users: 0, matches: 0, invoices: 0, rateLimits: 0, payments: 0, reports: 0, supportRequests: 0 };
 
   for (const id of plan.users) {
     await firestore.recursiveDelete(firestore.collection('users').doc(id));
@@ -171,7 +187,8 @@ export async function applyRetention(firestore, plan) {
     ['bezyInvoices', plan.invoices, 'invoices'],
     ['rateLimits', plan.rateLimits, 'rateLimits'],
     ['bezyPayments', plan.payments, 'payments'],
-    ['reports', plan.reports, 'reports']
+    ['reports', plan.reports, 'reports'],
+    ['supportRequests', plan.supportRequests, 'supportRequests']
   ]) {
     for (const id of ids) {
       await firestore.collection(collection).doc(id).delete();

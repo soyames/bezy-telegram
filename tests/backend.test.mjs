@@ -11,6 +11,8 @@ import { sharedSignals } from '../api/matches.js';
 import { defaultNotificationSettings, normalizeNotificationSettings, notificationSettings, isNotificationEnabled, withinDailyCap, OPTIONAL_CATEGORIES, NOTIFICATION_CATEGORIES } from '../api/_notify.js';
 import { processingPaused } from '../api/_privacy.js';
 import { planProfileReminders, sendProfileReminders, reminderMessage } from '../api/_reminders.js';
+import { compatibilityBreakdown } from '../api/discover.js';
+import { formatSupportReference, normalizeSupportRequest } from '../api/_support.js';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -1224,6 +1226,41 @@ try {
   r = await call('/api/discover', 'a');
   check('clearing the filter restores the full deck', (r.data.profiles || []).some((p) => p.id === '900000003'), deckIds().join(','));
 
+  // --------------------------------------------- premium compatibility insight (PR-8)
+  section('Compatibility breakdown (pure logic)');
+  check('the breakdown carries exactly the documented fields',
+    JSON.stringify(Object.keys(compatibilityBreakdown(PROFILES.a, PROFILES.b)).sort())
+      === JSON.stringify(['closeInAge', 'sharedCity', 'sharedInterests', 'sharedLanguages'].sort()));
+  check('the breakdown names only what the candidate already published',
+    JSON.stringify(compatibilityBreakdown(PROFILES.a, PROFILES.b).sharedInterests) === JSON.stringify(['music', 'travel'])
+    && compatibilityBreakdown(PROFILES.a, PROFILES.b).sharedCity === 'Paris'
+    && compatibilityBreakdown(PROFILES.a, PROFILES.b).closeInAge === true);
+  check('the breakdown infers nothing and never touches sensitive attributes',
+    !('gender' in compatibilityBreakdown(PROFILES.a, PROFILES.b))
+    && !('seeking' in compatibilityBreakdown(PROFILES.a, PROFILES.b)));
+
+  section('Compatibility breakdown on the deck');
+  await cleanup();
+  await seedAll();
+  r = await call('/api/discover', 'a');
+  check('free callers receive no breakdown field',
+    (r.data.profiles || []).length > 0 && (r.data.profiles || []).every((p) => !('breakdown' in p)),
+    JSON.stringify((r.data.profiles || [])[0] || {}));
+  await setPremium('900000001', { active: true, planId: 'monthly', expiresAt: new Date(Date.now() + 30 * 86400000) });
+  r = await call('/api/discover', 'a');
+  const premiumCards = (r.data.profiles || []).filter((p) => 'breakdown' in p);
+  check('premium callers receive the breakdown on every card',
+    premiumCards.length === (r.data.profiles || []).length && premiumCards.length > 0,
+    `${premiumCards.length}/${(r.data.profiles || []).length}`);
+  check('every breakdown term is already visible on the card itself',
+    premiumCards.every((p) => (p.breakdown.sharedInterests || []).every((v) => (p.interests || []).includes(v))
+      && (!p.breakdown.sharedCity || p.breakdown.sharedCity === p.city)
+      && (p.breakdown.sharedLanguages || []).every((id) => (p.languages || []).includes(id))));
+  await setPremium('900000001', null);
+  r = await call('/api/discover', 'a');
+  check('the breakdown disappears when membership is revoked',
+    (r.data.profiles || []).every((p) => !('breakdown' in p)));
+
   // -------------------------------------------------- restriction of processing (Art. 18)
   section('Restriction of processing (pure logic)');
   check('a restricted account receives no engagement notifications',
@@ -1416,6 +1453,95 @@ try {
   check('/premium states the Stars requirement in French', /Mes Stars/.test(premiumFr?.body?.text || ''), premiumFr?.body?.text?.slice(0, 200));
   check('/premium warns in French that Telegram Premium is separate',
     /n’inclut pas Bezy Premium/.test(premiumFr?.body?.text || ''), premiumFr?.body?.text?.slice(0, 240));
+
+  // ------------------------------------------------------------------ support flow (CN-7)
+  section('Support flow (pure logic)');
+  check('a support reference is dense and prefixed', formatSupportReference(42) === 'BZ-0042');
+  check('request normalization keeps only a valid category and a bounded description',
+    normalizeSupportRequest({ category: 'premium', details: 'ok' }).category === 'premium'
+    && normalizeSupportRequest({ category: 'x', details: 'ok' }).category === null);
+
+  section('Support flow: Mini App API');
+  await cleanup();
+  await seedAll();
+  r = await call('/api/support', 'a', { action: 'create', category: 'premium', details: 'My Premium is gone.' });
+  check('a Mini App request is created with a reference', r.status === 200 && /^BZ-\d{4}$/.test(r.data.reference || ''), JSON.stringify(r.data));
+  const firstReference = r.data.reference;
+  r = await call('/api/support', 'a', { action: 'create', category: 'profile', details: 'Second request.' });
+  check('references are unique and increase', r.data.reference !== firstReference, `${firstReference} vs ${r.data.reference}`);
+  r = await call('/api/support', 'a', { action: 'create', category: 'invented', details: 'nope' });
+  check('an invalid category is rejected', r.status === 400 && r.data.error === 'INVALID_ACTION');
+  r = await call('/api/support', 'a', { action: 'create', category: 'premium', details: '' });
+  check('an empty description is rejected', r.status === 400 && r.data.error === 'INVALID_ACTION');
+  r = await call('/api/support', 'a', { action: 'list' });
+  check('the caller sees exactly their own requests, newest first',
+    r.status === 200 && (r.data.requests || []).length === 2
+    && (r.data.requests || []).every((q) => q.reference && q.status === 'open' && q.category),
+    JSON.stringify(r.data));
+  r = await call('/api/support', 'b', { action: 'list' });
+  check('another user sees none of them', (r.data.requests || []).length === 0, JSON.stringify(r.data.requests));
+
+  section('Support flow: bot intake');
+  const supportWebhook = (update) => webhook(update);
+  await resetCalls();
+  await supportWebhook({ message: { chat: { id: 900000001 }, from: { language_code: 'en' }, text: '/support' } });
+  let supportNotes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('/support answers with the category menu',
+    supportNotes.length === 1 && /Help & support/.test(supportNotes[0].body.text || ''),
+    supportNotes[0]?.body?.text?.slice(0, 80));
+  const menuMarkup = JSON.stringify(supportNotes[0].body.reply_markup || {});
+  check('the menu offers the documented categories',
+    ['premium', 'profile', 'likes_matches', 'discovery', 'privacy_account', 'problem', 'contact'].every((id) => menuMarkup.includes(`support:${id}`)),
+    menuMarkup.slice(0, 200));
+
+  // Premium troubleshooting answers from the caller's own document only.
+  await resetCalls();
+  await supportWebhook({ callback_query: { id: 'cb1', data: 'support:premium', from: { language_code: 'en' }, message: { chat: { id: 900000001 } } } });
+  supportNotes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('premium troubleshooting detects no active membership',
+    /No active Bezy Premium/i.test(supportNotes[0]?.body?.text || ''), supportNotes[0]?.body?.text?.slice(0, 120));
+  check('troubleshooting offers the intake path', JSON.stringify(supportNotes[0]?.body?.reply_markup || {}).includes('support:new:premium'));
+
+  // Intake: tap "still need help", then send a plain message — it becomes the request.
+  await resetCalls();
+  await supportWebhook({ callback_query: { id: 'cb2', data: 'support:new:premium', from: { language_code: 'en' }, message: { chat: { id: 900000001 } } } });
+  check('intake asks for a description', /Describe your problem/i.test(((await sent()).filter((c) => c.method === 'sendMessage')[0]?.body?.text || '')));
+  const pendingDoc = await firestore.collection('users').doc('900000001').get();
+  check('the pending category is stored on the caller\'s own document', pendingDoc.data()?.pendingSupportRequest?.category === 'premium');
+  await resetCalls();
+  await supportWebhook({ message: { chat: { id: 900000001 }, from: { language_code: 'en' }, text: 'Stars are missing from my balance.' } });
+  supportNotes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('the plain message becomes a support request',
+    supportNotes.length === 1 && /Reference: BZ-\d{4}/.test(supportNotes[0].body.text || ''), supportNotes[0]?.body?.text?.slice(0, 160));
+  check('the confirmation states the fallback email', /contacts@digitalconcordia\.com/.test(supportNotes[0]?.body?.text || ''));
+  const afterIntake = await firestore.collection('users').doc('900000001').get();
+  check('the pending state is cleared', !afterIntake.data()?.pendingSupportRequest);
+  r = await call('/api/support', 'a', { action: 'list' });
+  check('the bot-created request appears in the caller\'s history',
+    (r.data.requests || []).some((q) => q.category === 'premium' && /Stars are missing/.test(q.details)), JSON.stringify(r.data.requests));
+
+  // A plain message without a pending intake creates nothing.
+  await resetCalls();
+  await supportWebhook({ message: { chat: { id: 900000001 }, from: { language_code: 'en' }, text: 'hello there' } });
+  check('an unprompted plain message creates no request',
+    (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+  const totalAfterNoise = (await firestore.collection('supportRequests').where('telegramUserId', '==', '900000001').get()).size;
+  check('the request count is unchanged', totalAfterNoise === 3, String(totalAfterNoise));
+
+  // Support spam protection: the bucket is shared with the Mini App channel.
+  await firestore.collection('rateLimits').doc('900000001').delete().catch(() => {});
+  await firestore.collection('rateLimits').doc('900000001').set({ support_create_86400: { w: Date.now(), c: 10 } });
+  r = await call('/api/support', 'a', { action: 'create', category: 'problem', details: 'too many' });
+  check('support creation is rate limited', r.status === 429 && r.data.error === 'RATE_LIMITED', JSON.stringify(r.data));
+
+  // Support requests are personal data: the export includes them and erasure removes them.
+  r = await call('/api/account', 'a', { action: 'export' });
+  check('the export includes the caller\'s support requests',
+    Array.isArray(r.data.export?.supportRequests) && (r.data.export?.supportRequests || []).length === 3,
+    JSON.stringify((r.data.export?.supportRequests || []).length));
+  await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
+  check('erasure removes the caller\'s support requests',
+    (await firestore.collection('supportRequests').where('telegramUserId', '==', '900000001').get()).size === 0);
 } finally {
   await cleanup();
   await harness.close();

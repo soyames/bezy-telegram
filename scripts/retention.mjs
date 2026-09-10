@@ -62,7 +62,8 @@ for (const [label, ids] of [
   ['spent invoices', plan.invoices],
   ['stale rate-limit counters', plan.rateLimits],
   ['payments', plan.payments],
-  ['reports', plan.reports]
+  ['reports', plan.reports],
+  ['support requests', plan.supportRequests]
 ]) {
   console.log(`  ${label.padEnd(28)} ${ids.length}${ids.length ? `  [${ids.slice(0, 5).join(', ')}${ids.length > 5 ? ', …' : ''}]` : ''}`);
 }
