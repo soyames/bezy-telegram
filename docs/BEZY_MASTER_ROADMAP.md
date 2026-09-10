@@ -35,8 +35,8 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `c14f764`** (`refine: Profile settings information architecture
-per approved CX`). **Pushed — `main` is in sync with `origin/main`.**
+🟢 **Working tree clean at `8592bc2`** (`feat: reciprocal matching, honest discovery, docs
+reconciliation and Stage 4 prep`). Commit is **local only — not pushed**.
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -44,9 +44,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Everything since `d3cb87f`: reconciliation batch, support-retention default, privacy-transparency line, zero-result discovery, CX fixes, Stage 2 reciprocal, Stage 3 adaptive, SC-3 index fix, Stage-4 spec + tooling, counsel packet, support fallback, convergence record — see §20 session log. **Uncommitted by rule; nothing pushed or deployed** |
+| Uncommitted | Nothing — everything since `d3cb87f` is in `8592bc2`; see §20 session log |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
-| Unpushed | Nothing — pushed at `b968321` |
+| Unpushed | `main` is 6 commits ahead of `origin/main` (through `8592bc2`) |
 
 ---
 
