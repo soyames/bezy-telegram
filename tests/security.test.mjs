@@ -160,6 +160,13 @@ try {
   await firestore.collection('users').doc('900000092').set({
     telegramId: 900000092, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false, createdAt: new Date()
   });
+  // A paused account (here: objection) must be indistinguishable from the other unreachable
+  // classes — a caller must not be able to tell "exists but has objected" from "does not exist".
+  await firestore.collection('users').doc('900000093').set({
+    telegramId: 900000093, ageEligibilityConfirmed: true, profileComplete: true, discoverable: true,
+    processingObjection: true, processingObjectedAt: new Date(),
+    profile: { ...PROFILES.b, displayName: 'Objecting', discoverable: true }, createdAt: new Date()
+  });
   await call('/api/relationship', 'a', { action: 'block', targetId: '900000003' });
   await clearRateLimits();
 
@@ -167,11 +174,12 @@ try {
     'no account at all': await call('/api/swipe', 'a', { targetId: '900000099', action: 'like' }),
     'account but hidden': await call('/api/swipe', 'a', { targetId: '900000091', action: 'like' }),
     'account but incomplete profile': await call('/api/swipe', 'a', { targetId: '900000092', action: 'like' }),
+    'account but objecting': await call('/api/swipe', 'a', { targetId: '900000093', action: 'like' }),
     'blocked by me': await call('/api/swipe', 'a', { targetId: '900000003', action: 'like' })
   };
   const signatures = Object.entries(probes).map(([label, r]) => [label, `${r.status}:${JSON.stringify(r.data)}`]);
   const unique = new Set(signatures.map(([, sig]) => sig));
-  check('all four target classes are indistinguishable', unique.size === 1, signatures.map(([l, s]) => `${l}=${s}`).join('  |  '));
+  check('all five target classes are indistinguishable', unique.size === 1, signatures.map(([l, s]) => `${l}=${s}`).join('  |  '));
   await clearRateLimits();
 
   section('User enumeration: relationship endpoints');
@@ -404,6 +412,69 @@ try {
       /rate_limited/.test(block) && /retryAfter/.test(app));
     check('the long-wait variant carries a substitution placeholder',
       en.rate_limited_minutes?.includes('{n}') && fr.rate_limited_minutes?.includes('{n}'));
+  }
+
+  section('Retention policy');
+  {
+    const { retentionPolicy, isConfigured, planRetention, applyRetention } = await import('../api/_retention.js');
+    const policy = retentionPolicy();
+
+    // Categories whose period is a legal question must stay unconfigured by default, so a
+    // retention run can never quietly delete a payment or a safety record.
+    check('payments retention is NOT configured by default', !isConfigured(policy.payments));
+    check('reports retention is NOT configured by default', !isConfigured(policy.reports));
+    check('both legally gated categories are flagged as such',
+      policy.payments.legalReviewRequired === true && policy.reports.legalReviewRequired === true);
+    check('operational categories have sane defaults',
+      isConfigured(policy.abandonedSignups) && isConfigured(policy.endedMatches)
+      && isConfigured(policy.spentInvoices) && isConfigured(policy.staleRateLimits));
+
+    await cleanup();
+    const OLD = Date.now() - 400 * 86400000;
+    // An abandoned signup: never declared 18+, never completed a profile, long dormant.
+    await firestore.collection('users').doc('900000080').set({
+      telegramId: 900000080, createdAt: new Date(OLD)
+    });
+    // A complete, eligible account of the same age must never be selected.
+    await firestore.collection('users').doc('900000081').set({
+      telegramId: 900000081, createdAt: new Date(OLD), ageEligibilityConfirmed: true,
+      profileComplete: true, discoverable: true, profile: PROFILES.b
+    });
+    // An abandoned signup that nonetheless paid must be protected by its payment history.
+    await firestore.collection('users').doc('900000082').set({
+      telegramId: 900000082, createdAt: new Date(OLD)
+    });
+    await firestore.collection('bezyPayments').doc('ret_charge_1').set({
+      telegramUserId: '900000082', planId: 'monthly', stars: 250, currency: 'XTR',
+      status: 'processed', processedAt: new Date(OLD)
+    });
+    await firestore.collection('matches').doc('900000080_900000081').set({
+      participants: ['900000080', '900000081'], active: false, endedAt: new Date(OLD), createdAt: new Date(OLD)
+    });
+
+    let plan = await planRetention(firestore, {});
+    check('abandoned signup is selected', plan.users.includes('900000080'), plan.users.join(','));
+    check('complete account is NOT selected', !plan.users.includes('900000081'));
+    check('abandoned signup with a payment is NOT selected', !plan.users.includes('900000082'), plan.users.join(','));
+    check('long-ended match is selected', plan.matches.includes('900000080_900000081'));
+    check('no payment is ever selected while unconfigured', plan.payments.length === 0);
+    check('no report is ever selected while unconfigured', plan.reports.length === 0);
+    check('skipped categories are reported, not silently ignored',
+      plan.skipped.some((s) => s.category === 'payments' && /LEGAL REVIEW/.test(s.reason)));
+
+    // Protecting an id must override selection entirely.
+    plan = await planRetention(firestore, { protectedIds: ['900000080'] });
+    check('a protected id is never selected', !plan.users.includes('900000080'), plan.users.join(','));
+
+    // Planning is pure: nothing was deleted by the calls above.
+    check('planning deletes nothing', (await firestore.collection('users').doc('900000080').get()).exists);
+
+    const applied = await applyRetention(firestore, await planRetention(firestore, {}));
+    check('apply removes the abandoned signup', (await firestore.collection('users').doc('900000080').get()).exists === false);
+    check('apply keeps the complete account', (await firestore.collection('users').doc('900000081').get()).exists);
+    check('apply keeps the paying account', (await firestore.collection('users').doc('900000082').get()).exists);
+    check('apply keeps the payment record', (await firestore.collection('bezyPayments').doc('ret_charge_1').get()).exists);
+    check('apply reports what it removed', applied.users === 1 && applied.matches === 1, JSON.stringify(applied));
   }
 
   section('Data minimisation: fields no longer collected');

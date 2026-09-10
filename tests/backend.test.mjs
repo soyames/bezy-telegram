@@ -6,6 +6,11 @@
 import { startHarness, makeInitData, TEST_USERS } from './harness.mjs';
 import { premiumPlans, parseInvoicePayload, addMonths, nextExpiry, premiumState, checkSwipeQuota, LIMITS, applyRefund, REFUND_STATUS } from '../api/_premium.js';
 import { db } from '../api/_firebase.js';
+import { PROMPT_IDS, LANGUAGE_IDS } from '../api/profile/me.js';
+import { sharedSignals } from '../api/matches.js';
+import { defaultNotificationSettings, normalizeNotificationSettings, notificationSettings, isNotificationEnabled, withinDailyCap, OPTIONAL_CATEGORIES, NOTIFICATION_CATEGORIES } from '../api/_notify.js';
+import { processingPaused } from '../api/_privacy.js';
+import { planProfileReminders, sendProfileReminders, reminderMessage } from '../api/_reminders.js';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -796,6 +801,595 @@ try {
   check('self-swipe still rejected', r.status === 400);
   r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'wave' });
   check('unknown action still rejected', r.status === 400);
+
+  // ------------------------------------------------------- prompts & shared signals
+  section('Profile prompts');
+  await cleanup();
+  await seedAll();
+  const PROMPTS_OK = [{ id: 'perfect_sunday', answer: 'A long walk and a longer lunch.' }, { id: 'i_value', answer: 'Curiosity.' }];
+  const storedPrompts = async (who) => (await call('/api/profile/me', who)).data.profile?.profile?.prompts;
+  r = await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, prompts: PROMPTS_OK } });
+  check('answered prompts are stored in order',
+    JSON.stringify(r.data.profile?.profile?.prompts) === JSON.stringify(PROMPTS_OK), JSON.stringify(r.data.profile?.profile?.prompts));
+  check('prompts do not change profile completeness', r.data.profile?.profileComplete === true);
+
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, prompts: [{ id: 'not_a_prompt', answer: 'x' }, { id: 'first_date', answer: 'Coffee.' }] } });
+  check('an unknown prompt id is dropped rather than stored',
+    JSON.stringify(await storedPrompts('a')) === JSON.stringify([{ id: 'first_date', answer: 'Coffee.' }]), JSON.stringify(await storedPrompts('a')));
+
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, prompts: PROMPT_IDS.map((id) => ({ id, answer: `answer for ${id}` })) } });
+  check('no more than three prompts are kept', (await storedPrompts('a')).length === 3, String((await storedPrompts('a')).length));
+
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, prompts: [{ id: 'i_value', answer: 'First.' }, { id: 'i_value', answer: 'Second.' }] } });
+  check('a repeated prompt id is kept only once, first answer wins',
+    JSON.stringify(await storedPrompts('a')) === JSON.stringify([{ id: 'i_value', answer: 'First.' }]), JSON.stringify(await storedPrompts('a')));
+
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, prompts: [{ id: 'i_value', answer: '   ' }, { id: 'first_date', answer: 'Coffee.' }] } });
+  check('a blank answer is dropped', (await storedPrompts('a')).every((p) => p.id !== 'i_value'), JSON.stringify(await storedPrompts('a')));
+
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, prompts: [{ id: 'i_value', answer: 'x'.repeat(400) }] } });
+  check('a long answer is truncated to 200 characters', (await storedPrompts('a'))[0]?.answer.length === 200, String((await storedPrompts('a'))[0]?.answer.length));
+
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, prompts: 'not-an-array' } });
+  check('a malformed prompts value becomes an empty list', JSON.stringify(await storedPrompts('a')) === '[]', JSON.stringify(await storedPrompts('a')));
+
+  r = await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, city: '', prompts: PROMPTS_OK } });
+  check('prompts alone cannot complete a profile', r.data.profile?.profileComplete === false);
+
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, prompts: PROMPTS_OK } });
+  r = await call('/api/discover', 'b');
+  const seenInDeck = (r.data.profiles || []).find((p) => p.id === '900000001');
+  check('prompts are published on the discovery card',
+    JSON.stringify(seenInDeck?.prompts) === JSON.stringify(PROMPTS_OK), JSON.stringify(seenInDeck?.prompts));
+  check('the discovery card still withholds the Telegram handle',
+    seenInDeck !== undefined && !('username' in seenInDeck) && !('telegramId' in seenInDeck), Object.keys(seenInDeck || {}).join(','));
+
+  section('Why you matched');
+  check('shared interests are reported using the viewer\'s own wording',
+    JSON.stringify(sharedSignals({ interests: ['Music', 'Travel'] }, { interests: ['music', 'hiking'] })) === JSON.stringify([{ type: 'interests', values: ['Music'] }]),
+    JSON.stringify(sharedSignals({ interests: ['Music', 'Travel'] }, { interests: ['music', 'hiking'] })));
+  check('a shared city is detected regardless of casing',
+    sharedSignals({ city: 'paris' }, { city: 'Paris' }).some((s) => s.type === 'city' && s.values[0] === 'Paris'));
+  check('a different city produces no city signal',
+    !sharedSignals({ city: 'Paris' }, { city: 'Lyon' }).some((s) => s.type === 'city'));
+  check('ages within five years produce an age signal', sharedSignals({ age: 29 }, { age: 34 }).some((s) => s.type === 'age'));
+  check('ages further apart produce none', !sharedSignals({ age: 29 }, { age: 40 }).some((s) => s.type === 'age'));
+  check('nothing in common produces no signals', sharedSignals({ interests: ['a'], city: 'Paris', age: 20 }, { interests: ['b'], city: 'Lyon', age: 40 }).length === 0);
+  check('at most five shared interests are listed',
+    sharedSignals({ interests: ['a', 'b', 'c', 'd', 'e', 'f'] }, { interests: ['a', 'b', 'c', 'd', 'e', 'f'] })[0].values.length === 5);
+  check('an empty profile is handled without throwing', sharedSignals().length === 0);
+  // gender and seeking are the Article 9 attributes: explaining a match in terms of them
+  // would be exactly the sensitive inference the feature must not make.
+  check('gender and seeking are never used as a match explanation',
+    JSON.stringify(sharedSignals({ gender: 'woman', seeking: 'men' }, { gender: 'man', seeking: 'women' })) === '[]');
+
+  await resetCalls();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  r = await call('/api/matches', 'a');
+  const matched = (r.data.matches || [])[0];
+  check('a match carries its shared signals', Array.isArray(matched?.sharedSignals) && matched.sharedSignals.length > 0, JSON.stringify(matched?.sharedSignals));
+  check('shared signals name only the types the card can render',
+    (matched?.sharedSignals || []).every((s) => ['interests', 'city', 'age'].includes(s.type)), JSON.stringify(matched?.sharedSignals));
+  check('Ada and Bo share music and travel',
+    JSON.stringify((matched?.sharedSignals || []).find((s) => s.type === 'interests')?.values.sort()) === JSON.stringify(['music', 'travel']),
+    JSON.stringify(matched?.sharedSignals));
+  check('the match card carries prompts as well', JSON.stringify(matched?.prompts) === '[]', JSON.stringify(matched?.prompts));
+  r = await call('/api/matches', 'b');
+  check('the counterpart sees Ada\'s prompts after matching',
+    JSON.stringify((r.data.matches || [])[0]?.prompts) === JSON.stringify(PROMPTS_OK), JSON.stringify((r.data.matches || [])[0]?.prompts));
+  check('the handle is still released only on a match', typeof (r.data.matches || [])[0]?.username === 'string');
+
+  // ------------------------------------------------------------------ notifications
+  section('Notification preferences (pure logic)');
+  check('everything is on by default', JSON.stringify(defaultNotificationSettings()) === JSON.stringify({ matches: true, super_likes: true, profile_reminders: true }),
+    JSON.stringify(defaultNotificationSettings()));
+  check('an absent notifications map means everything is on',
+    JSON.stringify(notificationSettings({})) === JSON.stringify({ matches: true, super_likes: true, profile_reminders: true }));
+  check('only an explicit false disables a category',
+    normalizeNotificationSettings({ matches: false }).matches === false && normalizeNotificationSettings({ matches: 0 }).matches === true,
+    JSON.stringify(normalizeNotificationSettings({ matches: false, super_likes: 0 })));
+  check('a category the user did not mention keeps its default',
+    normalizeNotificationSettings({ matches: false }).super_likes === true && normalizeNotificationSettings({ matches: false }).profile_reminders === true);
+  check('unknown keys are dropped rather than stored',
+    !('everything' in normalizeNotificationSettings({ everything: false })), JSON.stringify(normalizeNotificationSettings({ everything: false })));
+  check('a malformed payload cannot mute anyone',
+    JSON.stringify(normalizeNotificationSettings('off')) === JSON.stringify({ matches: true, super_likes: true, profile_reminders: true }));
+  // Transactional messages are a record of something that happened to the user's money or
+  // account. No payload may switch them off.
+  check('a transactional category stays enabled whatever is stored',
+    isNotificationEnabled({ notifications: { account: false, matches: false } }, 'account') === true);
+  check('an optional category respects the stored choice',
+    isNotificationEnabled({ notifications: { matches: false } }, 'matches') === false);
+  check('an unknown category is never notifiable', isNotificationEnabled({}, 'invented') === false);
+  check('only the optional categories are offered to users',
+    JSON.stringify(OPTIONAL_CATEGORIES) === JSON.stringify(['matches', 'super_likes', 'profile_reminders']), OPTIONAL_CATEGORIES.join(','));
+
+  section('Notification preferences (stored)');
+  await cleanup();
+  await seedAll();
+  r = await call('/api/profile/me', 'a');
+  check('a fresh account reports the defaults', JSON.stringify(r.data.notifications) === JSON.stringify({ matches: true, super_likes: true, profile_reminders: true }),
+    JSON.stringify(r.data.notifications));
+  r = await call('/api/profile/me', 'a', { notifications: { super_likes: false } });
+  check('a choice is stored and echoed back', JSON.stringify(r.data.notifications) === JSON.stringify({ matches: true, super_likes: false, profile_reminders: true }),
+    JSON.stringify(r.data.notifications));
+  r = await call('/api/profile/me', 'a');
+  check('the choice survives a reload', r.data.notifications?.super_likes === false);
+  r = await call('/api/profile/me', 'a', { notifications: { account: false } });
+  check('a client cannot switch off transactional messages', !('account' in (r.data.notifications || {})),
+    JSON.stringify(r.data.notifications));
+  r = await call('/api/account', 'a', { action: 'export' });
+  check('notification choices are included in the data export',
+    r.data.export?.notificationPreferences?.super_likes === false, JSON.stringify(r.data.export?.notificationPreferences));
+  await call('/api/profile/me', 'a', { notifications: { matches: true, super_likes: true } });
+
+  section('Super Like notification');
+  await cleanup();
+  await seedAll();
+  await resetCalls();
+  // Bo super likes Ada. Ada has not decided about Bo, so this is news to her.
+  r = await call('/api/swipe', 'b', { targetId: '900000001', action: 'super' });
+  check('the super like is recorded', r.status === 200 && r.data.matched === false);
+  let notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('the recipient is notified once', notes.length === 1, `sent=${notes.length}`);
+  check('the notification goes to the recipient, not the sender', String(notes[0]?.body?.chat_id) === '900000001', String(notes[0]?.body?.chat_id));
+  // The whole point: interest is disclosed, identity is not. Naming the sender would give
+  // away for free exactly what /api/likes charges Premium members to see.
+  const noteText = JSON.stringify(notes[0]?.body || {});
+  check('the notification never names the sender', !/Bo\b/.test(noteText), noteText.slice(0, 200));
+  check('the notification carries no @username or Telegram id', !/@|900000002/.test(noteText), noteText.slice(0, 200));
+  check('the notification is a Super Like message', /super lik/i.test(notes[0]?.body?.text || ''), notes[0]?.body?.text);
+
+  await resetCalls();
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'super' });
+  check('re-deciding on the same person does not notify again', (await sent()).length === 0);
+
+  // A plain like stays silent: that is the "who liked you" Premium feature, not a push.
+  await resetCalls();
+  await call('/api/swipe', 'c', { targetId: '900000004', action: 'like' });
+  check('an ordinary like sends nothing', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+
+  // When the super like completes a match, the match notification says more and replaces it.
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await resetCalls();
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'super' });
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('a super like that matches sends two match notifications and no super-like message',
+    notes.length === 2 && notes.every((n) => /matched|Match avec/i.test(n.body.text)), notes.map((n) => n.body.text?.slice(0, 40)).join(' | '));
+
+  section('Notification preferences are enforced on delivery');
+  await cleanup();
+  await seedAll();
+  await call('/api/profile/me', 'a', { notifications: { super_likes: false } });
+  await resetCalls();
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'super' });
+  check('a switched-off Super Like notification is not sent', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+  check('the super like itself still counts', (await call('/api/likes', 'a')).status !== 500);
+
+  await cleanup();
+  await seedAll();
+  await call('/api/profile/me', 'a', { notifications: { matches: false } });
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await resetCalls();
+  r = await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('the match itself is still created when a notification is muted', r.data.matched === true);
+  check('only the consenting side is notified', notes.length === 1 && String(notes[0].body.chat_id) === '900000002',
+    notes.map((n) => String(n.body.chat_id)).join(','));
+  r = await call('/api/matches', 'a');
+  check('a muted user still sees the match in the Mini App', (r.data.matches || []).length === 1);
+
+  section('Super Like flood ceiling');
+  const capUser = '900000099';
+  await firestore.collection('rateLimits').doc(capUser).delete().catch(() => {});
+  const capResults = [];
+  for (let i = 0; i < 7; i += 1) capResults.push(await withinDailyCap(firestore, capUser, 'super_likes'));
+  check('the daily ceiling allows exactly five Super Like notifications',
+    capResults.filter(Boolean).length === 5, capResults.join(','));
+  check('the ceiling blocks everything after it', capResults.slice(5).every((v) => v === false), capResults.join(','));
+  check('an uncapped category is never blocked',
+    (await withinDailyCap(firestore, capUser, 'matches')) === true);
+  // The counter lives in the rate-limit document, which account deletion already erases, so
+  // capping adds no new personal-data surface.
+  const capDoc = (await firestore.collection('rateLimits').doc(capUser).get()).data() || {};
+  check('the counter is stored with the rate-limit counters', 'notify_super_likes' in capDoc, Object.keys(capDoc).join(','));
+  check('yesterday\'s window does not carry over',
+    (await withinDailyCap(firestore, capUser, 'super_likes', Date.now() + 86400001)) === true);
+  await firestore.collection('rateLimits').doc(capUser).delete().catch(() => {});
+
+  // --------------------------------------------------- profile-completion reminders (N-2)
+  section('Profile-completion reminders (pure logic)');
+  const reminderDef = NOTIFICATION_CATEGORIES.profile_reminders;
+  check('the reminder category is opt-out like other engagement messages', reminderDef?.optional === true);
+  check('the reminder is capped at one per seven-day window',
+    reminderDef?.dailyCap === 1 && reminderDef?.windowMs === 7 * 86400000, JSON.stringify(reminderDef));
+  check('the French reminder is French and the default is English',
+    /profil/.test(reminderMessage('fr').text) && !/profil/.test(reminderMessage('en').text));
+  check('the reminder carries a button label in both languages',
+    Boolean(reminderMessage('en').button) && Boolean(reminderMessage('fr').button)
+    && reminderMessage('en').button !== reminderMessage('fr').button);
+
+  section('Profile-completion reminders');
+  await cleanup();
+  // Four account shapes: eligible, complete (excluded), never-confirmed (excluded) and
+  // paused-by-objection (excluded).
+  await firestore.collection('users').doc('900000060').set({
+    telegramId: 900000060, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false,
+    languageCode: 'fr', createdAt: new Date(), profile: { displayName: 'Eligible' }
+  });
+  await firestore.collection('users').doc('900000061').set({
+    telegramId: 900000061, ageEligibilityConfirmed: true, profileComplete: true, discoverable: true,
+    createdAt: new Date(), profile: { ...PROFILES.b, displayName: 'Done' }
+  });
+  await firestore.collection('users').doc('900000062').set({
+    telegramId: 900000062, profileComplete: false, discoverable: false,
+    createdAt: new Date(), profile: { displayName: 'NeverConfirmed' }
+  });
+  await firestore.collection('users').doc('900000063').set({
+    telegramId: 900000063, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false,
+    processingObjection: true, processingObjectedAt: new Date(),
+    createdAt: new Date(), profile: { displayName: 'Objecting' }
+  });
+
+  let plan = await planProfileReminders(firestore, {});
+  const plannedIds = plan.users.map((u) => u.id);
+  check('only the confirmed, incomplete, unpaused account is selected',
+    JSON.stringify(plannedIds) === JSON.stringify(['900000060']), plannedIds.join(','));
+  check('protected ids are never selected',
+    (await planProfileReminders(firestore, { protectedIds: ['900000060'] })).users.length === 0);
+
+  await resetCalls();
+  let summary = await sendProfileReminders(firestore, plan);
+  check('the reminder is sent once', summary.sent === 1, JSON.stringify(summary));
+  const reminderNotes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('the reminder is in the recipient\'s language', /profil/.test(reminderNotes[0]?.body?.text || ''), reminderNotes[0]?.body?.text);
+  check('the button opens the Mini App profile view',
+    /view=profile/.test(JSON.stringify(reminderNotes[0]?.body?.reply_markup || {})), JSON.stringify(reminderNotes[0]?.body?.reply_markup));
+
+  // The seven-day cap: a second run in the same window sends nothing.
+  summary = await sendProfileReminders(firestore, plan);
+  check('a second run in the same seven-day window is capped', summary.capped === 1 && summary.sent === 0, JSON.stringify(summary));
+
+  // The cap record expires: a run in eight days' time goes through again.
+  await firestore.collection('rateLimits').doc('900000060').delete().catch(() => {});
+  await firestore.collection('rateLimits').doc('900000060').set({ notify_profile_reminders: { w: Date.now() - 8 * 86400000, c: 1 } });
+  summary = await sendProfileReminders(firestore, plan);
+  check('an expired window allows the reminder again', summary.sent === 1, JSON.stringify(summary));
+
+  // A user can switch the reminder off entirely, like any engagement notification.
+  await cleanup();
+  await firestore.collection('users').doc('900000060').set({
+    telegramId: 900000060, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false,
+    notifications: { matches: true, super_likes: true, profile_reminders: false },
+    createdAt: new Date(), profile: { displayName: 'Eligible' }
+  });
+  plan = await planProfileReminders(firestore, {});
+  await firestore.collection('rateLimits').doc('900000060').delete().catch(() => {});
+  summary = await sendProfileReminders(firestore, plan);
+  check('a switched-off reminder is not sent', summary.disabled === 1 && summary.sent === 0, JSON.stringify(summary));
+
+  // The reminder must never outrank a legal pause — and it does not, because delivery goes
+  // through the same policy as everything else.
+  await cleanup();
+  await firestore.collection('users').doc('900000063').set({
+    telegramId: 900000063, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false,
+    processingRestricted: true, processingRestrictedAt: new Date(),
+    createdAt: new Date(), profile: { displayName: 'Restricted' }
+  });
+  plan = await planProfileReminders(firestore, {});
+  check('a paused account is not even selected for a reminder', plan.users.length === 0, plan.users.map((u) => u.id).join(','));
+
+  // ------------------------------------------- safety / account event notifications (N-3)
+  section('Safety and account event notifications');
+  await cleanup();
+  await seedAll();
+  await resetCalls();
+
+  // A report hands the matter to a human moderator; the acknowledgment is the reporter's
+  // record that it was received.
+  r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000002', reason: 'spam' });
+  check('the report is stored', r.status === 200 && r.data.reported === true);
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('the reporter receives an acknowledgment', notes.length === 1 && String(notes[0].body.chat_id) === '900000001',
+    notes.map((n) => String(n.body.chat_id)).join(','));
+  check('the acknowledgment names no target', !/Bo\b|900000002/.test(JSON.stringify(notes[0].body || {})),
+    JSON.stringify(notes[0].body || {}).slice(0, 200));
+  const firstAck = notes[0]?.body?.text;
+  // A report about a stranger is acknowledged identically, so the bot chat cannot be used to
+  // probe account existence.
+  await resetCalls();
+  r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000098', reason: 'spam' });
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('a report about a stranger gets the same acknowledgment',
+    r.data.reported === true && notes.length === 1 && notes[0].body.text === firstAck);
+
+  // Blocks, unblocks and unmatches stay silent: their effect is visible in the app itself.
+  await resetCalls();
+  await call('/api/relationship', 'a', { action: 'block', targetId: '900000003' });
+  await call('/api/relationship', 'a', { action: 'unblock', targetId: '900000003' });
+  check('block and unblock stay silent', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+
+  // Pausing and resuming are account events: the bot message is the user's durable record,
+  // and it is transactional, so it arrives even though the pause itself silences engagement
+  // notifications.
+  await resetCalls();
+  await call('/api/account', 'a', { action: 'restrict' });
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('pausing processing is confirmed in the bot chat', notes.length === 1 && /paused/i.test(notes[0].body.text || ''),
+    notes[0]?.body?.text);
+  await resetCalls();
+  await call('/api/account', 'a', { action: 'restrict' });
+  check('an idempotent repeat is not a new event', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+  await resetCalls();
+  await call('/api/account', 'a', { action: 'unrestrict' });
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('resuming processing is confirmed too', notes.length === 1 && /resumed/i.test(notes[0].body.text || ''),
+    notes[0]?.body?.text);
+
+  // The objection and its withdrawal are account events of the same kind.
+  await resetCalls();
+  await call('/api/account', 'a', { action: 'object' });
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('objecting is confirmed in the bot chat', notes.length === 1 && /objection/i.test(notes[0].body.text || ''),
+    notes[0]?.body?.text);
+  await resetCalls();
+  await call('/api/account', 'a', { action: 'unobject' });
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('withdrawing the objection is confirmed too', notes.length === 1 && /withdrawn/i.test(notes[0].body.text || ''),
+    notes[0]?.body?.text);
+
+  // Transactional means transactional: no notification setting can mute an account event.
+  await call('/api/profile/me', 'a', { notifications: { matches: false, super_likes: false, profile_reminders: false } });
+  await resetCalls();
+  await call('/api/account', 'a', { action: 'restrict' });
+  check('account messages arrive with every engagement toggle off',
+    (await sent()).filter((c) => c.method === 'sendMessage').length === 1);
+  await resetCalls();
+  await call('/api/account', 'a', { action: 'unrestrict' });
+
+  // The bot speaks the recipient's language, like every other notification.
+  await cleanup();
+  await seedAll();
+  await resetCalls();
+  await call('/api/relationship', 'b', { action: 'report', targetId: '900000001', reason: 'spam' });
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('the acknowledgment follows the recipient\'s language', /signalement/i.test(notes[0]?.body?.text || ''),
+    notes[0]?.body?.text);
+
+  // Erasure gets a final confirmation, sent while the account still exists.
+  await resetCalls();
+  r = await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
+  check('the deletion is recorded', r.status === 200 && r.data.deleted === true);
+  notes = (await sent()).filter((c) => c.method === 'sendMessage');
+  check('deletion is confirmed in the bot chat', notes.length === 1 && /deleted/i.test(notes[0].body.text || ''),
+    notes[0]?.body?.text);
+  check('the account is gone afterwards', !(await firestore.collection('users').doc('900000001').get()).exists);
+
+  // ------------------------------------------------------------------ language filter
+  section('Languages spoken');
+  await cleanup();
+  await seedAll();
+  const storedLanguages = async (who) => (await call('/api/profile/me', who)).data.profile?.profile?.languages;
+  r = await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, languages: ['fr', 'en'] } });
+  check('languages are stored', JSON.stringify(r.data.profile?.profile?.languages) === JSON.stringify(['en', 'fr']),
+    JSON.stringify(r.data.profile?.profile?.languages));
+  // Order is normalized so two profiles listing the same languages are stored identically.
+  check('languages are stored in catalogue order regardless of input order',
+    JSON.stringify((await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, languages: ['fr', 'en'] } })).data.profile?.profile?.languages)
+    === JSON.stringify((await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, languages: ['en', 'fr'] } })).data.profile?.profile?.languages));
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, languages: ['en', 'klingon', 'FR', 'en'] } });
+  check('unknown codes are dropped, casing is tolerated, duplicates collapse',
+    JSON.stringify(await storedLanguages('a')) === JSON.stringify(['en', 'fr']), JSON.stringify(await storedLanguages('a')));
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, languages: LANGUAGE_IDS } });
+  check('no more than five languages are kept', (await storedLanguages('a')).length === 5, String((await storedLanguages('a')).length));
+  await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, languages: 'english' } });
+  check('a malformed languages value becomes an empty list', JSON.stringify(await storedLanguages('a')) === '[]');
+  r = await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, languages: [] } });
+  check('languages never affect profile completeness', r.data.profile?.profileComplete === true);
+
+  section('Language filtering');
+  await cleanup();
+  await seedAll();
+  await call('/api/profile/me', 'b', { profile: { ...PROFILES.b, languages: ['fr'] } });
+  await call('/api/profile/me', 'c', { profile: { ...PROFILES.c, languages: ['en'] } });
+  // 'd' deliberately lists nothing.
+  r = await call('/api/discover', 'a');
+  const deckIds = () => (r.data.profiles || []).map((p) => p.id).sort();
+  check('an unfiltered deck contains everyone eligible', deckIds().length >= 3, deckIds().join(','));
+  check('languages are published on the deck card',
+    JSON.stringify((r.data.profiles || []).find((p) => p.id === '900000002')?.languages) === JSON.stringify(['fr']));
+
+  await call('/api/profile/me', 'a', { preferences: { minAge: 18, maxAge: 100, languages: ['fr'] } });
+  r = await call('/api/discover', 'a');
+  check('filtering by language excludes people who do not speak it',
+    !(r.data.profiles || []).some((p) => p.id === '900000003'), deckIds().join(','));
+  check('filtering by language keeps people who do speak it',
+    (r.data.profiles || []).some((p) => p.id === '900000002'), deckIds().join(','));
+  // A profile that predates the field must not be punished by someone else's filter.
+  check('a profile with no languages listed is still shown',
+    (r.data.profiles || []).some((p) => p.id === '900000004'), deckIds().join(','));
+  check('the filter is echoed back so the Mini App can show it',
+    JSON.stringify(r.data.preferences?.languages) === JSON.stringify(['fr']), JSON.stringify(r.data.preferences));
+
+  // Unlike city targeting, the language filter is free: being unable to hold a conversation
+  // is not a power-user concern.
+  r = await call('/api/discover', 'a');
+  check('the language filter applies without Premium', r.data.isPremium === false && !(r.data.profiles || []).some((p) => p.id === '900000003'),
+    `premium=${r.data.isPremium} deck=${deckIds().join(',')}`);
+
+  await call('/api/profile/me', 'a', { preferences: { minAge: 18, maxAge: 100, languages: [] } });
+  r = await call('/api/discover', 'a');
+  check('clearing the filter restores the full deck', (r.data.profiles || []).some((p) => p.id === '900000003'), deckIds().join(','));
+
+  // -------------------------------------------------- restriction of processing (Art. 18)
+  section('Restriction of processing (pure logic)');
+  check('a restricted account receives no engagement notifications',
+    isNotificationEnabled({ processingRestricted: true }, 'matches') === false
+    && isNotificationEnabled({ processingRestricted: true }, 'super_likes') === false);
+  check('a restricted account still receives transactional messages',
+    isNotificationEnabled({ processingRestricted: true }, 'account') === true);
+  check('restriction outranks the user\'s own notification choices',
+    isNotificationEnabled({ processingRestricted: true, notifications: { matches: true } }, 'matches') === false);
+
+  section('Restriction of processing');
+  await cleanup();
+  await seedAll();
+  r = await call('/api/account', 'a', { action: 'restrict' });
+  check('restriction is recorded', r.status === 200 && r.data.restricted === true && r.data.alreadyInState === false, JSON.stringify(r.data));
+  r = await call('/api/account', 'a', { action: 'restrict' });
+  check('restricting twice is idempotent', r.data.restricted === true && r.data.alreadyInState === true);
+  r = await call('/api/profile/me', 'a');
+  check('the profile endpoint reports the restriction', r.data.processingRestricted === true);
+  check('the account is no longer discoverable', r.data.profile?.discoverable === false);
+  check('the stored profile agrees about discoverability', r.data.profile?.profile?.discoverable === false);
+  // Nothing is deleted — that is the whole distinction from erasure.
+  check('the profile itself is retained', r.data.profile?.profile?.displayName === 'Ada');
+  check('profile completeness is untouched', r.data.profile?.profileComplete === true);
+
+  r = await call('/api/discover', 'a');
+  check('a restricted account gets an empty deck', r.status === 200 && (r.data.profiles || []).length === 0);
+  check('the empty deck explains itself', r.data.processingRestricted === true, JSON.stringify(r.data));
+  check('an empty deck is not reported as an incomplete profile', r.data.needsProfile === false);
+
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('a restricted account cannot act', r.status === 403 && r.data.error === 'PROCESSING_RESTRICTED', JSON.stringify(r.data));
+
+  // Anti-enumeration: a restricted target is unreachable through the same identical error as
+  // every other unreachable case, so restriction is not detectable from outside.
+  r = await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  check('a restricted account cannot be acted on', r.status === 404 && r.data.error === 'TARGET_NOT_FOUND', JSON.stringify(r.data));
+  r = await call('/api/discover', 'b');
+  check('a restricted account is absent from other decks',
+    !(r.data.profiles || []).some((p) => p.id === '900000001'), (r.data.profiles || []).map((p) => p.id).join(','));
+
+  // Rectification stays available while restricted, but must not be a way back into the deck.
+  r = await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, city: 'Lyon', discoverable: true } });
+  check('the profile can still be corrected while restricted', r.data.profile?.profile?.city === 'Lyon');
+  check('saving cannot republish a restricted profile', r.data.profile?.discoverable === false && r.data.profile?.profile?.discoverable === false);
+
+  // Restriction must not become a trap that locks someone out of their own data.
+  r = await call('/api/account', 'a', { action: 'export' });
+  check('export still works while restricted', r.status === 200 && Boolean(r.data.data));
+  check('the export records the restriction', r.data.data?.processingRestriction?.restricted === true, JSON.stringify(r.data.data?.processingRestriction));
+  check('the export records when it started', typeof r.data.data?.processingRestriction?.restrictedAt === 'string');
+
+  r = await call('/api/account', 'a', { action: 'unrestrict' });
+  check('the restriction can be lifted', r.data.restricted === false && r.data.alreadyInState === false);
+  r = await call('/api/account', 'a', { action: 'unrestrict' });
+  check('lifting twice is idempotent', r.data.restricted === false && r.data.alreadyInState === true);
+  r = await call('/api/profile/me', 'a');
+  check('the account is no longer restricted', r.data.processingRestricted === false);
+  // Lifting restores the account; it does not silently return anyone to the deck.
+  check('lifting does not republish the profile', r.data.profile?.discoverable === false);
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('acting works again once lifted', r.status === 200, JSON.stringify(r.data));
+
+  await call('/api/profile/me', 'a', { profile: PROFILES.a });
+  r = await call('/api/profile/me', 'a');
+  check('the user can put themselves back in Discover deliberately', r.data.profile?.discoverable === true);
+
+  section('Restriction and existing matches');
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  await call('/api/account', 'a', { action: 'restrict' });
+  r = await call('/api/matches', 'a');
+  check('a restricted account still sees its own matches', (r.data.matches || []).length === 1, JSON.stringify((r.data.matches || []).length));
+  r = await call('/api/matches', 'b');
+  check('the counterpart is not stripped of the match', (r.data.matches || []).length === 1);
+  // The match already exists; restriction stops new processing, not access to what is stored.
+  r = await call('/api/account', 'a', { action: 'unrestrict' });
+  check('the restriction lifts cleanly with matches in place', r.data.restricted === false);
+
+  // ------------------------------------------------------------ objection (Art. 21)
+  section('Objection to processing (pure logic)');
+  check('processingPaused covers both legal states',
+    processingPaused({ processingRestricted: true }) === true
+    && processingPaused({ processingObjection: true }) === true);
+  check('processingPaused is false for an ordinary account',
+    processingPaused({}) === false
+    && processingPaused({ discoverable: false }) === false);
+  check('an objecting account receives no engagement notifications',
+    isNotificationEnabled({ processingObjection: true }, 'matches') === false
+    && isNotificationEnabled({ processingObjection: true }, 'super_likes') === false);
+  check('an objecting account still receives transactional messages',
+    isNotificationEnabled({ processingObjection: true }, 'account') === true);
+
+  section('Objection to processing');
+  await cleanup();
+  await seedAll();
+  r = await call('/api/account', 'a', { action: 'object' });
+  check('objection is recorded', r.status === 200 && r.data.objected === true && r.data.alreadyInState === false, JSON.stringify(r.data));
+  r = await call('/api/account', 'a', { action: 'object' });
+  check('objecting twice is idempotent', r.data.objected === true && r.data.alreadyInState === true);
+  r = await call('/api/profile/me', 'a');
+  check('the profile endpoint reports the objection', r.data.processingObjection === true);
+  check('objection and restriction stay distinct in the response', r.data.processingRestricted === false);
+  check('the account is no longer discoverable', r.data.profile?.discoverable === false);
+  check('the stored profile agrees about discoverability', r.data.profile?.profile?.discoverable === false);
+  // Nothing is deleted — that is the whole distinction from erasure.
+  check('the profile itself is retained', r.data.profile?.profile?.displayName === 'Ada');
+
+  r = await call('/api/discover', 'a');
+  check('an objecting account gets an empty deck', r.status === 200 && (r.data.profiles || []).length === 0);
+  check('the empty deck names the objection', r.data.processingObjection === true, JSON.stringify(r.data));
+  check('an empty deck is not reported as an incomplete profile', r.data.needsProfile === false);
+
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('an objecting account cannot act', r.status === 403 && r.data.error === 'PROCESSING_RESTRICTED', JSON.stringify(r.data));
+
+  // Anti-enumeration: an objecting target is unreachable through the same identical error as
+  // every other unreachable case, so the objection is not detectable from outside.
+  r = await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  check('an objecting account cannot be acted on', r.status === 404 && r.data.error === 'TARGET_NOT_FOUND', JSON.stringify(r.data));
+  r = await call('/api/discover', 'b');
+  check('an objecting account is absent from other decks',
+    !(r.data.profiles || []).some((p) => p.id === '900000001'), (r.data.profiles || []).map((p) => p.id).join(','));
+
+  // Rectification stays available while objecting, but must not be a way back into the deck.
+  r = await call('/api/profile/me', 'a', { profile: { ...PROFILES.a, bio: 'corrected while objecting', discoverable: true } });
+  check('the profile can still be corrected while objecting', r.data.profile?.profile?.bio === 'corrected while objecting');
+  check('saving cannot republish an objecting profile', r.data.profile?.discoverable === false && r.data.profile?.profile?.discoverable === false);
+
+  // An objection must not be a trap that locks someone out of their own data.
+  r = await call('/api/account', 'a', { action: 'export' });
+  check('export still works while objecting', r.status === 200 && Boolean(r.data.data));
+  check('the export records the objection', r.data.data?.processingObjection?.objected === true, JSON.stringify(r.data.data?.processingObjection));
+  check('the export records when it started', typeof r.data.data?.processingObjection?.objectedAt === 'string');
+
+  r = await call('/api/account', 'a', { action: 'unobject' });
+  check('the objection can be withdrawn', r.data.objected === false && r.data.alreadyInState === false);
+  r = await call('/api/account', 'a', { action: 'unobject' });
+  check('withdrawing twice is idempotent', r.data.objected === false && r.data.alreadyInState === true);
+  r = await call('/api/profile/me', 'a');
+  check('the account is no longer objecting', r.data.processingObjection === false);
+  // Withdrawing restores the account; it does not silently return anyone to the deck.
+  check('withdrawing does not republish the profile', r.data.profile?.discoverable === false);
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('acting works again once withdrawn', r.status === 200, JSON.stringify(r.data));
+
+  await call('/api/profile/me', 'a', { profile: PROFILES.a });
+  r = await call('/api/profile/me', 'a');
+  check('the user can put themselves back in Discover deliberately', r.data.profile?.discoverable === true);
+
+  // Both legal states can be in force at once; lifting one must not lift the other.
+  section('Restriction and objection combined');
+  await call('/api/account', 'a', { action: 'restrict' });
+  await call('/api/account', 'a', { action: 'object' });
+  r = await call('/api/account', 'a', { action: 'unrestrict' });
+  check('lifting the restriction leaves the objection in force', r.data.restricted === false);
+  r = await call('/api/profile/me', 'a');
+  check('the account remains paused by the objection', r.data.processingObjection === true);
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('the account still cannot act', r.status === 403 && r.data.error === 'PROCESSING_RESTRICTED', JSON.stringify(r.data));
+  r = await call('/api/account', 'a', { action: 'unobject' });
+  check('lifting both restores the account', r.data.objected === false);
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('acting works again once both are lifted', r.status === 200, JSON.stringify(r.data));
 
   section('Regression: bot commands');
   await resetCalls();

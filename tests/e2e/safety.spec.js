@@ -185,6 +185,9 @@ test('safety and privacy controls are localized in French', async ({ page }) => 
   expect(profile).toContain('Sécurité et confidentialité');
   expect(profile).toContain('Télécharger mes données');
   expect(profile).toContain('Supprimer mon compte');
+  expect(profile).toContain('Aide et assistance');
+  // The support entry point is a machine token: it always links the canonical address.
+  await expect(page.locator('#support-email-btn')).toHaveAttribute('href', 'mailto:contacts@digitalconcordia.com');
 
   await page.locator('.nav button[data-view="matches"]').click();
   await page.locator('[data-actions]').click();

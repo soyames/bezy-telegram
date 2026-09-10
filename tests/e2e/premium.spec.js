@@ -205,13 +205,29 @@ test('active membership shows plan and expiry', async ({ page }) => {
   await expect(page.locator('#premium-buy')).toContainText('Renew with Telegram Stars');
 });
 
-test('expired membership is presented as free', async ({ page }) => {
+test('expired membership is presented as free, and says why', async ({ page }) => {
   await setPremium({ active: true, planId: 'monthly', expiresAt: new Date(Date.now() - 86400000) });
   await openApp(page);
   await page.locator('#premiumBtn').click();
   await expect(page.locator('.membership')).toHaveCount(0);
   await expect(page.locator('#premium-buy')).toContainText('Subscribe with Telegram Stars');
-  await expect(page.locator('.locked')).toBeVisible();
+  await expect(page.locator('#likers-host .locked')).toBeVisible();
+  // A lapsed member must be told what happened rather than seeing the same screen as
+  // someone who never subscribed.
+  await expect(page.locator('.lapsed-notice')).toContainText('has expired');
+});
+
+test('a refunded membership explains that it was refunded', async ({ page }) => {
+  await setPremium({
+    active: false, planId: 'monthly', expiresAt: new Date(Date.now() + 30 * 86400000),
+    revokedAt: new Date(), revocationReason: 'refund'
+  });
+  await openApp(page);
+  await page.locator('#premiumBtn').click();
+  await expect(page.locator('.lapsed-notice')).toContainText('refunded');
+  // Even though the original expiry is still in the future, access is gone.
+  await expect(page.locator('.membership')).toHaveCount(0);
+  await expect(page.locator('#premium-buy')).toContainText('Subscribe with Telegram Stars');
 });
 
 test('checkout requests a Stars invoice and does not self-grant Premium', async ({ page }) => {
