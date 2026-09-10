@@ -6,8 +6,12 @@
 .DESCRIPTION
     Telegram only delivers the update types listed in allowed_updates. The default list
     EXCLUDES pre_checkout_query, so a bot registered with allowed_updates=@("message")
-    receives successful_payment but never pre_checkout_query — every Stars checkout then
+    receives successful_payment but never pre_checkout_query - every Stars checkout then
     times out after 10 seconds and the buyer is refunded.
+
+    callback_query is equally required: the support menu's buttons are callbacks. Without
+    it, the menu renders but every tap is silently dropped by Telegram - the buttons look
+    dead while message commands keep working.
 
     The bot token is read from the environment and is never printed, never written to
     disk and never passed on the command line.
@@ -35,8 +39,10 @@ if ([string]::IsNullOrWhiteSpace($token)) {
 }
 
 # successful_payment arrives inside a normal `message` update, so "message" covers it.
-# pre_checkout_query is a separate update type and must be requested explicitly.
-$allowed = @("message", "pre_checkout_query")
+# pre_checkout_query is a separate update type and must be requested explicitly, and
+# callback_query carries the support-menu button presses. Either missing = silently broken:
+# checkout timeouts for the first, dead-looking buttons for the second.
+$allowed = @("message", "callback_query", "pre_checkout_query")
 
 if (-not $VerifyOnly) {
     $body = @{
@@ -74,11 +80,14 @@ Write-Host "=== Webhook status ===" -ForegroundColor Cyan
     last_error_message     = if ($info.last_error_message) { $info.last_error_message } else { "none" }
 } | Format-List
 
-$ready = $info.allowed_updates -contains "pre_checkout_query" -and $info.allowed_updates -contains "message"
+$ready = $info.allowed_updates -contains "pre_checkout_query" -and $info.allowed_updates -contains "callback_query" -and $info.allowed_updates -contains "message"
 if ($ready) {
-    Write-Host "READY: message and pre_checkout_query are both registered. Telegram Stars can complete." -ForegroundColor Green
+    Write-Host "READY: message, callback_query and pre_checkout_query are all registered. Stars payments and the support menu both work." -ForegroundColor Green
 } else {
-    Write-Host "NOT READY: allowed_updates is missing message and/or pre_checkout_query." -ForegroundColor Red
-    Write-Host "Stars checkout will time out at pre-checkout. Re-run this script without -VerifyOnly." -ForegroundColor Red
+    $missing = @("message", "callback_query", "pre_checkout_query") | Where-Object { $info.allowed_updates -notcontains $_ }
+    Write-Host "NOT READY: allowed_updates is missing $($missing -join ', ')." -ForegroundColor Red
+    if ($missing -contains "pre_checkout_query") { Write-Host "Stars checkout will time out at pre-checkout." -ForegroundColor Red }
+    if ($missing -contains "callback_query") { Write-Host "Support menu buttons will appear dead - their taps are never delivered." -ForegroundColor Red }
+    Write-Host "Re-run this script without -VerifyOnly." -ForegroundColor Red
     exit 2
 }
