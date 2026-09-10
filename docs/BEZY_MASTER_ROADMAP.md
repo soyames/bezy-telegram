@@ -35,8 +35,8 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `6616095`** (`docs: pin the canonical bot identity and fix the
-stale username reference`). Commit is **local only — not pushed**.
+🟢 **Working tree clean at `f448c65`** (`chore: record post-commit checkpoint state in the
+roadmap`). Commit is **local only — not pushed**.
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -44,8 +44,8 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Nothing — the CN-7 closure and the bot-identity fix are in `6616095`; see §20 session log |
-| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3 and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
+| Uncommitted | Documentation-only: the environment-block session-log note (§20) and §19/§0 consistency corrections (verified counts, awaiting-verification list, checkpoint name) |
+| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢 |
 | Unpushed | `main` is 5 commits ahead of `origin/main` |
 
 ---
@@ -438,14 +438,16 @@ Playwright:     42 passed / 0 failed
 Total:         624 passed / 0 failed
 ```
 
-Since then, localization has been re-run and is at **168 passed / 0 failed** (checks now pin
-the prompt, notification and language id lists to the API and guard the placeholders, and
-pin the canonical support address).
+Since then, localization has been re-run and is at **182 passed / 0 failed** (checks now pin
+the prompt, notification, language and support-category id lists to the API, guard the
+placeholders, pin the canonical support address and sweep the repository for bot-identity
+drift).
 
-⚠️ **The N-1/N-2/N-3/N-4, RT-2, RT-3 and P1-3 `languages` tests have been written but never
-executed.** The Firestore free-tier daily read quota was exhausted (see SC-2), which aborts
-any Firestore-backed suite part-way. The following must be run, green, before any of them may
-be marked 🟢:
+⚠️ **The N-1/N-2/N-3/N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages`
+tests have been written but never executed.** The Firestore free-tier daily read quota was
+exhausted (see SC-2), which aborts any Firestore-backed suite part-way. The following must be
+run, green, **from a credentialed operator environment during a fresh quota window**, before
+any of them may be marked 🟢:
 
 ```bash
 BEZY_SERVICE_ACCOUNT=<path> node tests/backend.test.mjs
@@ -457,12 +459,13 @@ Run them once, on a fresh quota day, rather than iteratively — the quota is sh
 live app. What *is* verified for N-1/N-4: `node --check` on every changed file, the localization
 suite, and the ten `api/_notify.js` pure-logic behaviours (defaults, normalization, unknown-key
 rejection, and that a transactional category cannot be disabled), executed standalone. For
-RT-2, RT-3 and P1-3 `languages` the same applies: `node --check` and the localization suite
-are green; the backend, security and Playwright suites remain unexecuted. The **contract
-suite** (`tests/contract.test.mjs`, 44 checks) runs without Firestore and is part of this
-verified set — it caught a module-load crash the quota-gated suites could not. Two
-Firestore-free e2e sets are also verified: the degraded-state spec (3 checks, route
-interception) and the three-engine browser spec (9 checks across chromium/webkit/firefox).
+RT-2, RT-3, PR-8, the CN-7 support flow and P1-3 `languages` the same applies: `node --check`
+and the localization suite are green; the backend, security and Playwright suites remain
+unexecuted. The **contract suite** (`tests/contract.test.mjs`, 66 checks) runs without
+Firestore and is part of this verified set — it caught a module-load crash the quota-gated
+suites could not. Two Firestore-free e2e sets are also verified: the degraded-state spec (3
+checks, route interception) and the three-engine browser spec (9 checks across
+chromium/webkit/firefox).
 
 `npm test` runs the three Node suites; `npm run test:e2e` runs Playwright; `npm run test:smoke` checks production; `npm run retention` dry-runs the retention policy. Backend, security
 and Playwright need `BEZY_SERVICE_ACCOUNT`; localization is pure static analysis.
@@ -475,6 +478,18 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — fresh-quota verification: blocked at environment
+- **Attempted:** the §19 fresh-quota verification workstream (the three canonical commands
+  for N-1…N-4, RT-2/RT-3, PR-8, P1-3 languages and the support flow).
+- **Outcome: not executed.** The session environment had no `BEZY_SERVICE_ACCOUNT`, no
+  `FIREBASE_*` and no `TELEGRAM_BOT_TOKEN`; the repository holds no service-account or
+  `.env` file on disk (only the git-ignore pattern exists). Running the suites without
+  credentials fails at Firebase `cert()` initialization before any Firestore read — zero
+  verification value — so they were deliberately not burned. No quota was consumed.
+- **State:** nothing verified, nothing falsified, no defects found. The §19 commands and
+  the one-run discipline stand unchanged; they execute the moment an operator environment
+  provides the credentials. The roadmap statuses for the waiting items stay as-is.
 
 ### Session — fix: canonical bot identity contradiction
 - **Fixed:** `docs/TELEGRAM_SETUP.md` §0 claimed the "intended" username was `@BezyBot`
