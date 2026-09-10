@@ -25,7 +25,7 @@ Owner walks the whole product on the live bot before anyone else is invited.
 | --- | --- | --- | --- |
 | 1.1 | Latest code deployed | Vercel → Deployments | newest commit **Ready** |
 | 1.2 | Webhook healthy **and** `allowed_updates` includes `pre_checkout_query` **and `callback_query`** (P0-4) | `.\scripts\set-webhook.ps1 -VerifyOnly` | prints **READY** — without `callback_query`, support-menu buttons look dead |
-| 1.3 | Vercel env points at `bezydating` | `docs/TELEGRAM_SETUP.md` §2c | `verify-env.mjs` passes |
+| 1.3 | Vercel env points at `bezydating` | `docs/TELEGRAM_SETUP.md` §2d | `verify-env.mjs` passes |
 | 1.4 | Backend suite (fresh quota day) | `BEZY_SERVICE_ACCOUNT=<path> node tests/backend.test.mjs` | 0 failed |
 | 1.5 | Security suite | `BEZY_SERVICE_ACCOUNT=<path> node tests/security.test.mjs` | 0 failed |
 | 1.6 | Playwright suite | `BEZY_SERVICE_ACCOUNT=<path> npx playwright test` | 0 failed |

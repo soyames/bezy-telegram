@@ -158,7 +158,7 @@ is the point of the control system.
 | P0-1 | Real Telegram Stars purchase (250 ⭐ monthly) | 🔴 BLOCKED | Blocked on a Stars balance; observed balance was 0 |
 | P0-2 | Real Telegram Stars refund | 🔴 BLOCKED | Depends on P0-1. `scripts/refund-payment.mjs` |
 | P0-3 | Full lifecycle verification in production | 🔴 BLOCKED | Depends on P0-1/P0-2. Procedure: `docs/TELEGRAM_SETUP.md` §2b |
-| P0-4 | Re-confirm `allowed_updates` before the test | 🔵 READY | Must include `pre_checkout_query` **and `callback_query`** (the support menu's buttons are callbacks — without it they render but every tap is dropped). `scripts/set-webhook.ps1 -VerifyOnly` |
+| P0-4 | Re-confirm `allowed_updates` before the test | 🔵 READY | Must include `pre_checkout_query` **and `callback_query`** (the support menu's buttons are callbacks — without it they render but every tap is dropped). **And** if Vercel has `TELEGRAM_WEBHOOK_SECRET`, the registration must pass the same value or every update 401s (observed live 2026-09-10). `scripts/set-webhook.ps1 -VerifyOnly` now exits 3 on any `last_error_message` |
 
 Clearing P0-1 promotes R1–R3 and removes the largest technical unknown in the project.
 
@@ -478,6 +478,34 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — Firestore index deployed, rules confirmed
+- At the operator's request, the missing Firestore index and rules were created: the one
+  composite index the live error named (`supportRequests`: `telegramUserId` + `createdAt`)
+  is now declared in `firestore.indexes.json` and **deployed to bezydating (default
+  database)** via the authenticated Firebase CLI; `firestore.rules` compiled and was
+  already up to date — deny-all client access covers every collection including
+  `supportRequests`/`supportMeta`, so no rules were missing. The index build clears the live
+  `/api/support` 500 without waiting for a redeploy; the in-memory-sort code fix means new
+  deployments do not depend on it. Billing posture unchanged (indexes and rules deploys are
+  free on Spark). TELEGRAM_SETUP gained §2c; the launch checklist reference moved to §2d.
+
+### Session — Vercel logs identify the live failures; both fixed
+- **Evidence from production logs (2026-09-10):** (a) from ~11:46, every webhook update
+  returned 401 — the operator re-registered without `TELEGRAM_WEBHOOK_SECRET` while Vercel
+  has it set; (b) at 11:29:49, `POST /api/support` 500ed with `9 FAILED_PRECONDITION: The
+  query requires an index` — `listSupportRequests` used `where` + `orderBy` on different
+  fields, needing a composite index that does not exist.
+- **Fixed:** `listSupportRequests` now sorts in memory (a user's own requests are a
+  handful; creation is rate-limited) — the same no-composite-index discipline as the
+  reminders planner, now pinned by a contract check that `api/_support.js` contains no
+  `orderBy`. `set-webhook.ps1` now exits 3 when `getWebhookInfo` reports a
+  `last_error_message`, with the secret-mismatch remedy spelled out; the failure-mode
+  catalogue and TELEGRAM_SETUP §3 gained both rows.
+- **Remaining operator actions:** (1) re-run `set-webhook.ps1` with
+  `$env:TELEGRAM_WEBHOOK_SECRET` set to the Vercel value — this alone unblocks the live bot;
+  (2) redeploy to Vercel so the index-free support-history query reaches production.
+- **Tests:** contract 66 → 67 passed / 0 failed; localization 182 passed / 0 failed.
 
 ### Session — live callback trace: failure chain confirmed mechanically
 - **Evidence:** `allowed_updates` now correct (README prints READY), yet taps stay silent. A

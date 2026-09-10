@@ -203,7 +203,24 @@ No manual Firestore edit is needed in any refund path.
 
 Payment logs are prefixed `[bezy-payment]` and contain no token, key, initData or profile data.
 
-## 2c. Verifying the Vercel environment
+## 2c. Firestore indexes and rules
+
+`firebase.json` points at `firestore.rules` (deny-all client access — the Admin SDK bypasses
+rules, so every new collection, including `supportRequests` and `supportMeta`, is covered by
+default) and at `firestore.indexes.json`.
+
+The current API needs **no composite indexes**: every query is `where`-only or a full scan
+with in-memory sorting (pinned by the contract suite). One index is declared for
+`supportRequests` (`telegramUserId` + `createdAt`) — the fast remedy for older deployments
+and for console queries; the fixed code does not depend on it.
+
+```bash
+firebase deploy --only firestore:indexes,firestore:rules --project bezydating
+```
+
+Indexes and rules deploys are free on the Spark tier; billing posture is unchanged.
+
+## 2d. Verifying the Vercel environment
 
 This cannot be checked from the repository — the values live in the Vercel project. To confirm
 they point at `bezydating` without printing secrets:
@@ -251,6 +268,12 @@ Invoke-RestMethod -Method Post -Uri "https://api.telegram.org/bot$token/setWebho
 Or simply re-run `.\scripts\set-webhook.ps1`, which now registers all three and verifies them.
 Verify with `getWebhookInfo`: `allowed_updates` must list `pre_checkout_query` **and**
 `callback_query`.
+
+**If Vercel has `TELEGRAM_WEBHOOK_SECRET` set, the registration MUST pass the same value
+or every update is rejected with 401** — all bot replies stop, not just callbacks (observed
+live on 2026-09-10). Set `$env:TELEGRAM_WEBHOOK_SECRET` to the Vercel value in your shell
+before running the script; `-VerifyOnly` now exits 3 whenever `getWebhookInfo` reports a
+`last_error_message`.
 
 Example from a local PowerShell session (keep the token private):
 
