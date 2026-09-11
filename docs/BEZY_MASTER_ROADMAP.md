@@ -35,11 +35,11 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟡 **Uncommitted Premium-UX / voice-call / stories workstream on top of `ecbb06d`** (`fix:
-integrate the conversation screen into the app shell navigation`). Complete and tested but
-left **uncommitted and unpushed by instruction**. See §20 "Premium entitlement UX
-consistency + voice/call investigation" and "Telegram Stories via the official share-to-story
-event".
+🟢 **Working tree clean at `3d5df65`** (`feat: Premium entitlement UX consistency, Telegram
+story sharing, voice/call boundaries`). **Pushed — `main` is in sync with `origin/main`**
+(verified 2026-09-11 at end of day), so the Vercel production build includes: Bezy-native
+messaging (ADR 0009), the conversation shell integration, the Premium UX consistency fix and
+the Telegram story share action.
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -47,9 +47,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | (1) Premium UX consistency + voice/call investigation (see §20 "Premium entitlement UX consistency + voice/call investigation"): `app.js` (boot `loadPremium()`, `renderPremiumSurfaces()` gating promo cards + relabeling `.premium-action` from the single backend verdict), `api/_premium.js` (`messaging` in `PREMIUM_BENEFITS`), `locales/en.json`+`fr.json` (`benefit_messaging`, `starters_hint`), `tests/e2e/premium-ux.spec.js` (new, 6 tests), `tests/contract.test.mjs`, `tests/localization.test.mjs`, `docs/adr/0009-bezy-native-messaging.md` (voice storage boundary, no-official-call-deeplink), `docs/ARCHITECTURE.md`. (2) Telegram Stories via the official share-to-story event (see §20 "Telegram Stories via the official share-to-story event"): `app.js` (feature-detected `shareToStory`/`web_app_share_to_story` action, profile button), `index.html` (share card), `locales/en.json`+`fr.json` (`share_story`, `share_story_caption`), `tests/harness.mjs` (shareToStory stub), `tests/e2e/browsers.spec.js` (story-editor test), `tests/contract.test.mjs` (3 story pins), `docs/ARCHITECTURE.md` (stories/calls bullets), this roadmap |
+| Uncommitted | This checkpoint edit only (this file). |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The Firestore-backed discovery regressions, mutual-like state-machine cases and the Bezy-conversations section are likewise written but unexecuted here. Legal follow-ups from ADR 0009 remain flagged (retention, privacy-policy text, DPIA re-screening); voice messages carry the additional dependency list recorded in ADR 0009 (storage decision, media lifecycle, retention, DPIA, webview mic verification) |
-| Unpushed | Both uncommitted workstreams above (left uncommitted by instruction). Pushed up to `ecbb06d`; `main` is in sync with `origin/main` at `ecbb06d` |
+| Unpushed | Nothing — pushed at `3d5df65` |
 
 ---
 
@@ -487,6 +487,20 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — end of day, 2026-09-11: everything pushed and deployed
+- **State:** working tree clean at `3d5df65`; `main` in sync with `origin/main` — the
+  production build now includes Bezy-native messaging (ADR 0009), the conversation shell
+  integration, the Premium UX consistency fix and the Telegram story share action.
+- **Verified green today:** contract 125, localization 205, discovery 50; Firestore-free
+  e2e (conversation 11, premium-ux 6, browsers incl. story editor) 22/22 Chromium and
+  44/44 WebKit+Firefox.
+- **Still open (recorded, not forgotten):** the Firestore-backed suites (§19 checklist)
+  including the Bezy-conversations section; the ADR 0009 legal follow-ups (message
+  retention, privacy/terms copy, DPIA re-screening); the voice-message dependency list
+  (storage decision, media lifecycle, retention, DPIA, webview mic verification); manual
+  real-device checks (conversation keyboard behaviour, story editor on a live client).
+- **Next session:** start from §0, then the §19 credentialed verification run.
 
 ### Session — Telegram Stories via the official share-to-story event (uncommitted by instruction)
 - **Investigated the API pages provided:** the phone-calls API is MTProto client-only
