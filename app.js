@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
 const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account', support: '/api/support', messages: '/api/messages' };
-const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null };
+const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null, chatCache: new Map() };
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char])); }
@@ -765,11 +765,22 @@ function chatClientId() {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
+// The conversation is a detail screen of the shell: the underlying view becomes Messages
+// (so the nav highlight and the back control both land there), the layer clears the global
+// bottom navigation, and the last loaded state is cached so closing and reopening does not
+// throw the history away.
+function updateChatNavClearance() {
+  const nav = document.querySelector('.bottom');
+  const screen = $('chat-screen');
+  if (nav && screen) screen.style.setProperty('--bezy-nav-h', `${nav.offsetHeight}px`);
+}
+
 function openChat(match) {
   const screen = $('chat-screen');
   if (!screen || !match) return;
   stopChatPolling();
-  state.chat = { match, messages: [], pending: new Map(), locked: false, unavailable: false };
+  const cached = state.chatCache.get(match.matchId) || null;
+  state.chat = { match, messages: cached ? cached.messages : [], pending: cached ? cached.pending : new Map(), locked: false, unavailable: false };
   markChatOpened(match.matchId);
   setText('chat-name', match.displayName || t('app.bezy_member'));
   setText('chat-sub', [match.age ? String(match.age) : '', match.city].filter(Boolean).join(' · '));
@@ -783,7 +794,9 @@ function openChat(match) {
   const draft = $('chat-draft');
   if (draft) draft.value = '';
   updateChatSendState();
+  updateChatNavClearance();
   screen.classList.remove('hidden');
+  showView('messages');
   loadChatMessages();
   startChatPolling();
   markChatRead();
@@ -791,6 +804,10 @@ function openChat(match) {
 
 function closeChat() {
   stopChatPolling();
+  if (state.chat) {
+    // The history (including any failed pending sends) survives the round trip to the list.
+    state.chatCache.set(state.chat.match.matchId, { messages: state.chat.messages, pending: state.chat.pending });
+  }
   const screen = $('chat-screen');
   if (screen) screen.classList.add('hidden');
   state.chat = null;
@@ -1543,7 +1560,9 @@ function bindEvents() {
   // Navigation is bound before startup finishes, so a tap during loading must win over
   // the initial routing decision rather than being silently undone by it.
   document.addEventListener('click', (event) => { if (event.target.closest('.nav button, #premiumBtn, .premium-action, #settingsBtn')) state.userNavigated = true; }, true);
-  document.querySelectorAll('.nav button').forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
+  // A tap on the global navigation while a conversation is open leaves the conversation
+  // (its state is cached) and switches to the tapped screen, exactly like the other views.
+  document.querySelectorAll('.nav button').forEach((button) => button.addEventListener('click', () => { if (state.chat) closeChat(); showView(button.dataset.view); }));
   if ($('settingsBtn')) $('settingsBtn').onclick = () => showView('profile');
   if ($('discoverBtn')) $('discoverBtn').onclick = () => showView('discover');
   if ($('premiumBtn')) $('premiumBtn').onclick = () => showView('premium');
@@ -1558,6 +1577,12 @@ function bindEvents() {
   }
   if ($('chat-back')) $('chat-back').onclick = closeChat;
   if ($('chat-menu')) $('chat-menu').onclick = () => { if (state.chat) openMatchActions(state.chat.match); };
+  // Keyboard/viewport handling: the composer rides the resized Mini App viewport, the nav
+  // clearance is re-measured on viewport changes, and focusing the composer keeps the
+  // newest message in view.
+  $('chat-draft')?.addEventListener('focus', () => { const host = $('chat-messages'); if (host) host.scrollTop = host.scrollHeight; });
+  window.addEventListener('resize', updateChatNavClearance);
+  safeCall(() => tg?.onEvent?.('viewportChanged', updateChatNavClearance));
   if ($('profile-refresh')) $('profile-refresh').onclick = async () => { try { await loadAccount(); showToast(t('app.profile_saved')); } catch (error) { showToast(errorText(error)); } };
   if ($('tab-edit')) $('tab-edit').onclick = () => setProfileTab('edit');
   if ($('tab-settings')) $('tab-settings').onclick = () => setProfileTab('settings');

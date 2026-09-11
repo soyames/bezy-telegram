@@ -178,3 +178,52 @@ test('an unmatched user gets no conversation CTA', async ({ page }) => {
   await expect(page.locator('#message-empty')).toBeVisible();
   await expect(page.locator('#message-empty')).toHaveText(en.no_conversations);
 });
+
+// ----------------------------------------------------- shell integration (navigation)
+
+test('the global bottom navigation stays visible with Messages active inside a conversation', async ({ page }) => {
+  await stubApi(page, { matches: [MATCH_BO] });
+  await page.goto('/?as=a');
+  await openMessages(page);
+  await openFirstConversation(page);
+
+  // The conversation is a detail screen of the existing shell: the global navigation stays,
+  // the Messages tab stays highlighted, and the composer clears the navigation.
+  await expect(page.locator('.bottom')).toBeVisible();
+  await expect(page.locator('.nav button[data-view="messages"]')).toHaveClass(/active/);
+  await expect(page.locator('#chat-composer')).toBeVisible();
+  const composer = await page.locator('#chat-composer').boundingBox();
+  const nav = await page.locator('.bottom').boundingBox();
+  expect(composer).not.toBeNull();
+  expect(nav).not.toBeNull();
+  expect(composer.y + composer.height).toBeLessThanOrEqual(nav.y + 1);
+});
+
+test('the bottom navigation switches screens from inside a conversation', async ({ page }) => {
+  await stubApi(page, { matches: [MATCH_BO] });
+  await page.goto('/?as=a');
+  await openMessages(page);
+  await openFirstConversation(page);
+
+  await page.locator('.nav button[data-view="matches"]').click();
+  await expect(page.locator('#chat-screen')).toBeHidden();
+  await expect(page.locator('#matches-view')).toHaveClass(/active/);
+  await expect(page.locator('.nav button[data-view="matches"]')).toHaveClass(/active/);
+});
+
+test('the back control returns to the Messages list and the conversation state survives', async ({ page }) => {
+  await stubApi(page, { matches: [MATCH_BO], messages: [{ id: 'm1', senderId: '900000002', text: 'Hey there 👋', createdAt: new Date().toISOString() }] });
+  await page.goto('/?as=a');
+  await openMessages(page);
+  await openFirstConversation(page);
+  await expect(page.locator('#chat-messages .msg')).toHaveCount(1);
+
+  await page.locator('#chat-back').click();
+  await expect(page.locator('#chat-screen')).toBeHidden();
+  await expect(page.locator('#messages-view')).toHaveClass(/active/);
+  await expect(page.locator('.nav button[data-view="messages"]')).toHaveClass(/active/);
+
+  // Reopening restores the cached history immediately.
+  await openFirstConversation(page);
+  await expect(page.locator('#chat-messages .msg')).toHaveCount(1);
+});

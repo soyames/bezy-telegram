@@ -35,10 +35,10 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟡 **Uncommitted Bezy-native messaging workstream on top of `0517745`** (`fix: username-less
-match handoff through the bot match message`). The Bezy chat implementation (ADR 0009) is
-complete and tested but left **uncommitted and unpushed by instruction**. See §20 "Bezy
-conversations implemented".
+🟡 **Uncommitted shell-navigation fix on top of `955769c`** (`feat: Bezy-native messaging
+between matched users (ADR 0009)`). The conversation shell-integration workstream is
+complete and tested but left **uncommitted and unpushed by instruction**. See §20
+"conversation screen integrated into the app shell".
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -46,9 +46,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Bezy-native messaging (see §20 "Bezy conversations implemented"): `api/messages.js` (new — list/send/read with initData-derived sender, derived counterpart, match/block/Premium gates, idempotent clientId, rate-limited), `api/matches.js` (conversation preview + unread per match), `api/relationship.js` (block/unmatch close the conversation), `api/account.js` (deletion erases conversations), `api/swipe.js` (match notification now points at the Bezy conversation; the username getChat heal and the bot-button handoff are removed as obsolete), `api/telegram/webhook.js` (`/start match_` handler removed), `api/_ratelimit.js` (`messages`, `messages_read` buckets), `api/_notify.js` (`messages` category, capped, generic-only), `app.js` (conversation screen: composer, polling, retry, Premium lock, unavailable state, use-this-message, safety menu; Telegram handoff removed), `index.html` (chat screen markup + styles), `locales/en.json`+`fr.json` (12 new keys, conversation/privacy copy updated), `tests/contract.test.mjs` (messaging API pins; hand-off pins replaced), `tests/backend.test.mjs` (Bezy conversations section), `tests/e2e/conversation.spec.js` (rewritten for the chat screen, 8 tests), `tests/localization.test.mjs` (chat runtime ids, notify_messages family, CONVERSATION_UNAVAILABLE), `docs/API_CONTRACT.md` (error catalogue), `docs/adr/0009-bezy-native-messaging.md` (new), `docs/adr/0001-telegram-native.md` (messaging clause marked superseded), ARCHITECTURE.md / DATA_PROCESSING_MAP.md / DPIA_ASSESSMENT.md (messaging updates + legal flags) |
-| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regressions, mutual-like state-machine cases and the Bezy-conversations section are likewise written but unexecuted here. **Flagged legal follow-ups:** message retention for active accounts (undefined — deletion behaviour implemented, retention deliberately not invented), privacy/terms pages still describe Telegram-hosted chats, DPIA/data-map additions pending legal review |
-| Unpushed | The Bezy-native messaging workstream above (left uncommitted by instruction). Pushed up to `0517745`; `main` is in sync with `origin/main` at `0517745` |
+| Uncommitted | Conversation shell integration (see §20 "conversation screen integrated into the app shell"): `app.js` (chat layer below the nav z-index with measured nav clearance `--bezy-nav-h`, open switches the underlying view to Messages, nav taps close the conversation, per-match state cache, composer-focus scroll, `resize`/`viewportChanged` re-measurement), `index.html` (`.chat-screen` z-index/padding rework, composer safe-area padding moved into the nav clearance), `tests/e2e/conversation.spec.js` (3 new shell-integration tests, 11 total) |
+| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The Firestore-backed discovery regressions, mutual-like state-machine cases and the Bezy-conversations section are likewise written but unexecuted here. Legal follow-ups from ADR 0009 remain flagged (retention, privacy-policy text, DPIA re-screening) |
+| Unpushed | The shell-integration workstream above (left uncommitted by instruction). Pushed up to `955769c`; `main` is in sync with `origin/main` at `955769c` |
 
 ---
 
@@ -486,6 +486,26 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — conversation screen integrated into the app shell (uncommitted by instruction)
+- **Root cause:** the chat screen was a full-viewport fixed layer (`z-index: 35`) above the
+  global bottom navigation, so opening a conversation hid the whole shell.
+- **Fixed:** the conversation is now a detail layer of the existing shell — it sits below
+  the navigation (`z-index: 5`) and reserves the navigation's measured height at its bottom
+  (`--bezy-nav-h`, re-measured on `resize` and Telegram's `viewportChanged`), so the
+  composer always clears the nav and rides the resized Mini App viewport when the keyboard
+  opens. Opening a conversation switches the underlying view to Messages (nav stays
+  highlighted; back and nav taps land on the Messages list); nav taps close the conversation
+  and switch screens like any other view; the message history and failed pending sends are
+  cached per match so back-and-forth does not destroy state. Composer focus scrolls to the
+  newest message. No new nav component, no architecture change (no new ADR).
+- **Tests:** conversation e2e 8 → 11 (nav visible + Messages active inside the conversation,
+  composer clears the nav geometrically, nav switches screens, back returns to Messages with
+  state surviving) — 11/11 Chromium, 30/30 WebKit+Firefox incl. browsers.spec; contract 118,
+  localization 202, discovery 50. Keyboard-open behaviour (composer above keyboard, no
+  overlap) follows the standard Telegram Mini App viewport resize and remains a manual
+  real-device check.
+- **Not committed / not pushed / not deployed** (explicit workstream instruction): see §0.
 
 ### Session — Bezy conversations implemented (ADR 0009, uncommitted by instruction)
 - **Decision recorded:** messaging between matched users is now Bezy-native — ADR 0009
