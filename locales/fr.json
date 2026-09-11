@@ -243,6 +243,7 @@
     "starter_copy": "Copier",
     "starter_copied": "Copié. Collez-le dans Telegram.",
     "starters_hint": "Bezy propose une accroche ; la conversation se déroule dans Telegram.",
+    "icebreaker_label": "Le brise-glace de {name}",
     "prompt_none": "Aucune question",
     "prompt_number": "Question {n}",
     "prompts_select_label": "Choisir une question",
