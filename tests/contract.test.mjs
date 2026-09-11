@@ -116,8 +116,14 @@ section('Conversation hand-off');
   // for username-less accounts (the numeric id is already released on the match card) —
   // and tg:// links must route through Telegram's native opener, never the in-app browser.
   const appSource = read('app.js');
-  check('the chat entry supports matched users without a username',
-    appSource.includes('tg://user?id='), 'tg://user?id= missing from app.js');
+  // Username-less matched users cannot be reached by any webview-fired link: the CTA opens
+  // the bot with a start payload, and the bot re-sends the match notification whose button
+  // the Telegram client resolves natively.
+  check('the chat entry supports matched users without a username via the bot button',
+    appSource.includes('https://t.me/BezyDatingBot?start=match_'), 'bot start fallback missing from app.js');
+  check('the re-sent match message only answers the match participants',
+    read('api/telegram/webhook.js').includes('participants.includes(String(from.id))'),
+    'participant check missing from the /start match handler');
   check('tg:// links route through the Telegram native opener',
     appSource.includes('url.startsWith(\'tg://\')'), 'tg:// handling missing from openTelegramLink');
   check('the primary conversation action is labelled by state',
