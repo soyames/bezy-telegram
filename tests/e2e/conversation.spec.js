@@ -9,7 +9,8 @@ import path from 'node:path';
 //
 // Pinned behaviour:
 //   - a matched user always gets the Start/Continue conversation CTA, and it resolves to
-//     the matched user's t.me link (username) or tg://user?id= deep link (no username);
+//     the matched user's t.me link (username) or the bot match-message flow (no username —
+//     the webview cannot fire tg:// deep links reliably);
 //   - Ways to start always yields at least one usable opener plus the why-you-matched chips;
 //   - safety actions stay available from the Messages tab;
 //   - an unmatched user gets no conversation CTA at all;
@@ -79,7 +80,7 @@ test('a matched user reaches the actual Telegram conversation from the Messages 
   await expect(cta).toHaveText(en.continue_conversation);
 });
 
-test('a match without a @username resolves the numeric Telegram deep link', async ({ page }) => {
+test('a match without a @username hands off through the bot match message', async ({ page }) => {
   await stubApi(page, { matches: [MATCH_CY] });
   await page.goto('/?as=a');
   await openMessages(page);
@@ -87,7 +88,9 @@ test('a match without a @username resolves the numeric Telegram deep link', asyn
   const cta = page.locator('#messages-view .match-card [data-chat]');
   await expect(cta).toHaveText(en.start_conversation);
   await cta.click();
-  expect(await lastTelegramLink(page)).toBe('tg://user?id=900000003');
+  // The webview cannot fire tg:// links reliably, so the CTA opens the bot with a start
+  // payload; the bot re-sends the match notification with the client-resolved button.
+  expect(await lastTelegramLink(page)).toBe('https://t.me/BezyDatingBot?start=match_match-cy');
 });
 
 test('a match without a @username explains the profile-first handoff', async ({ page }) => {

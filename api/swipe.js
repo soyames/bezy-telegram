@@ -21,7 +21,10 @@ function matchMessage(language, name) {
     : `💜 You matched with ${name}! You both liked each other.\n\nYour conversation continues on Telegram — messages, voice and video calls included.`;
 }
 
-async function notifyMatch(firestore, user, other, language) {
+// Also sent on demand for username-less matched users: the Mini App webview cannot fire
+// tg:// deep links reliably, while a tg:// URL in a bot button is resolved by the Telegram
+// client itself — so the re-sent notification is the deterministic path to their profile.
+export async function notifyMatch(firestore, user, other, language) {
   const otherName = other.profile?.displayName || other.firstName || (language === 'fr' ? 'votre match' : 'your match');
   const openChatText = language === 'fr' ? '💬 Ouvrir la conversation' : '💬 Open Telegram chat';
   const openBezyText = language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy';

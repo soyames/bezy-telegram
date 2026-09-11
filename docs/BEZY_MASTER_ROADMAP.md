@@ -35,10 +35,11 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟡 **Uncommitted conversation-handoff fix on top of `ec1da85`** (`fix: match -> conversation
-flow end to end`). Two workstreams — match-integrity hardening and the verified-match
-handoff fix — are complete and tested but left **uncommitted and unpushed by instruction**.
-See §20 "mutual-like invariant hardened" and "verified match handoff fixed".
+🟡 **Uncommitted username-less handoff fix on top of `c183037`** (`fix: mutual-match integrity
+and verified-match conversation handoff`). Three related workstreams — match-integrity
+hardening, verified-match handoff, and the bot-button handoff for username-less matches —
+are complete and tested but left **uncommitted and unpushed by instruction**. See §20
+"mutual-like invariant hardened", "verified match handoff fixed", "bot-button handoff".
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -46,9 +47,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | (1) Mutual-like invariant fix (see §20 "mutual-like invariant hardened"): `api/swipe.js` (pass deactivates the match it overwrites), `api/matches.js` (read path re-verifies both action documents; read-only), `scripts/diagnose-matches.mjs` (read-only operator diagnostic). (2) Verified-match handoff fix (see §20 "verified match handoff fixed"): `app.js` (`openTelegramLink` routes `tg://` to the native opener instead of the WebApp API; match card explains the profile-first handoff for username-less matches), `api/swipe.js` (`getChat` handle refresh at match creation), `index.html` (`.mf-handoff-hint` style), `locales/en.json`+`fr.json` (`chat_no_username_hint`), `tests/contract.test.mjs` (9 new pins, 99 → 108), `tests/backend.test.mjs` (mutual-like state-machine section), `tests/e2e/conversation.spec.js` (2 new handoff-hint tests, 9 total) |
-| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regression scenarios and the new mutual-like state-machine cases are likewise written but unexecuted here |
-| Unpushed | Both uncommitted workstreams above (left uncommitted by instruction). Pushed up to `ec1da85`; `main` is in sync with `origin/main` at `ec1da85` |
+| Uncommitted | (1) Mutual-like invariant fix (see §20 "mutual-like invariant hardened"): `api/swipe.js` (pass deactivates the match it overwrites), `api/matches.js` (read path re-verifies both action documents; read-only), `scripts/diagnose-matches.mjs` (read-only operator diagnostic). (2) Verified-match handoff fix (see §20 "verified match handoff fixed"): `app.js` (`openTelegramLink` routes `tg://` to the native opener; card explains the profile-first handoff), `api/swipe.js` (`getChat` handle refresh at match creation), `index.html`, locales, `tests/contract.test.mjs`, `tests/backend.test.mjs`, `tests/e2e/conversation.spec.js`. (3) Bot-button handoff (see §20 "bot-button handoff"): `app.js` (`chatLinkFor` for username-less matches now opens `https://t.me/BezyDatingBot?start=match_<id>` — live-confirmed that webview-fired `tg://` links do nothing on Android), `api/telegram/webhook.js` (`/start match_<id>` re-sends the match notification to participants only), `api/swipe.js` (`notifyMatch` exported), locale copy for the two-tap hint, tests (contract 108 → 109, backend `/start match_` section, conversation e2e updated) |
+| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regression scenarios, mutual-like state-machine cases and the `/start match_` bot tests are likewise written but unexecuted here |
+| Unpushed | The three uncommitted workstreams above (left uncommitted by instruction). Pushed up to `c183037`; `main` is in sync with `origin/main` at `c183037` |
 
 ---
 
@@ -484,6 +485,31 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — bot-button handoff for username-less matches (live-confirmed Android failure, uncommitted by instruction)
+- **Live-confirmed:** for match `2096013731_702749047` the partner has NO `@username`;
+  tapping Continue conversation on Android opened NOTHING with both prior mechanisms —
+  `openTelegramLink(tg://…)` (previous build) and webview navigation to `tg://` (current
+  build). Grounded in Telegram sources: custom schemes from the Mini App webview are not a
+  supported handoff (`tg://`-style redirects "unlikely to be supported" per a Telegram
+  developer in tdlib/telegram-bot-api#681), while `tg://` URLs in bot inline buttons are
+  documented Bot API input and resolved by the client itself.
+- **Fixed:** `chatLinkFor` now opens `https://t.me/BezyDatingBot?start=match_<id>` for
+  username-less matches; the webhook handles `/start match_<id>` by re-sending the match
+  notification (with its client-resolved "Open Telegram chat" button) to participants only —
+  strangers and unknown ids get nothing, so it cannot enumerate or revive matches. Card hint
+  copy explains the two taps in EN/FR.
+- **Also re-confirmed to the operator:** Telegram chat cannot render INSIDE Bezy — a Mini App
+  webview cannot embed Telegram's chat UI, and the Bot API cannot message between users.
+  The architecture stays §1 Telegram-native: Bezy owns match context, Telegram owns the
+  conversation; the handoff is the product.
+- **Tests:** contract 108 → 109 (bot-start fallback + participant check); backend suite
+  gained a `/start match_` section (participant re-send, non-participant silent, unknown id
+  silent — credentialed env); conversation e2e updated, 9/9 Chromium, 26/26 WebKit+Firefox;
+  localization 188; discovery 50. **Remains manual:** the bot-button → profile → message
+  taps on a real Android/iOS client; if the profile link still fails there, the partner
+  needs to set a @username (then the direct t.me path applies).
+- **Not committed / not pushed / not deployed** (explicit workstream instruction): see §0.
 
 ### Session — verified match handoff fixed (uncommitted by instruction)
 - **DB state verified (by operator):** match `2096013731_702749047` is a real mutual match —

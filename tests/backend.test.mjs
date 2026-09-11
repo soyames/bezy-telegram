@@ -753,6 +753,24 @@ try {
   check('a match document with no underlying likes is filtered by the read path',
     (await call('/api/matches', 'a')).data.matches.length === 0 && (await call('/api/matches', 'b')).data.matches.length === 0);
 
+  // ------------------------- username-less handoff via /start match_ (bot button)
+  section('Username-less handoff: /start match_ re-sends the match message');
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  await resetCalls();
+  r = await webhook({ message: { chat: { id: 900000001 }, from: { id: 900000001, language_code: 'en' }, text: '/start match_900000001_900000002' } });
+  check('a participant re-receives the match message with the chat button',
+    r.status === 200 && (await sent()).some((c) => c.method === 'sendMessage' && /Open Telegram chat/.test(String(c.body))),
+    JSON.stringify(await sent()));
+  await resetCalls();
+  r = await webhook({ message: { chat: { id: 900000003 }, from: { id: 900000003, language_code: 'en' }, text: '/start match_900000001_900000002' } });
+  check('a non-participant gets nothing', r.status === 200 && (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+  await resetCalls();
+  r = await webhook({ message: { chat: { id: 900000001 }, from: { id: 900000001, language_code: 'en' }, text: '/start match_does_not_exist' } });
+  check('an unknown match id gets nothing', r.status === 200 && (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+
   section('Relationship authorization');
   r = await call('/api/relationship', 'user=%7B%22id%22%3A1%7D&hash=deadbeef', { action: 'block', targetId: '900000002' });
   check('unauthenticated relationship call rejected', r.status === 401);
