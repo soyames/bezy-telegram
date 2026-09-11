@@ -43,7 +43,7 @@ const SHAPES = {
   signal: ['type', 'values'],
   profileStored: ['displayName', 'age', 'city', 'gender', 'seeking', 'interests', 'bio', 'prompts', 'languages', 'discoverable', 'profileComplete'],
   preferencesStored: ['minAge', 'maxAge', 'city', 'sameCityOnly', 'languages'],
-  notificationSettings: ['matches', 'super_likes', 'profile_reminders'],
+  notificationSettings: ['matches', 'super_likes', 'profile_reminders', 'messages'],
   premiumState: ['active', 'planId', 'expiresAt', 'daysRemaining', 'revoked', 'revocationReason'],
   plan: ['id', 'stars', 'currency', 'durationMonths', 'bestValue'],
   swipeQuota: ['allowed', 'reason', 'usage', 'limits'],
@@ -108,51 +108,36 @@ section('Match card (version 1)');
 }
 
 // --------------------------------------------- conversation hand-off (match -> Telegram)
-section('Conversation hand-off');
+section('Bezy conversations (ADR 0009)');
 {
-  // Pinned after a live failure: the chat entry only worked for matched users with a
-  // @username, leaving a dead button when the matched user had none. The hand-off must
-  // support both mechanisms — the public t.me link, and Telegram's numeric-user deep link
-  // for username-less accounts (the numeric id is already released on the match card) —
-  // and tg:// links must route through Telegram's native opener, never the in-app browser.
+  // The conversation lives inside the Mini App now — there is no Telegram chat handoff.
+  // Pins cover the CTA wiring, the screen controls and the starters hand-off into the
+  // composer. The API contract itself is pinned in the messaging section below.
   const appSource = read('app.js');
-  // Username-less matched users cannot be reached by any webview-fired link: the CTA opens
-  // the bot with a start payload, and the bot re-sends the match notification whose button
-  // the Telegram client resolves natively.
-  check('the chat entry supports matched users without a username via the bot button',
-    appSource.includes('https://t.me/BezyDatingBot?start=match_'), 'bot start fallback missing from app.js');
-  check('the re-sent match message only answers the match participants',
-    read('api/telegram/webhook.js').includes('participants.includes(String(from.id))'),
-    'participant check missing from the /start match handler');
-  check('tg:// links route through the Telegram native opener',
-    appSource.includes('url.startsWith(\'tg://\')'), 'tg:// handling missing from openTelegramLink');
+  check('the primary conversation action opens the Bezy conversation screen',
+    appSource.includes('data-open-chat=') && appSource.includes('if (match) openChat(match)'),
+    'match cards no longer open the Bezy conversation');
   check('the primary conversation action is labelled by state',
     appSource.includes('start_conversation') && appSource.includes('continue_conversation'),
     'start/continue conversation labels missing');
-  // A client without openTelegramLink must still hand tg:// to the system opener — a silent
-  // dead button was the live "Continue conversation does nothing" failure mode.
-  check('a tg:// link never dies silently when openTelegramLink is missing',
-    appSource.includes('window.location.href = url'), 'system-opener fallback missing from openTelegramLink');
-  // The WebApp API's openTelegramLink takes https://t.me URLs; tg:// is Telegram's own
-  // in-app scheme and must go straight to the native opener (webview navigation).
-  check('openTelegramLink is only called with an https t.me input',
-    /url\.startsWith\('https:\/\/t\.me\/'\)\) \{[\s\S]{0,140}openTelegramLink\(url\)/.test(appSource),
-    'the https guard no longer owns the openTelegramLink call');
-  check('a tg:// link is handed to the native opener, not the WebApp API',
-    /url\.startsWith\('tg:\/\/'\)\) \{[\s\S]{0,200}window\.location\.href = url/.test(appSource),
-    'tg:// branch missing or not routed to window.location.href');
-  check('a username-less handoff is explained in the UI',
-    appSource.includes("t('app.chat_no_username_hint')"), 'handoff caveat missing from the match card');
-  check('the match notification re-reads the handle from Telegram at creation',
-    read('api/swipe.js').includes("telegramApi('getChat'"), 'getChat handle refresh missing from api/swipe.js');
-  // The Messages tab must be the same actionable hierarchy as Matches — primary conversation
-  // CTA, ways to start, safety — never a decorative list that cannot reach a conversation.
   check('the Messages tab reuses the full match card hierarchy',
     appSource.includes("state.matches.map((match) => matchCardHtml(match, 'c'))"),
     'Messages tab does not render matchCardHtml');
   check('every match card carries the conversation CTA, starters and safety actions',
-    appSource.includes('data-chat=') && appSource.includes('data-starters=') && appSource.includes('data-actions='),
+    appSource.includes('data-open-chat=') && appSource.includes('data-starters=') && appSource.includes('data-actions='),
     'a card action hook is missing from matchCardHtml');
+  check('the conversation screen has a composer, send button and safety menu',
+    appSource.includes("$('chat-composer')") && appSource.includes('chat-menu') && appSource.includes('updateChatSendState'),
+    'conversation screen controls missing from app.js');
+  check('sending is idempotent via a client-generated message id',
+    appSource.includes('clientId') && appSource.includes('chatClientId()'),
+    'client-side message id missing');
+  check('a failed send is recoverable without duplication',
+    appSource.includes("data-retry=") && appSource.includes('deliverChatMessage(pending)'),
+    'send retry missing from the message renderer');
+  check('"Use this message" fills the composer and never sends',
+    appSource.includes("t('app.msg_use_this_message')") && appSource.includes('function useStarter'),
+    'use-this-message wiring missing');
   // The starters sheet must always yield at least one usable opener, so an empty state can
   // never render silently blank.
   check('the starters sheet always yields at least one opener',
@@ -185,6 +170,45 @@ section('NO RECIPROCAL LIKE = NO MATCH');
   check('exactly one match-creation site exists and it is the mutual-like path',
     (swipeSource.match(/source: 'mutual_like'/g) || []).length === 1,
     'the mutual-like creation marker appears more than once or not at all');
+}
+
+// --------------------------------------------- Bezy messaging API (ADR 0009)
+section('Messaging API contract');
+{
+  const messagesSource = read('api/messages.js');
+  check('the sender is derived from initData, never accepted from the request',
+    !messagesSource.includes('body?.senderId') && messagesSource.includes('requireTelegramUser'),
+    'senderId accepted from the request body');
+  check('the counterpart is derived from the conversation id, never client-chosen',
+    messagesSource.includes('parts.find((id) => id !== String(userId))'),
+    'counterpart derivation missing from api/messages.js');
+  check('messaging is Premium-gated server-side',
+    messagesSource.includes('isPremiumActive') && messagesSource.includes("'PREMIUM_REQUIRED'"),
+    'premium gate missing from api/messages.js');
+  check('the conversation is gated by an active mutual match',
+    messagesSource.includes("collection('matches')") && messagesSource.includes('active === false'),
+    'match gate missing from api/messages.js');
+  check('blocks end the conversation in both directions',
+    messagesSource.includes("collection('blocks')") && messagesSource.includes("collection('blockedBy')"),
+    'block checks missing from api/messages.js');
+  check('sends are idempotent and length-limited',
+    messagesSource.includes('CLIENT_ID_PATTERN') && messagesSource.includes('MAX_LENGTH'),
+    'idempotency key or length cap missing from api/messages.js');
+  check('message rate limiting reuses the existing limiter',
+    messagesSource.includes('rateLimit(') && read('api/_ratelimit.js').includes('messages: [{ limit: 30'),
+    'messages rate-limit bucket missing');
+  check('the matches list carries the conversation preview and unread state',
+    read('api/matches.js').includes('lastMessagePreview') && read('api/matches.js').includes('unread:'),
+    'conversation metadata missing from api/matches.js');
+  check('account deletion erases conversations',
+    read('api/account.js').includes("collection('conversations')"),
+    'conversation erasure missing from api/account.js');
+  check('block and unmatch close the conversation',
+    (read('api/relationship.js').match(/status: 'blocked'|status: 'closed'/g) || []).length === 2,
+    'conversation lifecycle missing from api/relationship.js');
+  check('the message notification never carries the message content',
+    !/deliverNotification\([^)]*message\.text|text: message\.text/.test(messagesSource) && messagesSource.includes("'messages'"),
+    'notification may leak message content or the messages category is missing');
 }
 
 // ---------------------------------------------------------------- premium insight (PR-8)
@@ -341,7 +365,7 @@ section('Error catalogue (version 1)');
   // documented code must still be mapped — an unmapped code renders as a raw token.
   const app = read('app.js');
   const mapped = [...app.matchAll(/^\s{2}([A-Z][A-Z_]{3,}): 'app\./gm)].map((m) => m[1]).sort();
-  const DOCUMENTED = ['AGE_CONFIRMATION_REQUIRED', 'DATABASE_UNAVAILABLE', 'DISCOVERY_LIMIT_REACHED', 'INVALID_SESSION', 'PREMIUM_REQUIRED', 'PREMIUM_UNAVAILABLE', 'PROCESSING_RESTRICTED', 'PROFILE_NOT_FOUND', 'RATE_LIMITED', 'SUPER_LIKE_LIMIT_REACHED', 'TARGET_NOT_FOUND'];
+  const DOCUMENTED = ['AGE_CONFIRMATION_REQUIRED', 'CONVERSATION_UNAVAILABLE', 'DATABASE_UNAVAILABLE', 'DISCOVERY_LIMIT_REACHED', 'INVALID_SESSION', 'PREMIUM_REQUIRED', 'PREMIUM_UNAVAILABLE', 'PROCESSING_RESTRICTED', 'PROFILE_NOT_FOUND', 'RATE_LIMITED', 'SUPER_LIKE_LIMIT_REACHED', 'TARGET_NOT_FOUND'];
   check('every documented error code is mapped in the Mini App',
     DOCUMENTED.every((code) => mapped.includes(code)), DOCUMENTED.filter((code) => !mapped.includes(code)).join(','));
   check('every mapped error code is documented in the contract',
@@ -462,7 +486,8 @@ section('Architecture decision records (version 1)');
     '0005-identity-model.md',
     '0006-no-analytics.md',
     '0007-localization-presentation-only.md',
-    '0008-billing-disabled-free-tier.md'
+    '0008-billing-disabled-free-tier.md',
+    '0009-bezy-native-messaging.md'
   ];
   check('the ADR directory holds exactly the documented ADRs',
     fs.readdirSync(path.join(root, 'docs/adr')).filter((f) => f.endsWith('.md')).sort().join(',') === ADRS.slice().sort().join(','),

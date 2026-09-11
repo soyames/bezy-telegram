@@ -753,23 +753,76 @@ try {
   check('a match document with no underlying likes is filtered by the read path',
     (await call('/api/matches', 'a')).data.matches.length === 0 && (await call('/api/matches', 'b')).data.matches.length === 0);
 
-  // ------------------------- username-less handoff via /start match_ (bot button)
-  section('Username-less handoff: /start match_ re-sends the match message');
+  // ------------------------------------------------ Bezy conversations (ADR 0009)
+  section('Bezy conversations');
   await cleanup();
   await seedAll();
   await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
   await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
-  await resetCalls();
-  r = await webhook({ message: { chat: { id: 900000001 }, from: { id: 900000001, language_code: 'en' }, text: '/start match_900000001_900000002' } });
-  check('a participant re-receives the match message with the chat button',
-    r.status === 200 && (await sent()).some((c) => c.method === 'sendMessage' && /Open Telegram chat/.test(String(c.body))),
-    JSON.stringify(await sent()));
-  await resetCalls();
-  r = await webhook({ message: { chat: { id: 900000003 }, from: { id: 900000003, language_code: 'en' }, text: '/start match_900000001_900000002' } });
-  check('a non-participant gets nothing', r.status === 200 && (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
-  await resetCalls();
-  r = await webhook({ message: { chat: { id: 900000001 }, from: { id: 900000001, language_code: 'en' }, text: '/start match_does_not_exist' } });
-  check('an unknown match id gets nothing', r.status === 200 && (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
+  const cid = '900000001_900000002';
+
+  // Authorization: without Premium, the conversation is locked for a matched user.
+  r = await call('/api/messages', 'a', { action: 'list', conversationId: cid });
+  check('messaging is Premium-gated server-side', r.status === 403 && r.data.error === 'PREMIUM_REQUIRED', JSON.stringify(r.data));
+  await setPremium('900000001', { active: true, expiresAt: new Date(Date.now() + 86400000) });
+  await setPremium('900000002', { active: true, expiresAt: new Date(Date.now() + 86400000) });
+
+  r = await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: 'Hello Bo!', clientId: 'aaaaaaaa' });
+  check('a Premium participant can send', r.status === 200 && r.data.ok === true && r.data.message.text === 'Hello Bo!', JSON.stringify(r.data));
+  r = await call('/api/messages', 'b', { action: 'list', conversationId: cid });
+  check('the counterpart sees the message', r.status === 200 && r.data.messages.length === 1 && r.data.messages[0].senderId === '900000001', JSON.stringify(r.data));
+
+  // Idempotency: the same clientId returns the same message, no duplicate document.
+  r = await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: 'Hello Bo!', clientId: 'aaaaaaaa' });
+  check('a retried send is idempotent', r.status === 200 && r.data.duplicate === true && r.data.message.text === 'Hello Bo!');
+  r = await call('/api/messages', 'b', { action: 'list', conversationId: cid });
+  check('the retry created no duplicate', r.data.messages.length === 1);
+
+  r = await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: '', clientId: 'bbbbbbbb' });
+  check('an empty message is rejected', r.status === 400 && r.data.error === 'INVALID_ACTION');
+  r = await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: 'x'.repeat(501), clientId: 'cccccccc' });
+  check('an oversized message is rejected', r.status === 400 && r.data.error === 'INVALID_ACTION');
+  r = await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: 'no id', clientId: '!!' });
+  check('a malformed client id is rejected', r.status === 400 && r.data.error === 'INVALID_ACTION');
+
+  // The sender is never client-supplied: a forged senderId is ignored entirely.
+  r = await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: 'forged', clientId: 'dddddddd', senderId: '900000002' });
+  check('a forged senderId is ignored — the authenticated user is the sender', r.status === 200 && r.data.message.senderId === '900000001', JSON.stringify(r.data));
+
+  // A stranger cannot reach the conversation: the id is derived and the match is verified.
+  r = await call('/api/messages', 'c', { action: 'list', conversationId: cid });
+  check('a non-participant cannot read the conversation', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE', JSON.stringify(r.data));
+  r = await call('/api/messages', 'c', { action: 'list', conversationId: '900000003_900000001' });
+  check('an unmatched pair has no conversation', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
+
+  // Block ends messaging immediately for both sides.
+  await call('/api/relationship', 'b', { action: 'block', targetId: '900000001' });
+  r = await call('/api/messages', 'a', { action: 'list', conversationId: cid });
+  check('blocking ends the conversation for the blocked user', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
+  r = await call('/api/messages', 'b', { action: 'list', conversationId: cid });
+  check('blocking ends the conversation for the blocker too', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
+
+  // Unmatch closes the conversation as well.
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  await setPremium('900000001', { active: true, expiresAt: new Date(Date.now() + 86400000) });
+  await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: 'Hi', clientId: 'eeeeeeee' });
+  await call('/api/relationship', 'a', { action: 'unmatch', targetId: '900000002' });
+  r = await call('/api/messages', 'a', { action: 'list', conversationId: cid });
+  check('unmatching closes the conversation', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
+
+  // Account deletion erases the conversation documents.
+  await cleanup();
+  await seedAll();
+  await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  await setPremium('900000001', { active: true, expiresAt: new Date(Date.now() + 86400000) });
+  await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: 'bye', clientId: 'ffffffff' });
+  check('conversation document exists before deletion', (await firestore.collection('conversations').doc(cid).get()).exists);
+  await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
+  check('account deletion erases the conversation', (await firestore.collection('conversations').doc(cid).get()).exists === false);
 
   section('Relationship authorization');
   r = await call('/api/relationship', 'user=%7B%22id%22%3A1%7D&hash=deadbeef', { action: 'block', targetId: '900000002' });

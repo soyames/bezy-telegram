@@ -3,7 +3,6 @@ import { db } from '../_firebase.js';
 import { parseInvoicePayload, premiumPlan, nextExpiry, applyRefund } from '../_premium.js';
 import { SUPPORT_CATEGORIES, createSupportRequest, diagnosePremium, diagnoseDiscovery, diagnoseProfile } from '../_support.js';
 import { enforceRateLimit } from '../_ratelimit.js';
-import { notifyMatch } from '../swipe.js';
 
 const COMMAND_VIEWS = {
   start: null, demarrer: null, help: null, aide: null,
@@ -550,46 +549,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  // /start match_<id> re-sends the match notification with its "Open Telegram chat"
-  // button. Username-less matched users have no t.me link, and the Mini App webview cannot
-  // fire tg:// deep links reliably — the button is resolved by the Telegram client itself,
-  // which is the supported path. Only a participant of that match can trigger it.
-  const matchStart = /^\/start(?:@\w+)?\s+match_([A-Za-z0-9_\-]+)/.exec(String(message.text || ''));
-  if (matchStart) {
-    try {
-      await handleMatchStart(message.chat.id, language, message.from, matchStart[1]);
-    } catch (error) {
-      console.error('Match start handling failed:', error);
-    }
-    return res.status(200).json({ ok: true });
-  }
-
   if (command === 'start' || command === 'demarrer') {
     try { await configureLocalizedCommands(); }
     catch (error) { console.error('Unable to configure Telegram commands:', error); }
   }
   await sendCommand(message.chat.id, command, language);
   return res.status(200).json({ ok: true });
-}
-
-/**
- * Re-sends the match message to one of its participants. Anything else — a stranger probing
- * an id, an ended match, an unknown id — gets nothing, so the endpoint cannot be used to
- * enumerate or revive matches.
- */
-async function handleMatchStart(chatId, language, from, matchId) {
-  if (!from?.id || !matchId) return;
-  const firestore = db();
-  const matchSnap = await firestore.collection('matches').doc(matchId).get();
-  const matchData = matchSnap.exists ? matchSnap.data() : null;
-  const participants = (matchData?.participants || []).map(String);
-  if (!matchData || matchData.active === false || !participants.includes(String(from.id))) return;
-  const otherId = participants.find((id) => id !== String(from.id));
-  if (!otherId) return;
-  const [selfSnap, otherSnap] = await Promise.all([
-    firestore.collection('users').doc(String(from.id)).get(),
-    firestore.collection('users').doc(otherId).get()
-  ]);
-  if (!otherSnap.exists) return;
-  await notifyMatch(firestore, selfSnap.data() || { telegramId: from.id }, otherSnap.data() || {}, language);
 }

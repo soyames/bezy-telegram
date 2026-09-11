@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
-const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account', support: '/api/support' };
-const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false };
+const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account', support: '/api/support', messages: '/api/messages' };
+const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null };
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char])); }
@@ -41,6 +41,10 @@ function applyLocale() {
   if ($('interests')) $('interests').placeholder = t('app.interests_placeholder');
   if ($('interests-add')) $('interests-add').placeholder = t('app.add_interest_placeholder');
   if ($('bio')) $('bio').placeholder = t('app.bio_placeholder');
+  if ($('chat-draft')) $('chat-draft').placeholder = t('app.msg_placeholder');
+  $('chat-send')?.setAttribute('aria-label', t('app.msg_send'));
+  $('chat-back')?.setAttribute('aria-label', t('app.close'));
+  $('chat-menu')?.setAttribute('aria-label', t('app.safety_actions'));
   setText('prompts-title', t('app.prompts_title')); setText('prompts-hint', t('app.prompts_hint')); setText('preview-profile-btn', t('app.preview_profile'));
   setText('languages-label', t('app.languages_label')); setText('languages-hint', t('app.languages_hint'));
   // Relabelled in the new language while keeping whatever is currently selected.
@@ -84,7 +88,8 @@ const ERROR_KEYS = {
   PREMIUM_UNAVAILABLE: 'app.payment_failed',
   AGE_CONFIRMATION_REQUIRED: 'app.error_age_required',
   PROCESSING_RESTRICTED: 'app.error_processing_restricted',
-  RATE_LIMITED: 'app.rate_limited'
+  RATE_LIMITED: 'app.rate_limited',
+  CONVERSATION_UNAVAILABLE: 'app.msg_conversation_unavailable'
 };
 function errorText(error) {
   // Rate limiting is reachable by an ordinary enthusiastic user, so it says how long to
@@ -173,26 +178,16 @@ async function api(path, options = {}) {
   }
   return data;
 }
-function openTelegramLink(url) {
-  if (!url) return;
-  // https://t.me links go through the WebApp API's documented input and never the in-app
-  // browser. tg:// is Telegram's own in-app scheme (tg://user?id= for a matched user
-  // without a @username): it is NOT the documented input of openTelegramLink — clients
-  // reject or silently drop it — so it is handed to the client's native opener by
-  // navigating the webview, which Telegram intercepts for its own scheme.
-  if (url.startsWith('https://t.me/')) {
-    if (tg?.openTelegramLink) { tg.openTelegramLink(url); return; }
-    if (tg?.openLink) { tg.openLink(url); return; }
-    window.open(url, '_blank', 'noopener');
-    return;
-  }
-  if (url.startsWith('tg://')) {
-    // Recorded first so the test harness can observe the handoff without a real Telegram
-    // client; inert in production.
-    window.__lastTelegramLink = url;
-    window.location.href = url;
-  }
-}
+// Bezy conversations (ADR 0009): the conversation UI and message delivery live inside the
+// Mini App; Telegram keeps identity, hosting and notifications. There is no Telegram chat
+// handoff anymore — the primary match action opens the Bezy conversation screen.
+//
+// A device-local marker flips the label from "Start conversation" to "Continue
+// conversation" once the conversation has been opened here.
+function chatOpenedKey(matchId) { return `bezy-chat-opened-${matchId}`; }
+function hasChatOpened(matchId) { try { return localStorage.getItem(chatOpenedKey(matchId)) === '1'; } catch { return false; } }
+function markChatOpened(matchId) { try { localStorage.setItem(chatOpenedKey(matchId), '1'); } catch { /* label only */ } }
+function chatLabel(match) { return t(hasChatOpened(match?.matchId) ? 'app.continue_conversation' : 'app.start_conversation'); }
 
 function showView(view) {
   const validViews = new Set(['discover', 'matches', 'messages', 'profile', 'premium', 'age']);
@@ -455,8 +450,8 @@ function renderAccount() {
 // are the only record they get of something that happened to their money or their account.
 // ---------------------------------------------------------------------------
 
-const NOTIFICATION_CATEGORIES = ['matches', 'super_likes', 'profile_reminders'];
-const NOTIFICATION_NOTES = { super_likes: 'app.notify_super_likes_note', profile_reminders: 'app.notify_profile_reminders_note' };
+const NOTIFICATION_CATEGORIES = ['matches', 'super_likes', 'profile_reminders', 'messages'];
+const NOTIFICATION_NOTES = { super_likes: 'app.notify_super_likes_note', profile_reminders: 'app.notify_profile_reminders_note', messages: 'app.notify_messages_note' };
 
 function renderNotificationSettings() {
   const host = $('notification-list');
@@ -734,50 +729,205 @@ function copyText(value) {
 
 function openStarters(match) {
   const suggestions = starterSuggestions(match);
-  const body = suggestions.map((suggestion, index) => `<div class="starter"><p>${escapeHtml(suggestion)}</p><button type="button" data-starter="${index}">${escapeHtml(t('app.starter_copy'))}</button></div>`).join('');
+  const body = suggestions.map((suggestion, index) => `<div class="starter"><p>${escapeHtml(suggestion)}</p><div class="starter-actions"><button type="button" data-use="${index}">${escapeHtml(t('app.msg_use_this_message'))}</button><button type="button" data-starter="${index}">${escapeHtml(t('app.starter_copy'))}</button></div></div>`).join('');
   // The suggestion list is never empty: starterSuggestions falls back to the generic opener
   // when no shared signal yields one, so the sheet always gives the user something usable.
   openSheet(t('app.starters_title'), `${whyMatchedHtml(match)}<div class="starter-head">${escapeHtml(t('app.start_with'))}</div>${body}<p class="filter-note">${escapeHtml(t('app.starters_hint'))}</p>`, (host) => {
     host.querySelectorAll('[data-starter]').forEach((button) => {
       button.onclick = () => copyText(suggestions[Number(button.dataset.starter)]);
     });
+    host.querySelectorAll('[data-use]').forEach((button) => {
+      button.onclick = () => { closeSheet(); useStarter(match, suggestions[Number(button.dataset.use)]); };
+    });
   });
 }
 
-// The conversation hand-off link for a matched user. With a @username the public t.me link
-// opens their chat or profile directly. Without one, the Mini App webview cannot fire
-// tg:// deep links reliably on any platform, so the CTA opens the Bezy bot with a start
-// payload: the bot re-sends the match notification, whose "Open Telegram chat" button is
-// resolved by the Telegram client itself — the supported path to a username-less profile.
-function chatLinkFor(match) {
-  const username = String(match?.username || '').trim().replace(/^@/, '');
-  if (username) return `https://t.me/${username}`;
-  const matchId = String(match?.matchId || '').trim();
-  if (matchId) return `https://t.me/BezyDatingBot?start=match_${matchId}`;
-  return '';
+// "Use this message" fills the Bezy composer with the opener. It never sends: the user
+// reviews the text and taps send themselves.
+function useStarter(match, text) {
+  if (!state.chat || state.chat.match?.id !== match.id) openChat(match);
+  const input = $('chat-draft');
+  if (input) { input.value = text; updateChatSendState(); input.focus(); }
 }
 
-// A local, per-match marker flips the label from "Start conversation" to "Continue
-// conversation" after the first tap. The actual conversation stays entirely on Telegram;
-// this marker is only a label switch and never leaves the device.
-function chatOpenedKey(matchId) { return `bezy-chat-opened-${matchId}`; }
-function hasChatOpened(matchId) { try { return localStorage.getItem(chatOpenedKey(matchId)) === '1'; } catch { return false; } }
-function markChatOpened(matchId) { try { localStorage.setItem(chatOpenedKey(matchId), '1'); } catch { /* label only */ } }
-function chatLabel(match) { return t(hasChatOpened(match?.matchId) ? 'app.continue_conversation' : 'app.start_conversation'); }
+// ---------------------------------------------------------------------------
+// Bezy conversation screen (ADR 0009)
+// Real-time is a short poll while the conversation is open: Firestore client access is
+// deny-all (firestore.rules) and Vercel has no WebSocket surface, so polling is the
+// smallest mechanism that fits the architecture. Sends are idempotent: the client-generated
+// id is stable across retries and the API writes the message document under that id.
+// ---------------------------------------------------------------------------
 
-function chatButtonHtml(match, className = 'match-open') {
-  const link = chatLinkFor(match);
-  if (!link) return '';
-  return `<button class="${className}" data-chat="${escapeHtml(link)}" data-match="${escapeHtml(match.matchId || '')}" type="button">${escapeHtml(chatLabel(match))}</button>`;
+const CHAT_POLL_MS = 4000;
+
+function chatClientId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function bindChatButtons(root) {
-  root.querySelectorAll('[data-chat]').forEach((button) => {
+function openChat(match) {
+  const screen = $('chat-screen');
+  if (!screen || !match) return;
+  stopChatPolling();
+  state.chat = { match, messages: [], pending: new Map(), locked: false, unavailable: false };
+  markChatOpened(match.matchId);
+  setText('chat-name', match.displayName || t('app.bezy_member'));
+  setText('chat-sub', [match.age ? String(match.age) : '', match.city].filter(Boolean).join(' · '));
+  setText('chat-status', '');
+  const why = $('chat-why');
+  if (why) why.innerHTML = whyMatchedHtml(match);
+  const locked = $('chat-locked');
+  if (locked) locked.classList.add('hidden');
+  const composer = $('chat-composer');
+  if (composer) composer.classList.remove('hidden');
+  const draft = $('chat-draft');
+  if (draft) draft.value = '';
+  updateChatSendState();
+  screen.classList.remove('hidden');
+  loadChatMessages();
+  startChatPolling();
+  markChatRead();
+}
+
+function closeChat() {
+  stopChatPolling();
+  const screen = $('chat-screen');
+  if (screen) screen.classList.add('hidden');
+  state.chat = null;
+  renderMatches();
+}
+
+function updateChatSendState() {
+  const send = $('chat-send');
+  if (send) send.disabled = !$('chat-draft')?.value.trim() || state.chat?.locked || state.chat?.unavailable;
+}
+
+// Fetches the message history. Poll failures and transient errors leave whatever is on
+// screen alone; the typed states (locked/unavailable) only render for their typed errors.
+async function loadChatMessages() {
+  const chat = state.chat;
+  if (!chat) return;
+  try {
+    const data = await api(API.messages, { body: { action: 'list', conversationId: chat.match.matchId } });
+    if (state.chat !== chat) return;
+    chat.locked = false;
+    chat.unavailable = false;
+    chat.messages = data.messages || [];
+    renderChatMessages();
+    markChatRead();
+  } catch (error) {
+    if (state.chat !== chat) return;
+    if (error.error === 'PREMIUM_REQUIRED') { chat.locked = true; renderChatLocked(); }
+    else if (error.error === 'CONVERSATION_UNAVAILABLE') { chat.unavailable = true; renderChatUnavailable(); }
+    // RATE_LIMITED and network failures: keep the current screen; the poll retries.
+  }
+}
+
+function chatMessageHtml(message, myId, failed) {
+  const sent = String(message.senderId || '') === myId;
+  const time = message.createdAt
+    ? new Date(message.createdAt).toLocaleTimeString(state.lang === 'fr' ? 'fr-FR' : 'en-GB', { hour: '2-digit', minute: '2-digit' })
+    : '';
+  const retry = failed
+    ? `<button class="msg-retry" type="button" data-retry="${escapeHtml(message.id)}">${escapeHtml(t('app.msg_retry'))}</button>`
+    : '';
+  return `<div class="msg ${sent ? 'sent' : 'received'}${failed ? ' failed' : ''}" data-message="${escapeHtml(message.id)}">${escapeHtml(message.text)}${time ? `<span class="msg-time">${escapeHtml(time)}</span>` : ''}${retry}</div>`;
+}
+
+function renderChatMessages() {
+  const chat = state.chat;
+  const host = $('chat-messages');
+  if (!chat || !host) return;
+  const myId = String(state.telegramUser?.id || '');
+  const confirmed = new Set(chat.messages.map((message) => message.id));
+  const items = chat.messages.map((message) => chatMessageHtml(message, myId, false));
+  // Pending sends render after the confirmed history; a failed send keeps its retry.
+  for (const [clientId, pending] of chat.pending) {
+    if (!confirmed.has(clientId)) {
+      items.push(`<div class="msg sent ${pending.failed ? 'failed' : 'pending'}" data-message="${escapeHtml(clientId)}">${escapeHtml(pending.text)}${pending.failed ? `<button class="msg-retry" type="button" data-retry="${escapeHtml(clientId)}">${escapeHtml(t('app.msg_retry'))}</button>` : ''}</div>`);
+    }
+  }
+  if (!items.length) {
+    host.innerHTML = `<div class="chat-empty"><p>${escapeHtml(t('app.msg_no_messages'))}</p><button class="chat-starters-btn" id="chat-starters" type="button">✨ ${escapeHtml(t('app.starters_title'))}</button></div>`;
+    const starters = $('chat-starters');
+    if (starters) starters.onclick = () => openStarters(chat.match);
+    return;
+  }
+  host.innerHTML = items.join('');
+  host.querySelectorAll('[data-retry]').forEach((button) => {
     button.onclick = () => {
-      if (button.dataset.match) { markChatOpened(button.dataset.match); button.textContent = t('app.continue_conversation'); }
-      openTelegramLink(button.dataset.chat);
+      const pending = chat.pending.get(button.dataset.retry);
+      if (!pending) return;
+      pending.failed = false;
+      renderChatMessages();
+      deliverChatMessage(pending);
     };
   });
+  host.scrollTop = host.scrollHeight;
+}
+
+async function sendChat(rawText) {
+  const chat = state.chat;
+  const text = String(rawText || '').trim();
+  if (!chat || !text || chat.locked || chat.unavailable) return;
+  const pending = { clientId: chatClientId(), text, failed: false };
+  chat.pending.set(pending.clientId, pending);
+  renderChatMessages();
+  const input = $('chat-draft');
+  if (input) { input.value = ''; updateChatSendState(); }
+  await deliverChatMessage(pending);
+}
+
+async function deliverChatMessage(pending) {
+  const chat = state.chat;
+  if (!chat || !chat.pending.has(pending.clientId)) return;
+  try {
+    const data = await api(API.messages, { body: { action: 'send', conversationId: chat.match.matchId, text: pending.text, clientId: pending.clientId } });
+    if (state.chat !== chat) return;
+    chat.pending.delete(pending.clientId);
+    if (data.message) chat.messages.push(data.message);
+    renderChatMessages();
+    markChatRead();
+  } catch (error) {
+    if (state.chat !== chat) return;
+    if (error.error === 'PREMIUM_REQUIRED') { chat.pending.clear(); chat.locked = true; renderChatLocked(); }
+    else if (error.error === 'CONVERSATION_UNAVAILABLE') { chat.pending.clear(); chat.unavailable = true; renderChatUnavailable(); }
+    else { pending.failed = true; renderChatMessages(); }
+  }
+}
+
+function renderChatLocked() {
+  const host = $('chat-locked');
+  if (!host) return;
+  const composer = $('chat-composer');
+  if (composer) composer.classList.add('hidden');
+  host.classList.remove('hidden');
+  host.innerHTML = `<p>${escapeHtml(t('app.msg_premium_locked'))}</p><button class="save-btn" id="chat-unlock" type="button">${escapeHtml(t('app.unlock_premium'))}</button>`;
+  const unlock = $('chat-unlock');
+  if (unlock) unlock.onclick = () => { closeChat(); showView('premium'); };
+  updateChatSendState();
+}
+
+function renderChatUnavailable() {
+  setText('chat-status', t('app.msg_conversation_unavailable'));
+  const composer = $('chat-composer');
+  if (composer) composer.classList.add('hidden');
+  updateChatSendState();
+}
+
+function markChatRead() {
+  const chat = state.chat;
+  if (!chat || chat.locked || chat.unavailable) return;
+  api(API.messages, { body: { action: 'read', conversationId: chat.match.matchId } }).catch(() => { /* the poll retries */ });
+}
+
+function startChatPolling() {
+  stopChatPolling();
+  state.chatPollTimer = setInterval(() => { if (state.chat && !document.hidden) loadChatMessages(); }, CHAT_POLL_MS);
+}
+
+function stopChatPolling() {
+  if (state.chatPollTimer) { clearInterval(state.chatPollTimer); state.chatPollTimer = null; }
 }
 
 // One full-width card per match: photo header, the why-you-matched chips, an icebreaker
@@ -790,16 +940,16 @@ function matchCardHtml(match, idPrefix = '') {
   const image = match.photoUrl ? `<img src="${escapeHtml(match.photoUrl)}" alt="">` : '';
   const age = match.age ? `, ${escapeHtml(match.age)}` : '';
   const city = match.city ? `<span class="mf-city"><span aria-hidden="true">📍</span>${escapeHtml(match.city)}</span>` : '';
-  const chat = chatButtonHtml(match, 'mf-primary');
+  // The primary action opens the Bezy conversation screen — no Telegram handoff (ADR 0009).
+  const chat = `<button class="mf-primary" data-open-chat="${escapeHtml(match.id)}" type="button">${escapeHtml(chatLabel(match))}</button>`;
   const firstPrompt = (match.prompts || []).find((prompt) => prompt?.id && String(prompt?.answer || '').trim());
   const icebreaker = firstPrompt
     ? `<div class="mf-icebreaker"><span class="mf-icebreaker-label">${escapeHtml(t('app.icebreaker_label').replace('{name}', match.displayName || t('app.bezy_member')))}</span><p>${escapeHtml(firstPrompt.answer)}</p></div>`
     : '';
-  // A matched user without a @username has no t.me link: Telegram can only open their
-  // profile from the numeric deep link, and the first message is one tap from there. Say so
-  // instead of leaving the user to guess why a chat did not open directly.
-  const username = String(match.username || '').trim().replace(/^@/, '');
-  const handoffHint = username ? '' : `<p class="mf-handoff-hint">${escapeHtml(t('app.chat_no_username_hint'))}</p>`;
+  // The conversation preview for the Messages list: last message line and unread state.
+  const preview = match.conversation?.lastMessagePreview
+    ? `<p class="mf-preview${match.conversation.unread ? ' unread' : ''}">${match.conversation.unread ? '<span class="chat-badge" aria-hidden="true"></span>' : ''}${escapeHtml(match.conversation.lastMessagePreview)}</p>`
+    : '';
   return `<article class="match-card" id="${idPrefix}match-${escapeHtml(match.id)}">
     <div class="mf-photo">${image}<span class="mf-photo-glow" aria-hidden="true"></span>${image ? '' : `<span class="mf-initial" aria-hidden="true">${escapeHtml(initial)}</span>`}<span class="mf-photo-shade" aria-hidden="true"></span>
       <div class="mf-photo-info match-info"><b class="mf-name">${escapeHtml(match.displayName || t('app.bezy_member'))}${age}</b>${city}</div>
@@ -807,12 +957,12 @@ function matchCardHtml(match, idPrefix = '') {
     <div class="mf-body">
       ${whyMatchedHtml(match)}
       ${icebreaker}
+      ${preview}
       <div class="mf-actions">
         ${chat}
         <button class="mf-action" data-starters="${escapeHtml(match.id)}" type="button">${escapeHtml(t('app.starters_title'))}</button>
         <button class="mf-action mf-safety" data-actions="${escapeHtml(match.id)}" type="button">${escapeHtml(t('app.safety_actions'))}</button>
       </div>
-      ${handoffHint}
     </div>
   </article>`;
 }
@@ -828,6 +978,15 @@ function matchesCarouselHtml(matches) {
   }).join('');
 }
 
+function bindChatOpeners(root) {
+  root.querySelectorAll('[data-open-chat]').forEach((button) => {
+    button.onclick = () => {
+      const match = state.matches.find((m) => m.id === button.dataset.openChat);
+      if (match) openChat(match);
+    };
+  });
+}
+
 function renderMatches() {
   const grid = $('match-grid'), empty = $('matches-empty'), conversations = $('conversation-list'), messageEmpty = $('message-empty'), carousel = $('matches-carousel');
   if (!grid || !empty || !conversations || !messageEmpty) return;
@@ -836,7 +995,7 @@ function renderMatches() {
   empty.classList.add('hidden');
   if (carousel) carousel.innerHTML = matchesCarouselHtml(state.matches);
   grid.innerHTML = state.matches.map(matchCardHtml).join('');
-  bindChatButtons(grid);
+  bindChatOpeners(grid);
   grid.querySelectorAll('[data-starters]').forEach((button) => {
     button.onclick = () => {
       const match = state.matches.find((m) => m.id === button.dataset.starters);
@@ -850,11 +1009,11 @@ function renderMatches() {
     };
   });
   // The Messages tab renders the same card hierarchy as Matches — why you matched, the
-  // conversation CTA, ways to start, safety — so a conversation is always one primary tap
-  // away, and the copy above the list explains that it continues in Telegram.
+  // conversation preview and unread state, the primary conversation CTA, ways to start and
+  // safety — so a conversation is always one primary tap away.
   conversations.innerHTML = state.matches.map((match) => matchCardHtml(match, 'c')).join('');
   messageEmpty.classList.add('hidden');
-  bindChatButtons(conversations);
+  bindChatOpeners(conversations);
   conversations.querySelectorAll('[data-starters]').forEach((button) => {
     button.onclick = () => {
       const match = state.matches.find((m) => m.id === button.dataset.starters);
@@ -1053,19 +1212,11 @@ async function refreshPremiumUntilActive(attempts = 5) {
 
 function openMatchActions(match) {
   openSheet(match.displayName || t('app.bezy_member'), `
-    <button class="ghost-btn" data-act="chat">${escapeHtml(chatLabel(match))}</button>
     <button class="ghost-btn" data-act="unmatch">${escapeHtml(t('app.unmatch'))}</button>
     <button class="ghost-btn" data-act="block">${escapeHtml(t('app.block'))}</button>
     <button class="ghost-btn" data-act="report" style="color:var(--danger)">${escapeHtml(t('app.report'))}</button>
     <p class="filter-note">${escapeHtml(t('app.safety_sheet_note'))}</p>
   `, (host) => {
-    host.querySelector('[data-act="chat"]').onclick = () => {
-      closeSheet();
-      const link = chatLinkFor(match);
-      if (!link) { showToast(t('app.error_generic')); return; }
-      markChatOpened(match.matchId);
-      openTelegramLink(link);
-    };
     host.querySelector('[data-act="unmatch"]').onclick = () => confirmAction('unmatch', match);
     host.querySelector('[data-act="block"]').onclick = () => confirmAction('block', match);
     host.querySelector('[data-act="report"]').onclick = () => openReportSheet(match);
@@ -1083,6 +1234,8 @@ function confirmAction(action, match) {
         await api(API.relationship, { body: { action, targetId: match.id } });
         closeSheet();
         showToast(t(`app.${action}_done`));
+        // The open conversation closes with the relationship it depended on.
+        if (state.chat?.match?.id === match.id) closeChat();
         await loadMatches();
       } catch (error) { showToast(errorText(error)); }
     };
@@ -1398,6 +1551,13 @@ function bindEvents() {
   document.querySelectorAll('.premium-action').forEach((button) => button.onclick = () => showView('premium'));
   if ($('profile-form')) $('profile-form').addEventListener('submit', saveProfile);
   if ($('preview-profile-btn')) $('preview-profile-btn').onclick = openPreview;
+  // Bezy conversation controls: composer submit, send-button state, back and safety menu.
+  if ($('chat-composer')) {
+    $('chat-composer').addEventListener('submit', (event) => { event.preventDefault(); sendChat($('chat-draft')?.value || ''); });
+    $('chat-draft')?.addEventListener('input', updateChatSendState);
+  }
+  if ($('chat-back')) $('chat-back').onclick = closeChat;
+  if ($('chat-menu')) $('chat-menu').onclick = () => { if (state.chat) openMatchActions(state.chat.match); };
   if ($('profile-refresh')) $('profile-refresh').onclick = async () => { try { await loadAccount(); showToast(t('app.profile_saved')); } catch (error) { showToast(errorText(error)); } };
   if ($('tab-edit')) $('tab-edit').onclick = () => setProfileTab('edit');
   if ($('tab-settings')) $('tab-settings').onclick = () => setProfileTab('settings');
@@ -1454,7 +1614,7 @@ async function init() {
     state.lang = 'en';
     state.dict = {
       // BEGIN fallback catalogue — generated from locales/en.json by scripts/sync-fallback-locale.mjs
-      app: {"tagline":"Meet someone worth knowing.","discover":"Discover","matches":"Matches","messages":"Messages","profile":"Profile","for_you":"For you","filters":"Filters","pass":"Pass","super":"Super","like":"Like","your_matches":"Your matches","protected_by_bezy":"Protected by Bezy","view_membership":"View membership","unlock_premium":"Unlock Premium","privacy":"Privacy","terms":"Terms","settings":"Settings","no_conversations":"Your conversations will appear here after a mutual match.","discover_intro":"Real people. Mutual interest. Conversations that stay on Telegram.","discover_title":"Find your kind of connection.","premium_copy":"See who liked you, unlock advanced discovery and get more ways to connect.","matches_premium_copy":"Premium members get more discovery options and can see who already liked them.","people_available":"people to discover","best_match":"best match","new_today":"new today","match_score":"match","min_age":"Minimum age","max_age":"Maximum age","any_city":"Any city","same_city_only":"Only show people in my city","apply_filters":"Apply filters","reset_filters":"Reset filters","filters_applied":"Filters applied.","filters_note":"Filters are saved to your account and applied every time you open Discover.","conversation_hint":"Your conversation happens securely in Telegram.","profile_live":"Your profile is live in Discover.","premium_title":"Bezy Premium","premium_intro":"Unlock more ways to discover meaningful connections.","premium_active_intro":"You're a Premium member. Thank you for supporting Bezy.","benefit_who_liked_you":"See who liked you","benefit_advanced_discovery":"Advanced discovery","benefit_more_super_likes":"More Super Likes","benefit_increased_visibility":"Increased visibility","benefit_unlimited_discovery":"Unlimited discovery","choose_plan":"Choose your plan","plan":"Plan","plan_monthly":"Monthly","plan_quarterly":"Quarterly","plan_yearly":"Yearly","months_count":"{n} months of Premium","best_value":"Best value","subscribe_with_stars":"Subscribe with Telegram Stars","renew_with_stars":"Renew with Telegram Stars","renew":"Renew or extend","active_until":"Active until","days_remaining":"Days remaining","stars_note":"Payment is handled inside Telegram with Stars. Bezy never sees your card details.","who_liked_you":"Who liked you","who_liked_you_locked":"Premium members can see everyone who already liked them, and match instantly.","likes_waiting":"{n} people already liked you","no_likes_yet":"No one is waiting yet. Keep discovering.","preparing_checkout":"Preparing checkout…","payment_cancelled":"Payment cancelled.","payment_failed":"We couldn't start the payment. Please try again.","payment_received":"Payment received. Activating your Bezy Premium…","payment_pending":"Your payment is still processing.","payment_processing":"Your payment is being processed. Premium will activate shortly.","payment_unsupported":"Please update Telegram to pay with Stars.","premium_active":"💎 Bezy Premium is active.","premium_required":"This is a Premium feature.","premium_expired":"Your Bezy Premium has expired.","discovery_limit":"You've reached today's discovery limit. Premium removes it.","super_like_limit":"You've used today's Super Likes. Premium gives you more.","profile_hidden":"Your profile is saved but hidden from Discover.","loading":"Loading…","refresh":"Refresh","start_conversation":"Start conversation","continue_conversation":"Continue conversation","no_matches":"No matches yet. Keep discovering — your next connection could be here.","no_profiles":"No more profiles right now. Check back soon.","empty_filters":"Your filters are hiding everyone right now. Adjust them, or reset them to see everyone.","empty_pool":"You've seen everyone nearby for now. New people join all the time — check back later.","empty_no_supply":"Bezy is brand new here — no one discoverable yet. Check back soon, and tell someone about Bezy.","empty_eligibility":"No one nearby matches who you're looking for right now. You can update “I am” and “Looking for” in your profile, or check back later.","empty_eligibility_you":"Your profile is currently shown as {gender}, looking for {seeking}.","empty_eligibility_edit":"Update my profile","gender_placeholder":"Choose…","adjust_filters":"Adjust filters","check_later":"Check again","complete_profile":"Complete your profile to start discovering people.","profile_complete_pct":"{percent}% complete","profile_saved":"Your profile has been saved.","saved_badge":"Saved","match_created":"It’s a match! 💜","error_generic":"Something went wrong. Please try again.","show_profile":"Show my profile in Discover","discoverable_note":"When off, your profile is saved but hidden from Discover.","legal_privacy":"Legal","language":"Language","edit_profile":"Edit profile","settings_privacy":"Settings & Privacy","core_profile":"Core Profile","display_name":"Display name","age":"Age","city":"City","gender":"I am","seeking":"Looking for","interests":"Interests","interests_placeholder":"Travel, music, books","add_interest":"Add interest","add_interest_placeholder":"Add an interest…","bio":"About me","bio_placeholder":"Tell people something memorable about your day or what makes you smile...","woman":"Woman","man":"Man","non_binary":"Non-binary","prefer_not_to_say":"Prefer not to say","women":"Women","men":"Men","everyone":"Everyone","save_profile":"Save profile","my_profile":"My profile","more_connections":"More connections","navigation":"Bezy navigation","close":"Close","meta_description":"Bezy — meet someone worth knowing, entirely inside Telegram.","bezy_member":"Bezy member","error_session":"Your Telegram session could not be verified. Please reopen Bezy.","error_database":"Bezy could not reach its database. Please try again.","error_profile_missing":"Complete your profile to start discovering people.","error_target_missing":"That profile is no longer available.","age_gate_title":"Bezy is only available to people aged 18 and over.","age_gate_body":"By continuing, I confirm that I am 18 or older.","age_confirm":"I am 18 or older","age_deny":"I am under 18","age_note":"Bezy does not verify identity or age. This is your own declaration.","age_blocked_title":"Bezy is for adults aged 18 and over.","age_blocked_body":"You cannot create a Bezy profile, discover people or match. Thank you for being honest.","error_age_required":"Please confirm you are 18 or older to continue.","safety_title":"Safety","safety_intro":"Block or report anyone who makes you uncomfortable.","data_title":"Privacy & your data","data_controls":"Data & privacy controls","data_controls_intro":"Bezy keeps your data while processing is paused or objected to — nothing is deleted, and you can lift either at any time.","privacy_by_design":"Your chats stay in Telegram. Your photos stay on Telegram. We use your city, not your GPS.","safety_actions":"Safety options","safety_sheet_note":"Blocking and reporting take effect immediately and are enforced by Bezy's servers.","block":"Block","unblock":"Unblock","unblock_done":"This person has been unblocked.","block_confirm":"{name} will no longer see you or be able to contact you through Bezy. Your match will be ended.","block_done":"Blocked.","unmatch":"Unmatch","unmatch_confirm":"End your match with {name}? Neither of you will see the other in Bezy again.","unmatch_done":"Unmatched.","report":"Report","report_reason":"Reason","report_details":"What happened? (optional)","report_send":"Send report","report_done":"Report sent. This person has also been blocked.","report_note":"Reporting also blocks this person. Bezy reviews reports; we cannot promise a response time.","reason_harassment":"Harassment or abuse","reason_spam":"Spam","reason_scam":"Scam or fraud","reason_fake_profile":"Fake profile or impersonation","reason_inappropriate_content":"Inappropriate content","reason_underage":"Appears to be under 18","reason_other":"Something else","blocked_people":"Blocked people","no_blocked":"You haven't blocked anyone.","cancel":"Cancel","export_data":"Download my data","export_preparing":"Preparing your data…","export_ready":"Your data has been downloaded.","delete_account":"Delete my account","delete_explain":"This permanently deletes your Bezy profile, your likes and passes, your matches and your blocks. It cannot be undone.","delete_retained":"Records of payments you made and their invoice links are kept for accounting, and reports — filed by you or about you — are kept for safety. Your Telegram account itself is not affected.","delete_type":"Type DELETE to confirm","delete_done_title":"Your Bezy account has been deleted.","delete_done_body":"You can close this window. If you ever want to come back, just open Bezy again and create a new profile.","rights_note":"For corrections or a complaint, contact contacts@digitalconcordia.com.","legal_help":"Legal help","footer_note":"Built with intention","remove":"Remove","support_title":"Help & support","support_intro":"Bezy support can help diagnose common problems.","support_help":"Get help","support_formal":"Need to make a formal privacy or legal request? Contact us.","support_contact":"Contact support","support_history":"My support requests","support_history_empty":"You have no support requests.","support_form_title":"Contact support","support_form_category":"What is it about?","support_form_details":"Describe the problem","support_form_placeholder":"What happened? What have you tried?","support_submit":"Send","support_required":"Choose a topic and describe the problem.","support_done":"Your support request has been received. Reference: {ref}. We'll review it and get back to you here.","support_cat_premium":"Premium & Telegram Stars","support_cat_profile":"Profile","support_cat_likes_matches":"Likes & Matches","support_cat_discovery":"Discovery","support_cat_privacy_account":"Privacy & Account","support_cat_problem":"Report a problem","support_cat_contact":"Contact support","support_status_open":"Open","support_status_in_progress":"In progress","support_status_resolved":"Resolved","support_status_closed":"Closed","support_email":"Email support","support_expectation":"We read every message and aim to answer within 3 working days.","rate_limited":"You're going a little fast. Please try again in a moment.","rate_limited_minutes":"You've done that too many times. Please try again in about {n} minutes.","stars_needed":"You need Telegram Stars in your balance to subscribe. You can top up in Telegram under Settings, then My Stars.","not_telegram_premium":"Telegram Premium is a separate Telegram subscription. It does not include Bezy Premium — Bezy Premium is paid separately with Stars.","premium_revoked":"Your Bezy Premium was refunded.","premium_lapsed_hint":"You can subscribe again below. Your profile, matches and conversations are unaffected.","prompts_title":"Prompts & icebreakers","prompts_hint":"Optional. Answer up to three — they appear on your profile and give people something to open with.","prompt_perfect_sunday":"A perfect Sunday for me…","prompt_i_value":"Something I value…","prompt_first_date":"My ideal first date…","prompt_should_know":"One thing you should know about me…","prompt_talk_for_hours":"Something I could talk about for hours…","prompt_placeholder":"Your answer","preview_profile":"Preview my profile","preview_title":"How others see you","preview_hint":"This is your card as it appears in Discover. Your Telegram username stays hidden until you match.","preview_incomplete":"Complete your profile to see how it will look.","why_matched":"Why you matched","why_interests":"You both like {values}","why_city":"You are both in {values}","why_age":"You are close in age","why_languages":"You both speak {values}","why_none":"You liked each other.","starters_title":"Ways to start","starter_interest":"Ask about {value} — you both like it.","starter_city":"Ask what they love about {value}.","starter_generic":"Start with something simple about what you already have in common.","start_with":"Start with","starter_copy":"Copy","starter_copied":"Copied. Paste it in Telegram.","starters_hint":"Bezy suggests an opener; the conversation itself happens in Telegram.","icebreaker_label":"{name}'s icebreaker","chat_no_username_hint":"They have no @username — tap Continue, then tap “Open Telegram chat” in the Bezy chat to reach their profile.","prompt_none":"No prompt","prompt_number":"Prompt {n}","prompts_select_label":"Choose a prompt","prompts_answer_label":"Prompt answer","notifications_title":"Notifications","notifications_hint":"Choose what Bezy sends you in Telegram. Payment and account messages are always sent, because they are a record of something that happened to your account.","notify_matches":"New matches","notify_super_likes":"Super Likes you receive","notify_super_likes_note":"Bezy never says who sent it — open Bezy and decide for yourself.","notify_profile_reminders":"Profile reminders","notify_profile_reminders_note":"At most one a week, and only while your profile is incomplete.","notifications_saved":"Notification settings saved.","restrict_title":"Pause all processing","restrict_explain":"Bezy keeps your data but stops using it. Your profile leaves Discover, you cannot like or match, and Bezy stops sending you match and Super Like messages. Nothing is deleted, and you can lift this at any time.","restrict_action":"Pause processing","restrict_confirm":"Pause processing now","restricted_badge":"Processing is paused.","restricted_notice":"Bezy is storing your data and nothing else. Lift the pause to return to Discover.","unrestrict_action":"Resume processing","restrict_done":"Processing is paused. Your data is kept, not used.","unrestrict_done":"Processing resumed. Turn on “Show my profile in Discover” when you are ready to be seen again.","restrict_note":"This is the right to restriction of processing. Payment and account messages are still sent, and you can still download or delete your data.","error_processing_restricted":"Processing is paused for your account. Resume it in Safety & privacy to continue.","objection_title":"Object to processing","objection_explain":"You have the right to object to the way Bezy processes your data (GDPR Art. 21). If you object, Bezy stops using your data for discovery and matching: your profile leaves Discover, you cannot like or match, and Bezy stops sending you match and Super Like messages. Nothing is deleted, and you can withdraw the objection at any time.","objection_confirm":"Object now","object_action":"Object to processing","objection_badge":"You have objected to processing.","objection_notice":"Bezy is storing your data and nothing else. Withdraw the objection to return to Discover.","unobject_action":"Withdraw objection","objection_done":"Objection recorded. Bezy has stopped processing your data.","unobject_done":"Objection withdrawn. Turn on “Show my profile in Discover” when you are ready to be seen again.","objection_note":"This is the right to object to processing. Your data is kept, not deleted, and you can still download or delete your data.","languages_label":"Languages I speak","languages_hint":"Optional. Up to five. Used to show you people you can actually talk to.","languages_chosen_count":"{chosen} of {max} chosen","filter_languages":"Languages they speak","filter_languages_hint":"Leave empty to see everyone. Profiles that have not listed a language are always shown.","language_en":"English","language_fr":"French","language_es":"Spanish","language_pt":"Portuguese","language_ar":"Arabic","language_de":"German","language_it":"Italian","language_ru":"Russian","language_sw":"Swahili","language_yo":"Yoruba"},
+      app: {"tagline":"Meet someone worth knowing.","discover":"Discover","matches":"Matches","messages":"Messages","profile":"Profile","for_you":"For you","filters":"Filters","pass":"Pass","super":"Super","like":"Like","your_matches":"Your matches","protected_by_bezy":"Protected by Bezy","view_membership":"View membership","unlock_premium":"Unlock Premium","privacy":"Privacy","terms":"Terms","settings":"Settings","no_conversations":"Your conversations will appear here after a mutual match.","discover_intro":"Real people. Mutual interest. Conversations that stay on Telegram.","discover_title":"Find your kind of connection.","premium_copy":"See who liked you, unlock advanced discovery and get more ways to connect.","matches_premium_copy":"Premium members get more discovery options and can see who already liked them.","people_available":"people to discover","best_match":"best match","new_today":"new today","match_score":"match","min_age":"Minimum age","max_age":"Maximum age","any_city":"Any city","same_city_only":"Only show people in my city","apply_filters":"Apply filters","reset_filters":"Reset filters","filters_applied":"Filters applied.","filters_note":"Filters are saved to your account and applied every time you open Discover.","conversation_hint":"Private conversations with your matches.","profile_live":"Your profile is live in Discover.","premium_title":"Bezy Premium","premium_intro":"Unlock more ways to discover meaningful connections.","premium_active_intro":"You're a Premium member. Thank you for supporting Bezy.","benefit_who_liked_you":"See who liked you","benefit_advanced_discovery":"Advanced discovery","benefit_more_super_likes":"More Super Likes","benefit_increased_visibility":"Increased visibility","benefit_unlimited_discovery":"Unlimited discovery","choose_plan":"Choose your plan","plan":"Plan","plan_monthly":"Monthly","plan_quarterly":"Quarterly","plan_yearly":"Yearly","months_count":"{n} months of Premium","best_value":"Best value","subscribe_with_stars":"Subscribe with Telegram Stars","renew_with_stars":"Renew with Telegram Stars","renew":"Renew or extend","active_until":"Active until","days_remaining":"Days remaining","stars_note":"Payment is handled inside Telegram with Stars. Bezy never sees your card details.","who_liked_you":"Who liked you","who_liked_you_locked":"Premium members can see everyone who already liked them, and match instantly.","likes_waiting":"{n} people already liked you","no_likes_yet":"No one is waiting yet. Keep discovering.","preparing_checkout":"Preparing checkout…","payment_cancelled":"Payment cancelled.","payment_failed":"We couldn't start the payment. Please try again.","payment_received":"Payment received. Activating your Bezy Premium…","payment_pending":"Your payment is still processing.","payment_processing":"Your payment is being processed. Premium will activate shortly.","payment_unsupported":"Please update Telegram to pay with Stars.","premium_active":"💎 Bezy Premium is active.","premium_required":"This is a Premium feature.","premium_expired":"Your Bezy Premium has expired.","discovery_limit":"You've reached today's discovery limit. Premium removes it.","super_like_limit":"You've used today's Super Likes. Premium gives you more.","profile_hidden":"Your profile is saved but hidden from Discover.","loading":"Loading…","refresh":"Refresh","start_conversation":"Start conversation","continue_conversation":"Continue conversation","no_matches":"No matches yet. Keep discovering — your next connection could be here.","no_profiles":"No more profiles right now. Check back soon.","empty_filters":"Your filters are hiding everyone right now. Adjust them, or reset them to see everyone.","empty_pool":"You've seen everyone nearby for now. New people join all the time — check back later.","empty_no_supply":"Bezy is brand new here — no one discoverable yet. Check back soon, and tell someone about Bezy.","empty_eligibility":"No one nearby matches who you're looking for right now. You can update “I am” and “Looking for” in your profile, or check back later.","empty_eligibility_you":"Your profile is currently shown as {gender}, looking for {seeking}.","empty_eligibility_edit":"Update my profile","gender_placeholder":"Choose…","adjust_filters":"Adjust filters","check_later":"Check again","complete_profile":"Complete your profile to start discovering people.","profile_complete_pct":"{percent}% complete","profile_saved":"Your profile has been saved.","saved_badge":"Saved","match_created":"It’s a match! 💜","error_generic":"Something went wrong. Please try again.","show_profile":"Show my profile in Discover","discoverable_note":"When off, your profile is saved but hidden from Discover.","legal_privacy":"Legal","language":"Language","edit_profile":"Edit profile","settings_privacy":"Settings & Privacy","core_profile":"Core Profile","display_name":"Display name","age":"Age","city":"City","gender":"I am","seeking":"Looking for","interests":"Interests","interests_placeholder":"Travel, music, books","add_interest":"Add interest","add_interest_placeholder":"Add an interest…","bio":"About me","bio_placeholder":"Tell people something memorable about your day or what makes you smile...","woman":"Woman","man":"Man","non_binary":"Non-binary","prefer_not_to_say":"Prefer not to say","women":"Women","men":"Men","everyone":"Everyone","save_profile":"Save profile","my_profile":"My profile","more_connections":"More connections","navigation":"Bezy navigation","close":"Close","meta_description":"Bezy — meet someone worth knowing, entirely inside Telegram.","bezy_member":"Bezy member","error_session":"Your Telegram session could not be verified. Please reopen Bezy.","error_database":"Bezy could not reach its database. Please try again.","error_profile_missing":"Complete your profile to start discovering people.","error_target_missing":"That profile is no longer available.","age_gate_title":"Bezy is only available to people aged 18 and over.","age_gate_body":"By continuing, I confirm that I am 18 or older.","age_confirm":"I am 18 or older","age_deny":"I am under 18","age_note":"Bezy does not verify identity or age. This is your own declaration.","age_blocked_title":"Bezy is for adults aged 18 and over.","age_blocked_body":"You cannot create a Bezy profile, discover people or match. Thank you for being honest.","error_age_required":"Please confirm you are 18 or older to continue.","safety_title":"Safety","safety_intro":"Block or report anyone who makes you uncomfortable.","data_title":"Privacy & your data","data_controls":"Data & privacy controls","data_controls_intro":"Bezy keeps your data while processing is paused or objected to — nothing is deleted, and you can lift either at any time.","privacy_by_design":"Messages stay between you and your match. Your photos stay on Telegram. We use your city, not your GPS.","safety_actions":"Safety options","safety_sheet_note":"Blocking and reporting take effect immediately and are enforced by Bezy's servers.","block":"Block","unblock":"Unblock","unblock_done":"This person has been unblocked.","block_confirm":"{name} will no longer see you or be able to contact you through Bezy. Your match will be ended.","block_done":"Blocked.","unmatch":"Unmatch","unmatch_confirm":"End your match with {name}? Neither of you will see the other in Bezy again.","unmatch_done":"Unmatched.","report":"Report","report_reason":"Reason","report_details":"What happened? (optional)","report_send":"Send report","report_done":"Report sent. This person has also been blocked.","report_note":"Reporting also blocks this person. Bezy reviews reports; we cannot promise a response time.","reason_harassment":"Harassment or abuse","reason_spam":"Spam","reason_scam":"Scam or fraud","reason_fake_profile":"Fake profile or impersonation","reason_inappropriate_content":"Inappropriate content","reason_underage":"Appears to be under 18","reason_other":"Something else","blocked_people":"Blocked people","no_blocked":"You haven't blocked anyone.","cancel":"Cancel","export_data":"Download my data","export_preparing":"Preparing your data…","export_ready":"Your data has been downloaded.","delete_account":"Delete my account","delete_explain":"This permanently deletes your Bezy profile, your likes and passes, your matches and your blocks. It cannot be undone.","delete_retained":"Records of payments you made and their invoice links are kept for accounting, and reports — filed by you or about you — are kept for safety. Your Telegram account itself is not affected.","delete_type":"Type DELETE to confirm","delete_done_title":"Your Bezy account has been deleted.","delete_done_body":"You can close this window. If you ever want to come back, just open Bezy again and create a new profile.","rights_note":"For corrections or a complaint, contact contacts@digitalconcordia.com.","legal_help":"Legal help","footer_note":"Built with intention","remove":"Remove","support_title":"Help & support","support_intro":"Bezy support can help diagnose common problems.","support_help":"Get help","support_formal":"Need to make a formal privacy or legal request? Contact us.","support_contact":"Contact support","support_history":"My support requests","support_history_empty":"You have no support requests.","support_form_title":"Contact support","support_form_category":"What is it about?","support_form_details":"Describe the problem","support_form_placeholder":"What happened? What have you tried?","support_submit":"Send","support_required":"Choose a topic and describe the problem.","support_done":"Your support request has been received. Reference: {ref}. We'll review it and get back to you here.","support_cat_premium":"Premium & Telegram Stars","support_cat_profile":"Profile","support_cat_likes_matches":"Likes & Matches","support_cat_discovery":"Discovery","support_cat_privacy_account":"Privacy & Account","support_cat_problem":"Report a problem","support_cat_contact":"Contact support","support_status_open":"Open","support_status_in_progress":"In progress","support_status_resolved":"Resolved","support_status_closed":"Closed","support_email":"Email support","support_expectation":"We read every message and aim to answer within 3 working days.","rate_limited":"You're going a little fast. Please try again in a moment.","rate_limited_minutes":"You've done that too many times. Please try again in about {n} minutes.","stars_needed":"You need Telegram Stars in your balance to subscribe. You can top up in Telegram under Settings, then My Stars.","not_telegram_premium":"Telegram Premium is a separate Telegram subscription. It does not include Bezy Premium — Bezy Premium is paid separately with Stars.","premium_revoked":"Your Bezy Premium was refunded.","premium_lapsed_hint":"You can subscribe again below. Your profile, matches and conversations are unaffected.","prompts_title":"Prompts & icebreakers","prompts_hint":"Optional. Answer up to three — they appear on your profile and give people something to open with.","prompt_perfect_sunday":"A perfect Sunday for me…","prompt_i_value":"Something I value…","prompt_first_date":"My ideal first date…","prompt_should_know":"One thing you should know about me…","prompt_talk_for_hours":"Something I could talk about for hours…","prompt_placeholder":"Your answer","preview_profile":"Preview my profile","preview_title":"How others see you","preview_hint":"This is your card as it appears in Discover. Your Telegram username stays hidden until you match.","preview_incomplete":"Complete your profile to see how it will look.","why_matched":"Why you matched","why_interests":"You both like {values}","why_city":"You are both in {values}","why_age":"You are close in age","why_languages":"You both speak {values}","why_none":"You liked each other.","starters_title":"Ways to start","starter_interest":"Ask about {value} — you both like it.","starter_city":"Ask what they love about {value}.","starter_generic":"Start with something simple about what you already have in common.","start_with":"Start with","starter_copy":"Copy","starter_copied":"Copied. Paste it in Telegram.","starters_hint":"Bezy suggests an opener; the conversation itself happens in Telegram.","icebreaker_label":"{name}'s icebreaker","msg_placeholder":"Write a message…","msg_send":"Send","msg_send_failed":"Message not sent.","msg_retry":"Try again","msg_no_messages":"No messages yet — start the conversation.","msg_conversation_unavailable":"This conversation is no longer available.","msg_use_this_message":"Use this message","msg_premium_locked":"Messaging is a Premium feature. Unlock Premium to chat with your matches.","notify_messages":"New messages","notify_messages_note":"When a match sends you a message","prompt_none":"No prompt","prompt_number":"Prompt {n}","prompts_select_label":"Choose a prompt","prompts_answer_label":"Prompt answer","notifications_title":"Notifications","notifications_hint":"Choose what Bezy sends you in Telegram. Payment and account messages are always sent, because they are a record of something that happened to your account.","notify_matches":"New matches","notify_super_likes":"Super Likes you receive","notify_super_likes_note":"Bezy never says who sent it — open Bezy and decide for yourself.","notify_profile_reminders":"Profile reminders","notify_profile_reminders_note":"At most one a week, and only while your profile is incomplete.","notifications_saved":"Notification settings saved.","restrict_title":"Pause all processing","restrict_explain":"Bezy keeps your data but stops using it. Your profile leaves Discover, you cannot like or match, and Bezy stops sending you match and Super Like messages. Nothing is deleted, and you can lift this at any time.","restrict_action":"Pause processing","restrict_confirm":"Pause processing now","restricted_badge":"Processing is paused.","restricted_notice":"Bezy is storing your data and nothing else. Lift the pause to return to Discover.","unrestrict_action":"Resume processing","restrict_done":"Processing is paused. Your data is kept, not used.","unrestrict_done":"Processing resumed. Turn on “Show my profile in Discover” when you are ready to be seen again.","restrict_note":"This is the right to restriction of processing. Payment and account messages are still sent, and you can still download or delete your data.","error_processing_restricted":"Processing is paused for your account. Resume it in Safety & privacy to continue.","objection_title":"Object to processing","objection_explain":"You have the right to object to the way Bezy processes your data (GDPR Art. 21). If you object, Bezy stops using your data for discovery and matching: your profile leaves Discover, you cannot like or match, and Bezy stops sending you match and Super Like messages. Nothing is deleted, and you can withdraw the objection at any time.","objection_confirm":"Object now","object_action":"Object to processing","objection_badge":"You have objected to processing.","objection_notice":"Bezy is storing your data and nothing else. Withdraw the objection to return to Discover.","unobject_action":"Withdraw objection","objection_done":"Objection recorded. Bezy has stopped processing your data.","unobject_done":"Objection withdrawn. Turn on “Show my profile in Discover” when you are ready to be seen again.","objection_note":"This is the right to object to processing. Your data is kept, not deleted, and you can still download or delete your data.","languages_label":"Languages I speak","languages_hint":"Optional. Up to five. Used to show you people you can actually talk to.","languages_chosen_count":"{chosen} of {max} chosen","filter_languages":"Languages they speak","filter_languages_hint":"Leave empty to see everyone. Profiles that have not listed a language are always shown.","language_en":"English","language_fr":"French","language_es":"Spanish","language_pt":"Portuguese","language_ar":"Arabic","language_de":"German","language_it":"Italian","language_ru":"Russian","language_sw":"Swahili","language_yo":"Yoruba"},
       // END fallback catalogue
     };
     document.documentElement.lang = 'en';

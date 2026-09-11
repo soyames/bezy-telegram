@@ -92,10 +92,11 @@ async function handleMatches(req, res, user) {
     // than assumed from the match document itself: a match only ever displays while both
     // sides still hold a like for each other. Deliberately non-mutating — a stale document
     // is skipped here, never rewritten on read.
-    const [otherSnap, myActionSnap, otherActionSnap] = await Promise.all([
+    const [otherSnap, myActionSnap, otherActionSnap, conversationSnap] = await Promise.all([
       db().collection('users').doc(String(otherId)).get(),
       db().collection('users').doc(String(user.id)).collection('actions').doc(String(otherId)).get(),
-      db().collection('users').doc(String(otherId)).collection('actions').doc(String(user.id)).get()
+      db().collection('users').doc(String(otherId)).collection('actions').doc(String(user.id)).get(),
+      db().collection('conversations').doc(matchDoc.id).get()
     ]);
     if (!otherSnap.exists) return;
     const myAction = myActionSnap.exists ? myActionSnap.data()?.action : '';
@@ -103,6 +104,19 @@ async function handleMatches(req, res, user) {
     if (!isLike(myAction) || !isLike(otherAction)) return;
 
     const otherData = otherSnap.data() || {};
+    // The conversation preview for the Messages tab: last message, when, and whether it is
+    // unread for this reader. No message content beyond the single-line preview is returned
+    // here — the full history lives behind the authorized /api/messages endpoint.
+    const conversationData = conversationSnap.exists ? conversationSnap.data() : null;
+    const lastMessageAt = conversationData?.lastMessageAt?.toMillis?.() ?? 0;
+    const lastRead = conversationData?.lastRead?.[String(user.id)];
+    const lastReadAt = lastRead?.toMillis?.() ?? 0;
+    const conversation = conversationData ? {
+      lastMessagePreview: String(conversationData.lastMessagePreview || ''),
+      lastMessageAt: lastMessageAt > 0 ? new Date(lastMessageAt).toISOString() : null,
+      lastMessageSenderId: String(conversationData.lastMessageSenderId || ''),
+      unread: String(conversationData.lastMessageSenderId || '') !== String(user.id) && lastMessageAt > 0 && lastReadAt < lastMessageAt
+    } : { lastMessagePreview: '', lastMessageAt: null, lastMessageSenderId: '', unread: false };
     // Firestore Timestamps do not survive JSON serialization in a usable shape,
     // so the API returns milliseconds and an ISO string the Mini App can render.
     const matchedAtMs = matchData.createdAt?.toMillis?.() ?? new Date(matchData.createdAt || 0).getTime();
@@ -113,7 +127,8 @@ async function handleMatches(req, res, user) {
       sharedSignals: sharedSignals(myProfile, otherData.profile || {}),
       matchId: matchDoc.id,
       matchedAtMs: Number.isFinite(matchedAtMs) ? matchedAtMs : 0,
-      matchedAt: Number.isFinite(matchedAtMs) && matchedAtMs > 0 ? new Date(matchedAtMs).toISOString() : null
+      matchedAt: Number.isFinite(matchedAtMs) && matchedAtMs > 0 ? new Date(matchedAtMs).toISOString() : null,
+      conversation
     });
   }));
 

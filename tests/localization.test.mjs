@@ -68,7 +68,7 @@ const FAMILIES = {
   'plan_': ['monthly', 'quarterly', 'yearly'],
   'reason_': ['harassment', 'spam', 'scam', 'fake_profile', 'inappropriate_content', 'underage', 'other'],
   'prompt_': ['perfect_sunday', 'i_value', 'first_date', 'should_know', 'talk_for_hours'],
-  'notify_': ['matches', 'super_likes'],
+  'notify_': ['matches', 'super_likes', 'messages'],
   'language_': ['en', 'fr', 'es', 'pt', 'ar', 'de', 'it', 'ru', 'sw', 'yo'],
   '': ['block', 'unmatch', 'block_confirm', 'unmatch_confirm', 'block_done', 'unmatch_done']
 };
@@ -87,7 +87,8 @@ const mapped = Object.fromEntries([...errorBlock.matchAll(/([A-Z_]{4,}):\s*'app\
 const USER_REACHABLE = [
   'RATE_LIMITED', 'PREMIUM_REQUIRED', 'AGE_CONFIRMATION_REQUIRED', 'TARGET_NOT_FOUND',
   'DATABASE_UNAVAILABLE', 'INVALID_SESSION', 'PROFILE_NOT_FOUND',
-  'DISCOVERY_LIMIT_REACHED', 'SUPER_LIKE_LIMIT_REACHED', 'PROCESSING_RESTRICTED'
+  'DISCOVERY_LIMIT_REACHED', 'SUPER_LIKE_LIMIT_REACHED', 'PROCESSING_RESTRICTED',
+  'CONVERSATION_UNAVAILABLE'
 ];
 for (const code of USER_REACHABLE) {
   const key = mapped[code];
@@ -237,7 +238,8 @@ section('No hardcoded copy in runtime-populated elements');
   const RUNTIME_FILLED = [
     'discover-loading', 'premium-loading', 'people-label', 'match-label', 'new-label',
     'my-name', 'profile-status', 'my-avatar', 'prompts-hint', 'prompts-list',
-    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice', 'support-intro', 'support-formal', 'support-expectation', 'privacy-by-design'
+    'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice', 'support-intro', 'support-formal', 'support-expectation', 'privacy-by-design',
+    'chat-name', 'chat-sub', 'chat-status', 'chat-messages', 'chat-why', 'chat-locked'
   ];
   for (const id of RUNTIME_FILLED) {
     const m = new RegExp(`id="${id}"[^>]*>([^<]*)<`).exec(html);
@@ -246,7 +248,7 @@ section('No hardcoded copy in runtime-populated elements');
   }
   // And each must actually be populated at runtime, or emptying it would leave a blank.
   const populated = new Set([...app.matchAll(/setText\('([^']+)'/g)].map((m) => m[1]));
-  const byRender = ['my-name', 'profile-status', 'my-avatar', 'prompts-list', 'notification-list', 'restriction-notice', 'objection-notice'];
+  const byRender = ['my-name', 'profile-status', 'my-avatar', 'prompts-list', 'notification-list', 'restriction-notice', 'objection-notice', 'chat-why', 'chat-messages', 'chat-locked'];
   for (const id of RUNTIME_FILLED) {
     check(`#${id} is populated at runtime`, populated.has(id) || byRender.includes(id),
       'neither setText nor a render function fills it');
@@ -340,9 +342,12 @@ for (const col of FIRESTORE_COLLECTIONS) {
 
 // Telegram links are built from the stored handle, never from a translated string.
 section('Telegram links are built from data, not from translations');
-check('the t.me link is a literal template over the username',
-  /https:\/\/t\.me\/\$\{[a-zA-Z.]*username\}/.test(app) || /https:\/\/t\.me\/\$\{button\.dataset\.chat\}/.test(app),
-  'no literal t.me template found');
+// Bezy conversations (ADR 0009): no user-targeted t.me link is built from data anymore —
+// conversations open inside the Mini App. The only remaining Telegram links are the static
+// canonical bot entry points pinned elsewhere in this suite.
+check('no user-targeted t.me link is built from data anymore',
+  !/https:\/\/t\.me\/\$\{/.test(app) && !/t\.me\/\$\{button\.dataset\.chat\}/.test(app),
+  'a data-built t.me link remains in app.js');
 check('no translation is interpolated into a link', !/href="\$\{t\(/.test(app) && !/t\.me\/\$\{t\(/.test(app));
 check('legal links carry the language as a query parameter, not a translated path',
   /\/privacy\?lang=\$\{state\.lang\}/.test(app) && /\/terms\?lang=\$\{state\.lang\}/.test(app));

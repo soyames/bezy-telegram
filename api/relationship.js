@@ -48,6 +48,13 @@ async function block(firestore, userId, targetId) {
     batch.set(matchRef, { active: false, endedAt: now, endedBy: userId, endedReason: 'block' }, { merge: true });
   }
 
+  // The Bezy conversation is closed too: messaging stops immediately for both sides, and
+  // the conversation screen reports the conversation as unavailable.
+  const conversationRef = firestore.collection('conversations').doc(matchId(userId, targetId));
+  if ((await conversationRef.get()).exists) {
+    batch.set(conversationRef, { status: 'blocked', updatedAt: now }, { merge: true });
+  }
+
   // A block also records a decision, so the pair never resurfaces in discovery.
   batch.set(firestore.collection('users').doc(userId).collection('actions').doc(targetId), { action: 'pass', createdAt: now }, { merge: true });
   batch.set(firestore.collection('users').doc(targetId).collection('actions').doc(userId), { action: 'pass', createdAt: now }, { merge: true });
@@ -113,6 +120,12 @@ async function unmatch(firestore, userId, targetId) {
   batch.set(firestore.collection('users').doc(targetId).collection('actions').doc(userId), { action: 'pass', createdAt: now }, { merge: true });
   batch.delete(firestore.collection('users').doc(userId).collection('likesReceived').doc(targetId));
   batch.delete(firestore.collection('users').doc(targetId).collection('likesReceived').doc(userId));
+  // The conversation closes with the match: no further messaging either way. The message
+  // history is kept — it records what the two users exchanged — but nothing new can be sent.
+  const conversationRef = firestore.collection('conversations').doc(matchId(userId, targetId));
+  if ((await conversationRef.get()).exists) {
+    batch.set(conversationRef, { status: 'closed', updatedAt: now }, { merge: true });
+  }
   await batch.commit();
   return { unmatched: true };
 }

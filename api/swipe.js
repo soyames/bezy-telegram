@@ -1,5 +1,5 @@
 import { db } from './_firebase.js';
-import { miniAppUrl, requirePost, requireTelegramUser, telegramUserLink, telegramApi, normalizedLanguage } from './_telegram.js';
+import { miniAppUrl, requirePost, requireTelegramUser, normalizedLanguage } from './_telegram.js';
 import { isPremiumActive, checkSwipeQuota } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 import { deliverNotification } from './_notify.js';
@@ -11,24 +11,18 @@ function matchId(a, b) {
   return [String(a), String(b)].sort().join('_');
 }
 
-// Per the Telegram-Native Communication Principle, the notification hands the conversation
-// back to Telegram. It must not offer a "call" button: the Bot API cannot start a call on a
-// user's behalf, so calling is described as something the users do with Telegram's own
-// controls once they are in the chat.
+// The match notification points at the Bezy conversation (ADR 0009): Bezy owns messaging
+// between matched users, and the button opens the Mini App where the conversation lives.
 function matchMessage(language, name) {
   return language === 'fr'
-    ? `💜 Match avec ${name} ! Vous vous êtes tous les deux appréciés.\n\nVotre conversation se poursuit sur Telegram — messages, appels vocaux et vidéo inclus.`
-    : `💜 You matched with ${name}! You both liked each other.\n\nYour conversation continues on Telegram — messages, voice and video calls included.`;
+    ? `💜 Match avec ${name} ! Vous vous êtes tous les deux appréciés.\n\nVotre conversation vous attend dans Bezy.`
+    : `💜 You matched with ${name}! You both liked each other.\n\nYour conversation is waiting for you inside Bezy.`;
 }
 
-// Also sent on demand for username-less matched users: the Mini App webview cannot fire
-// tg:// deep links reliably, while a tg:// URL in a bot button is resolved by the Telegram
-// client itself — so the re-sent notification is the deterministic path to their profile.
 export async function notifyMatch(firestore, user, other, language) {
   const otherName = other.profile?.displayName || other.firstName || (language === 'fr' ? 'votre match' : 'your match');
-  const openChatText = language === 'fr' ? '💬 Ouvrir la conversation' : '💬 Open Telegram chat';
-  const openBezyText = language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy';
-  const buttons = [[{ text: openChatText, url: telegramUserLink(other) }], [{ text: openBezyText, web_app: { url: miniAppUrl('matches') } }]];
+  const openChatText = language === 'fr' ? '💬 Commencer la conversation' : '💬 Start chatting';
+  const buttons = [[{ text: openChatText, web_app: { url: miniAppUrl('messages') } }]];
   return deliverNotification(firestore, user, 'matches', {
     text: matchMessage(language, otherName),
     reply_markup: { inline_keyboard: buttons }
@@ -176,16 +170,6 @@ export default async function handler(req, res) {
     });
 
     if (result.created) {
-      // The match notification hands the conversation over via the stored @username, which
-      // can go stale between the target's visits to Bezy. Both participants are known to
-      // the bot, so the handle is re-read from Telegram at the moment it matters most.
-      // Best-effort: on any failure the stored value stands. A handle that was removed is
-      // cleared, so the link falls back to the numeric deep link instead of a dead t.me
-      // address (or one someone else has since taken).
-      try {
-        const freshTarget = await telegramApi('getChat', { chat_id: targetId });
-        await firestore.collection('users').doc(targetId).update({ username: freshTarget?.username || '' });
-      } catch { /* keep the stored value */ }
       const currentSnap = await userRef.get();
       const current = currentSnap.data() || { telegramId: user.id };
       const language = normalizedLanguage(user.language_code);
