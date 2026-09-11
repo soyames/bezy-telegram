@@ -243,6 +243,7 @@
     "starter_copy": "Copy",
     "starter_copied": "Copied. Paste it in Telegram.",
     "starters_hint": "Bezy suggests an opener; the conversation itself happens in Telegram.",
+    "icebreaker_label": "{name}'s icebreaker",
     "prompt_none": "No prompt",
     "prompt_number": "Prompt {n}",
     "prompts_select_label": "Choose a prompt",
