@@ -120,6 +120,7 @@ test('blocked people can be listed and unblocked', async ({ page }) => {
 
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   await page.locator('#blocked-list-btn').click();
   await expect(page.locator('#sheet-host')).toContainText('Bo');
 
@@ -132,6 +133,7 @@ test('a user can download their own data', async ({ page }) => {
   await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
 
   const download = page.waitForEvent('download');
   await page.locator('#export-data-btn').click();
@@ -152,6 +154,7 @@ test('account deletion requires typed confirmation and removes the account', asy
   const users = await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   await page.locator('#delete-account-btn').click();
 
   // The consequences, including what is retained, are stated before confirming.
@@ -178,6 +181,7 @@ test('the support card leads with the bot and files requests from the history sh
   await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   // The primary support entry point is the canonical bot, not an email form.
   await expect(page.locator('#support-bot-btn')).toHaveAttribute('href', 'https://t.me/BezyDatingBot');
   await expect(page.locator('#support-bot-btn')).toHaveText('Get help');
@@ -200,14 +204,17 @@ test('safety and privacy controls are localized in French', async ({ page }) => 
   await page.locator('.nav button[data-view="profile"]').click();
   const profile = await page.locator('#profile-view').innerText();
   expect(profile).not.toMatch(/\bapp\.[a-z_]+/);
-  expect(profile).toContain('Sécurité');
-  expect(profile).toContain('Confidentialité et vos données');
-  expect(profile).toContain('pas votre GPS');
-  expect(profile).toContain('Télécharger mes données');
-  expect(profile).toContain('Supprimer mon compte');
-  expect(profile).toContain('Mentions légales');
-  expect(profile).toContain('Aide et assistance');
-  expect(profile).toContain('3 jours ouvrés');
+  expect(profile).toContain('Paramètres et confidentialité');
+  // The settings side of the profile sits behind the Settings & Privacy tab.
+  await page.locator('#tab-settings').click();
+  expect(await page.locator('#profile-view').innerText()).toContain('Sécurité');
+  expect(await page.locator('#profile-view').innerText()).toContain('Confidentialité et vos données');
+  expect(await page.locator('#profile-view').innerText()).toContain('pas votre GPS');
+  expect(await page.locator('#profile-view').innerText()).toContain('Télécharger mes données');
+  expect(await page.locator('#profile-view').innerText()).toContain('Supprimer mon compte');
+  expect(await page.locator('#profile-view').innerText()).toContain('Aide juridique');
+  expect(await page.locator('#profile-view').innerText()).toContain('Aide et assistance');
+  expect(await page.locator('#profile-view').innerText()).toContain('3 jours ouvrés');
   // The support entry point is a machine token: it always links the canonical address.
   await expect(page.locator('#support-email-btn')).toHaveAttribute('href', 'mailto:contacts@digitalconcordia.com');
   // The two legal states sit behind one human-readable entry point.
