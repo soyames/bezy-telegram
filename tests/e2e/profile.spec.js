@@ -207,7 +207,7 @@ test('openers are reachable from the Messages view too', async ({ page }) => {
   await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="messages"]').click();
-  await page.locator('.conversation [data-starters]').click();
+  await page.locator('#messages-view .match-card [data-starters]').click();
   await expect(page.locator('.sheet .starter')).not.toHaveCount(0);
 });
 

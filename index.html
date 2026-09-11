@@ -65,6 +65,8 @@
     .mf-icebreaker{display:flex;gap:10px;background:#f6f4fa;border:1px solid var(--line);border-radius:16px;padding:12px 13px;margin-top:12px;align-items:flex-start}.mf-icebreaker:before{content:"💬";font-size:16px;line-height:1.4}.mf-icebreaker-label{display:block;font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#8a8394}.mf-icebreaker p{margin:3px 0 0;font-size:12px;font-style:italic;color:var(--text);line-height:1.45}
     .mf-actions{display:grid;gap:9px;margin-top:14px}.mf-primary{border:0;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;border-radius:16px;padding:13px;font-size:13px;font-weight:800;width:100%;cursor:pointer;box-shadow:0 8px 20px rgba(124,58,237,.3)}.mf-action{border:1px solid #e4d5fb;background:var(--soft);color:#6d28d9;border-radius:16px;padding:12px;font-size:13px;font-weight:800;width:100%;cursor:pointer}.mf-safety{border-color:var(--line);background:#f6f4fa;color:var(--muted);font-size:11px;font-weight:700;padding:10px}
     .mf-footer{text-align:center;padding:4px 0 6px}.mf-footer a{font-size:11px;font-weight:700;color:#b3adbc;text-decoration:none}
+    .mf-note{font-size:11px;color:var(--muted);margin:0 2px 12px}
+    .starter-head{display:block;font-size:10px;font-weight:800;color:#8a8394;text-transform:uppercase;letter-spacing:.6px;margin:14px 2px 8px}
     @media(max-width:360px){.portrait{height:390px}.app{padding-left:12px;padding-right:12px}.hero h2{font-size:25px}.two-col{grid-template-columns:1fr}}
   </style>
 </head>
@@ -94,6 +96,7 @@
 
     <section class="view" id="messages-view">
       <div class="section-head"><h3 id="messages-title">Messages</h3><span style="font-size:11px;color:var(--muted)" id="protected-label">Protected by Bezy</span></div>
+      <p class="mf-note" id="conversation-note"></p>
       <div id="conversation-list"></div>
       <div class="empty hidden" id="message-empty">Your conversations will appear here after a mutual match.</div>
     </section>
