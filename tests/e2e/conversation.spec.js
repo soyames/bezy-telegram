@@ -90,6 +90,20 @@ test('a match without a @username resolves the numeric Telegram deep link', asyn
   expect(await lastTelegramLink(page)).toBe('tg://user?id=900000003');
 });
 
+test('a match without a @username explains the profile-first handoff', async ({ page }) => {
+  await stubApi(page, { matches: [MATCH_CY] });
+  await page.goto('/?as=a');
+  await openMessages(page);
+  await expect(page.locator('#messages-view .mf-handoff-hint')).toHaveText(en.chat_no_username_hint);
+});
+
+test('a match with a @username shows no handoff caveat', async ({ page }) => {
+  await stubApi(page, { matches: [MATCH_BO] });
+  await page.goto('/?as=a');
+  await openMessages(page);
+  await expect(page.locator('#messages-view .mf-handoff-hint')).toHaveCount(0);
+});
+
 test('Ways to start shows the why-you-matched chips and at least one usable opener', async ({ page }) => {
   await stubApi(page, { matches: [MATCH_BO] });
   await page.goto('/?as=a');

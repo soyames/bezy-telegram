@@ -78,19 +78,34 @@ async function handleMatches(req, res, user) {
     .limit(50)
     .get();
 
+  const isLike = (action) => action === 'like' || action === 'super';
+
   const matches = [];
-  for (const matchDoc of snapshot.docs) {
+  await Promise.all(snapshot.docs.map(async (matchDoc) => {
     const matchData = matchDoc.data() || {};
-    if (matchData.active === false) continue;
+    if (matchData.active === false) return;
     const participants = matchData.participants || [];
     const otherId = participants.find((id) => String(id) !== String(user.id));
-    if (!otherId) continue;
-    const otherSnap = await db().collection('users').doc(String(otherId)).get();
-    if (!otherSnap.exists) continue;
+    if (!otherId) return;
+
+    // The reciprocal-like invariant is verified against the live action documents rather
+    // than assumed from the match document itself: a match only ever displays while both
+    // sides still hold a like for each other. Deliberately non-mutating — a stale document
+    // is skipped here, never rewritten on read.
+    const [otherSnap, myActionSnap, otherActionSnap] = await Promise.all([
+      db().collection('users').doc(String(otherId)).get(),
+      db().collection('users').doc(String(user.id)).collection('actions').doc(String(otherId)).get(),
+      db().collection('users').doc(String(otherId)).collection('actions').doc(String(user.id)).get()
+    ]);
+    if (!otherSnap.exists) return;
+    const myAction = myActionSnap.exists ? myActionSnap.data()?.action : '';
+    const otherAction = otherActionSnap.exists ? otherActionSnap.data()?.action : '';
+    if (!isLike(myAction) || !isLike(otherAction)) return;
+
+    const otherData = otherSnap.data() || {};
     // Firestore Timestamps do not survive JSON serialization in a usable shape,
     // so the API returns milliseconds and an ISO string the Mini App can render.
     const matchedAtMs = matchData.createdAt?.toMillis?.() ?? new Date(matchData.createdAt || 0).getTime();
-    const otherData = otherSnap.data() || {};
     matches.push({
       ...publicMatch(otherId, otherData),
       // Why you matched, and the starter suggestions derived from it, are computed from the
@@ -100,7 +115,7 @@ async function handleMatches(req, res, user) {
       matchedAtMs: Number.isFinite(matchedAtMs) ? matchedAtMs : 0,
       matchedAt: Number.isFinite(matchedAtMs) && matchedAtMs > 0 ? new Date(matchedAtMs).toISOString() : null
     });
-  }
+  }));
 
   matches.sort((a, b) => b.matchedAtMs - a.matchedAtMs);
 

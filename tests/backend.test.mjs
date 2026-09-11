@@ -687,6 +687,72 @@ try {
   r = await call('/api/relationship', 'a', { action: 'unmatch', targetId: '900000003' });
   check('unmatch with no match is a safe no-op', r.status === 200 && r.data.unmatched === false, JSON.stringify(r.data));
 
+  // ------------------------------------------------ mutual-like state machine
+  section('Mutual-like state machine (reciprocal consent invariant)');
+  const activeMatchDocs = async (a, b) => (await firestore.collection('matches')
+    .where('participants', 'array-contains', a).get()).docs
+    .filter((d) => (d.data().participants || []).map(String).includes(b) && d.data().active !== false);
+
+  // CASE 1 — one-sided Like: A likes B, B has not liked A.
+  await cleanup();
+  await seedAll();
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('CASE 1: one-sided like is accepted without claiming a match', r.status === 200 && r.data.matched === false, JSON.stringify(r.data));
+  check('CASE 1: one-sided like creates no match document',
+    (await activeMatchDocs('900000001', '900000002')).length === 0);
+  check('CASE 1: A sees no match after their own like alone', (await call('/api/matches', 'a')).data.matches.length === 0);
+  check('CASE 1: B sees no match after receiving an unanswered like', (await call('/api/matches', 'b')).data.matches.length === 0);
+
+  // CASE 2 — reciprocal like creates exactly one canonical match, visible to both.
+  r = await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  check('CASE 2: reciprocation creates the match', r.data.matched === true, JSON.stringify(r.data));
+  check('CASE 2: exactly one canonical match document exists', (await activeMatchDocs('900000001', '900000002')).length === 1);
+  check('CASE 2: both sides see the match',
+    (await call('/api/matches', 'a')).data.matches.length === 1 && (await call('/api/matches', 'b')).data.matches.length === 1);
+
+  // CASE 3 — reverse order: B likes first, no match until A reciprocates; no duplicates.
+  await cleanup();
+  await seedAll();
+  r = await call('/api/swipe', 'c', { targetId: '900000004', action: 'like' });
+  check('CASE 3: first like alone creates no match', r.data.matched === false, JSON.stringify(r.data));
+  r = await call('/api/swipe', 'd', { targetId: '900000003', action: 'like' });
+  check('CASE 3: match appears exactly on reciprocation', r.data.matched === true);
+  check('CASE 3: exactly one match document', (await activeMatchDocs('900000003', '900000004')).length === 1);
+  await call('/api/swipe', 'd', { targetId: '900000003', action: 'like' });
+  check('CASE 3: a repeated like does not create a second match document',
+    (await activeMatchDocs('900000003', '900000004')).length === 1);
+
+  // CASE 4 — compatibility without reciprocal Like: NO MATCH. Shared signals may explain and
+  // rank, but they can never substitute for mutual consent.
+  await cleanup();
+  await seedAll();
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
+  check('CASE 4: compatibility without reciprocal like creates no match',
+    r.data.matched === false && (await activeMatchDocs('900000001', '900000002')).length === 0,
+    JSON.stringify(r.data));
+  check('CASE 4: the liked profile is never listed as a match for either side',
+    (await call('/api/matches', 'a')).data.matches.length === 0 && (await call('/api/matches', 'b')).data.matches.length === 0);
+
+  // CASE 5 — a pass after a match ends it; no stale conversation-eligible match remains.
+  await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
+  check('CASE 5: match exists before the pass', (await activeMatchDocs('900000001', '900000002')).length === 1);
+  r = await call('/api/swipe', 'a', { targetId: '900000002', action: 'pass' });
+  check('CASE 5: post-match pass is accepted', r.status === 200, JSON.stringify(r.data));
+  check('CASE 5: post-match pass deactivates the match document',
+    (await activeMatchDocs('900000001', '900000002')).length === 0);
+  check('CASE 5: the match disappears for both sides',
+    (await call('/api/matches', 'a')).data.matches.length === 0 && (await call('/api/matches', 'b')).data.matches.length === 0);
+
+  // Read-path verification: a stale active match document with no underlying likes must
+  // never be displayed, even if it somehow exists.
+  await cleanup();
+  await seedAll();
+  await firestore.collection('matches').doc('900000001_900000002').set({
+    participants: ['900000001', '900000002'], createdAt: new Date(), source: 'mutual_like', active: true
+  });
+  check('a match document with no underlying likes is filtered by the read path',
+    (await call('/api/matches', 'a')).data.matches.length === 0 && (await call('/api/matches', 'b')).data.matches.length === 0);
+
   section('Relationship authorization');
   r = await call('/api/relationship', 'user=%7B%22id%22%3A1%7D&hash=deadbeef', { action: 'block', targetId: '900000002' });
   check('unauthenticated relationship call rejected', r.status === 401);

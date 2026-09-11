@@ -245,6 +245,7 @@
     "starter_copied": "Copied. Paste it in Telegram.",
     "starters_hint": "Bezy suggests an opener; the conversation itself happens in Telegram.",
     "icebreaker_label": "{name}'s icebreaker",
+    "chat_no_username_hint": "They have no @username — Telegram opens their profile; send your first message from there.",
     "prompt_none": "No prompt",
     "prompt_number": "Prompt {n}",
     "prompts_select_label": "Choose a prompt",
