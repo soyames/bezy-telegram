@@ -41,3 +41,22 @@ test('the gender select never pre-selects a value on every engine', async ({ pag
   await expect(gender.locator('option:checked')).toHaveText('Choose…');
   await expect(gender).toHaveJSProperty('required', true);
 });
+
+test('the story share action opens Telegram story editor with the official event', async ({ page }) => {
+  // The only Mini-App-supported Telegram Stories surface is web_app_share_to_story: the
+  // client opens its native story editor with the Bezy media, a localized caption and the
+  // canonical bot widget link. The button exists only on supporting clients.
+  await page.goto('/?as=a');
+  await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
+  const button = page.locator('#share-story-btn');
+  await expect(button).toBeVisible();
+  await expect(button).toHaveText('Share Bezy to your story');
+  await button.click();
+  const story = await page.evaluate(() => window.__lastStory);
+  expect(story).toBeTruthy();
+  expect(story.mediaUrl).toContain('/assets/bezy-icon.png');
+  expect(story.params.text).toContain('Bezy');
+  expect(story.params.widget_link.url).toBe('https://t.me/BezyDatingBot');
+  expect(story.params.widget_link.name).toBe('Bezy');
+});

@@ -31,7 +31,7 @@ export function premiumPlan(planId) {
   return premiumPlans()[String(planId || '')] || null;
 }
 
-export const PREMIUM_BENEFITS = ['who_liked_you', 'advanced_discovery', 'more_super_likes', 'increased_visibility', 'unlimited_discovery'];
+export const PREMIUM_BENEFITS = ['who_liked_you', 'advanced_discovery', 'more_super_likes', 'increased_visibility', 'unlimited_discovery', 'messaging'];
 
 // Daily, server-enforced allowances. Free limits exist to make Premium meaningful;
 // the Premium ceiling exists only as an anti-abuse guard, not as a product limit.

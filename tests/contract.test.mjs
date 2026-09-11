@@ -172,6 +172,39 @@ section('NO RECIPROCAL LIKE = NO MATCH');
     'the mutual-like creation marker appears more than once or not at all');
 }
 
+// --------------------------------------------- Premium entitlement surfaces
+section('Premium entitlement surfaces (one source of truth)');
+{
+  const appSource = read('app.js');
+  check('the canonical benefits include Bezy messaging',
+    read('api/_premium.js').includes("'messaging'") && appSource.includes("messaging: 'app.benefit_messaging'"),
+    'messaging missing from PREMIUM_BENEFITS or BENEFIT_KEYS');
+  check('promo surfaces render from the backend premium state, never unconditionally',
+    appSource.includes('function renderPremiumSurfaces') && appSource.includes('state.premium?.premium?.active === true'),
+    'renderPremiumSurfaces or the active-membership check is missing');
+  check('premium action buttons relabel for active members',
+    appSource.includes("t(active ? 'app.view_membership' : 'app.unlock_premium')"),
+    'premium-action relabel missing');
+  check('entitlement is loaded at boot so every surface renders the right state',
+    appSource.includes('await loadPremium();'),
+    'boot premium load missing from init');
+}
+
+// --------------------------------------------- Telegram Stories integration
+section('Telegram Stories integration');
+{
+  const appSource = read('app.js');
+  check('story sharing uses the official web_app_share_to_story event',
+    appSource.includes('shareToStory(mediaUrl') && appSource.includes("'web_app_share_to_story'"),
+    'official story event missing from app.js');
+  check('the story widget links the canonical bot and Bezy media',
+    appSource.includes('https://t.me/BezyDatingBot') && appSource.includes('/assets/bezy-icon.png'),
+    'story widget link or media missing');
+  check('the share button is feature-detected, never a dead control',
+    appSource.includes('const storySupported = Boolean(tg?.shareToStory)'),
+    'story feature detection missing');
+}
+
 // --------------------------------------------- Bezy messaging API (ADR 0009)
 section('Messaging API contract');
 {
