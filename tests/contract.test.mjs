@@ -123,6 +123,23 @@ section('Conversation hand-off');
   check('the primary conversation action is labelled by state',
     appSource.includes('start_conversation') && appSource.includes('continue_conversation'),
     'start/continue conversation labels missing');
+  // A client without openTelegramLink must still hand tg:// to the system opener — a silent
+  // dead button was the live "Continue conversation does nothing" failure mode.
+  check('a tg:// link never dies silently when openTelegramLink is missing',
+    appSource.includes('window.location.href = url'), 'system-opener fallback missing from openTelegramLink');
+  // The Messages tab must be the same actionable hierarchy as Matches — primary conversation
+  // CTA, ways to start, safety — never a decorative list that cannot reach a conversation.
+  check('the Messages tab reuses the full match card hierarchy',
+    appSource.includes("state.matches.map((match) => matchCardHtml(match, 'c'))"),
+    'Messages tab does not render matchCardHtml');
+  check('every match card carries the conversation CTA, starters and safety actions',
+    appSource.includes('data-chat=') && appSource.includes('data-starters=') && appSource.includes('data-actions='),
+    'a card action hook is missing from matchCardHtml');
+  // The starters sheet must always yield at least one usable opener, so an empty state can
+  // never render silently blank.
+  check('the starters sheet always yields at least one opener',
+    appSource.includes("suggestions.push(t('app.starter_generic'))"),
+    'starter_generic fallback missing from starterSuggestions');
   // The deck card carries the numeric target id by documented design (the client must be
   // able to name who it is swiping on); the @username remains the match-gated handle and is
   // pinned by the match-card checks above.

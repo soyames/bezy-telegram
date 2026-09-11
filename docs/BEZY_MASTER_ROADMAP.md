@@ -35,9 +35,10 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟢 **Working tree clean at `ad8731b`** (`chore: record post-commit checkpoint state in the
-roadmap`). **Pushed — `main` is in sync with `origin/main`, and the Vercel production build
-was verified to match the working tree (smoke suite deploy-freshness check, 2026-09-10).**
+🟡 **Uncommitted conversation-flow fix on top of `b37aeb7`** (`feat: redesign matches page…`).
+Pushed earlier the same day: `22d1fdd` (profile redesign) and `b37aeb7` (matches redesign).
+The match → conversation workstream fix is complete and tested but was left **uncommitted and
+unpushed by instruction** — see §20 "match → conversation flow fixed".
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -45,9 +46,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Discovery candidate-window fix, filter-serialization fix, gender-default fix + eligibility self-diagnosis (see §20 "discovery candidate window removed" and "Everyone discovery fixed + match→chat hand-off fixed"): `api/discover.js` (where-only query, in-memory newest-first sort, whole-pool eligibility, Everyone semantics in `genderMatches`), `app.js` (filter defaults, gender placeholder, eligibility self-display, match→chat hand-off with `tg://user?id=` and Start/Continue labels), `firestore.indexes.json` (users composite index removed), `tests/discovery.test.mjs` (new pure suite, 50 checks), `tests/backend.test.mjs` (Firestore-backed regressions incl. Everyone), `tests/contract.test.mjs` (window-free + hand-off pins), `tests/e2e/browsers.spec.js` (gender placeholder regression), `scripts/diagnose-discover.mjs` (read-only operator diagnostic), locales EN/FR, docs (ARCHITECTURE, this roadmap) |
+| Uncommitted | Match → conversation flow fix (see §20 "match → conversation flow fixed"): `app.js` (tg:// system-opener fallback in `openTelegramLink`; Messages tab renders the full match-card hierarchy via `matchCardHtml(match, 'c')` incl. safety actions; labeled "Start with" section in the starters sheet), `index.html` (conversation bridge copy `#conversation-note`, `.mf-note`/`.starter-head` styles), `locales/en.json` + `fr.json` (`conversation_hint` → "Your conversation happens securely in Telegram.", `starter_generic` reworded, new `start_with`), `tests/contract.test.mjs` (4 new hand-off pins, 95 → 99), `tests/e2e/conversation.spec.js` (new Firestore-free cross-engine suite, 7 tests), `tests/e2e/profile.spec.js` (messages-view selector) |
 | Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regression scenarios are likewise written but unexecuted |
-| Unpushed | Nothing — pushed at `ad8731b` |
+| Unpushed | The conversation-flow fix above (left uncommitted by instruction). Pushed up to `b37aeb7`; `main` is in sync with `origin/main` at `b37aeb7` |
 
 ---
 
@@ -483,6 +484,38 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — match → conversation flow fixed (audit → fix → test, uncommitted by instruction)
+- **Audit findings:** (1) the Messages tab was a weak bridge — a small chat pill, no
+  why-you-matched, no safety entry, no explicit bridge copy — with no in-Bezy composer by
+  architecture (Telegram owns messaging), so the screen did not clearly lead to a real
+  conversation; (2) `openTelegramLink` silently did nothing for `tg://` links when
+  `openTelegramLink` was unavailable — the "Continue conversation does nothing" failure mode;
+  (3) `starterSuggestions` already guaranteed a generic fallback, but the sheet had no labeled
+  starter section and the generic copy was weak, so edge-case matches read as "empty".
+- **Fixed (existing architecture only, no new backend):** tg:// links fall back to the system
+  opener as a last resort; the Messages tab now renders the same card hierarchy as Matches
+  (why you matched → Start/Continue conversation → Ways to start → Safety) with the bridge
+  copy "Your conversation happens securely in Telegram."; the starters sheet gained a labeled
+  "Start with" section; `starter_generic` reworded to "Start with something simple about what
+  you already have in common."
+- **Premium:** verified no entitlement change — the conversation CTA is not Premium-gated in
+  the current design (the gate sits upstream in matching: Premium-only who-liked-you, swipe
+  quotas). Pinned by contract and e2e checks so the launch-time gate behaviour cannot drift
+  silently in either direction.
+- **Tests:** new Firestore-free cross-engine suite `tests/e2e/conversation.spec.js` — 7 tests
+  (t.me username hand-off, `tg://user?id=` numeric hand-off, starters non-empty with shared
+  signals, generic opener for nothing-in-common matches, safety reachable from Messages, no
+  CTA for unmatched users, CTA not Premium-gated); 7 passed on Chromium, 22 passed across
+  WebKit+Firefox+browsers.spec. Contract suite 95 → 99; localization 188; discovery 50.
+  Firestore-backed suites still unexecuted locally (no service account in this environment).
+- **Not committed / not pushed** (explicit workstream instruction): see §0 for the exact file
+  list.
+- **Known remaining limitation:** for a matched user with no @username, Telegram offers no
+  deep link that opens a private chat directly — `tg://user?id=` opens their Telegram profile,
+  from which the conversation is one tap. With a username (the common case) the `t.me`
+  hand-off opens the chat directly. Both are the best targets Telegram's public linking model
+  supports without a client-account workaround, which §1 forbids.
 
 ### Session — Everyone discovery fixed + match→chat hand-off fixed (both live, user-confirmed)
 - **Everyone bug (confirmed live):** a caller whose `seeking` was `everyone` could not see a
