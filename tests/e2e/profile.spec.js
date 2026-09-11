@@ -225,6 +225,7 @@ test('notification categories default to on and can be switched off', async ({ p
   const users = await seedProfiles(page);
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
 
   const toggles = page.locator('#notification-list [data-notify]');
   await expect(toggles).toHaveCount(2);
@@ -240,6 +241,7 @@ test('notification categories default to on and can be switched off', async ({ p
 
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   await expect(page.locator('[data-notify="super_likes"]')).not.toBeChecked();
   await expect(page.locator('[data-notify="matches"]')).toBeChecked();
 });
@@ -249,6 +251,7 @@ test('notification settings are localized in French', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('bezy-language', 'fr'));
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   await expect(page.locator('#notifications-hint')).toHaveText(fr.notifications_hint);
   await expect(page.locator('.notify-row').first().locator('b')).toHaveText(fr.notify_matches);
   await expect(page.locator('.notify-row').nth(1).locator('b')).toHaveText(fr.notify_super_likes);
