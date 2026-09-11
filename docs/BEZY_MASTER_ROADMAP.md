@@ -35,10 +35,10 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟡 **Uncommitted conversation-flow fix on top of `b37aeb7`** (`feat: redesign matches page…`).
-Pushed earlier the same day: `22d1fdd` (profile redesign) and `b37aeb7` (matches redesign).
-The match → conversation workstream fix is complete and tested but was left **uncommitted and
-unpushed by instruction** — see §20 "match → conversation flow fixed".
+🟡 **Uncommitted conversation-handoff fix on top of `ec1da85`** (`fix: match -> conversation
+flow end to end`). Two workstreams — match-integrity hardening and the verified-match
+handoff fix — are complete and tested but left **uncommitted and unpushed by instruction**.
+See §20 "mutual-like invariant hardened" and "verified match handoff fixed".
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -46,9 +46,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Match → conversation flow fix (see §20 "match → conversation flow fixed"): `app.js` (tg:// system-opener fallback in `openTelegramLink`; Messages tab renders the full match-card hierarchy via `matchCardHtml(match, 'c')` incl. safety actions; labeled "Start with" section in the starters sheet), `index.html` (conversation bridge copy `#conversation-note`, `.mf-note`/`.starter-head` styles), `locales/en.json` + `fr.json` (`conversation_hint` → "Your conversation happens securely in Telegram.", `starter_generic` reworded, new `start_with`), `tests/contract.test.mjs` (4 new hand-off pins, 95 → 99), `tests/e2e/conversation.spec.js` (new Firestore-free cross-engine suite, 7 tests), `tests/e2e/profile.spec.js` (messages-view selector) |
-| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regression scenarios are likewise written but unexecuted |
-| Unpushed | The conversation-flow fix above (left uncommitted by instruction). Pushed up to `b37aeb7`; `main` is in sync with `origin/main` at `b37aeb7` |
+| Uncommitted | (1) Mutual-like invariant fix (see §20 "mutual-like invariant hardened"): `api/swipe.js` (pass deactivates the match it overwrites), `api/matches.js` (read path re-verifies both action documents; read-only), `scripts/diagnose-matches.mjs` (read-only operator diagnostic). (2) Verified-match handoff fix (see §20 "verified match handoff fixed"): `app.js` (`openTelegramLink` routes `tg://` to the native opener instead of the WebApp API; match card explains the profile-first handoff for username-less matches), `api/swipe.js` (`getChat` handle refresh at match creation), `index.html` (`.mf-handoff-hint` style), `locales/en.json`+`fr.json` (`chat_no_username_hint`), `tests/contract.test.mjs` (9 new pins, 99 → 108), `tests/backend.test.mjs` (mutual-like state-machine section), `tests/e2e/conversation.spec.js` (2 new handoff-hint tests, 9 total) |
+| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regression scenarios and the new mutual-like state-machine cases are likewise written but unexecuted here |
+| Unpushed | Both uncommitted workstreams above (left uncommitted by instruction). Pushed up to `ec1da85`; `main` is in sync with `origin/main` at `ec1da85` |
 
 ---
 
@@ -484,6 +484,59 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — verified match handoff fixed (uncommitted by instruction)
+- **DB state verified (by operator):** match `2096013731_702749047` is a real mutual match —
+  both `like` actions present, `source: 'mutual_like'`, `active=true`, created
+  2026-09-10T15:42Z, diagnostic reports 0 active non-mutual documents. Matching integrity for
+  this case is VERIFIED; the matching algorithm was not reopened.
+- **Root cause of the broken conversation:** the handoff for a matched user without a
+  `@username` builds `tg://user?id=<numeric>` and passed it to `WebApp.openTelegramLink`,
+  whose documented input is `https://t.me/…` — clients reject or silently drop the tg://
+  input, so the CTA did nothing. A secondary hazard: the stored `@username` used for the
+  t.me link can be stale (refreshed only when the target uses Bezy), sending the user to a
+  dead or re-taken handle.
+- **Fixed:** `openTelegramLink` now routes `https://t.me/…` through the WebApp API and hands
+  `tg://` to the client's native opener via webview navigation (Telegram intercepts its own
+  scheme); the match card explains the profile-first, one-more-tap flow for username-less
+  matches (`chat_no_username_hint`, EN/FR); `api/swipe.js` re-reads the target's handle with
+  `getChat` at match creation and clears removed handles, so the match notification's
+  "Open Telegram chat" button and the in-app CTA never point at a stale t.me address.
+  No new backend, no fake chat, no Premium change, no identity change — the numeric
+  Telegram id stays canonical.
+- **Verified in code/tests:** contract 104 → 108 (tg:// native-opener routing, https-only
+  openTelegramLink, handoff caveat, getChat refresh); conversation e2e suite 7 → 9 tests,
+  9/9 Chromium, 26/26 WebKit+Firefox incl. browsers.spec; localization 188; discovery 50.
+  **Remains manual (real Telegram client):** that tapping the CTA opens the matched user's
+  profile/chat on a real client (iOS/Android/Desktop) — browser tests cannot drive Telegram
+  native UI; with a username the t.me link is Telegram's documented mechanism.
+- **Not committed / not pushed / not deployed** (explicit workstream instruction): see §0.
+
+### Session — mutual-like invariant hardened (match integrity audit, uncommitted by instruction)
+- **Audit verdict:** match creation has always required `isLike && isReciprocalLike`
+  (api/swipe.js, since its introducing commit `5750b74`); compatibility/ranking code
+  (api/discover.js) has no write access to the `matches` collection; likesReceived is an
+  index only; block/unmatch/account-deletion all deactivate matches. **Two integrity gaps
+  found:** (1) a swipe `pass` on an already-actioned user overwrote the like underpinning an
+  existing match without ending the match document — reachable via the API only (the deck
+  excludes decided users), leaving an active match with no reciprocal like; (2) the matches
+  read path trusted the match document alone, so any stale document would display.
+- **Fixed:** api/swipe.js ends the match when a pass overwrites its underlying like
+  (`endedReason: 'pass'`); api/matches.js re-verifies both users' action documents before
+  returning a match and is strictly read-only; `scripts/diagnose-matches.mjs` (new,
+  read-only) verifies any pair — including the real Aamir question — against live data in
+  the credentialed environment.
+- **Real Aamir state: UNKNOWN here** — no service account in this environment. The
+  diagnostic script + §0 checklist are what the credentialed operator runs; nothing was
+  inferred or mutated.
+- **Tests:** contract 99 → 104 (mutual-like creation, pass-ends-match, read-path
+  verification, compatibility-no-writes, single creation site); backend suite gained a
+  mutual-like state-machine section (one-sided like, reciprocal like, reverse order,
+  compatibility-without-consent, pass-after-match, stale-document filtering) — written, to
+  run with credentials; quota-free suites re-run here: contract 104, localization 188,
+  discovery 50, conversation e2e 7/7 Chromium.
+- **Not committed / not pushed** (explicit workstream instruction): see §0 for the exact
+  file list.
 
 ### Session — match → conversation flow fixed (audit → fix → test, uncommitted by instruction)
 - **Audit findings:** (1) the Messages tab was a weak bridge — a small chat pill, no

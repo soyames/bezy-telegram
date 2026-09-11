@@ -1,5 +1,5 @@
 import { db } from './_firebase.js';
-import { miniAppUrl, requirePost, requireTelegramUser, telegramUserLink, normalizedLanguage } from './_telegram.js';
+import { miniAppUrl, requirePost, requireTelegramUser, telegramUserLink, telegramApi, normalizedLanguage } from './_telegram.js';
 import { isPremiumActive, checkSwipeQuota } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 import { deliverNotification } from './_notify.js';
@@ -140,6 +140,13 @@ export default async function handler(req, res) {
       const isReciprocalLike = reciprocal === 'like' || reciprocal === 'super';
       const matched = isLike && isReciprocalLike;
 
+      // A pass overwrites the like that underpins an existing match, so the match is ended
+      // here rather than left dangling as an active match with no reciprocal like behind
+      // it. This is the same effect unmatch has, without the two-sided pass records.
+      if (!isLike && existingMatch.exists && existingMatch.data()?.active !== false) {
+        tx.set(matchRef, { active: false, endedAt: new Date(), endedReason: 'pass' }, { merge: true });
+      }
+
       // Reverse index of the same action, so a user can be shown who liked them without
       // scanning every other user's actions. This is an index, not a second like system.
       if (isLike) tx.set(likeReceivedRef, { fromId: String(user.id), action, createdAt: new Date() }, { merge: true });
@@ -166,6 +173,16 @@ export default async function handler(req, res) {
     });
 
     if (result.created) {
+      // The match notification hands the conversation over via the stored @username, which
+      // can go stale between the target's visits to Bezy. Both participants are known to
+      // the bot, so the handle is re-read from Telegram at the moment it matters most.
+      // Best-effort: on any failure the stored value stands. A handle that was removed is
+      // cleared, so the link falls back to the numeric deep link instead of a dead t.me
+      // address (or one someone else has since taken).
+      try {
+        const freshTarget = await telegramApi('getChat', { chat_id: targetId });
+        await firestore.collection('users').doc(targetId).update({ username: freshTarget?.username || '' });
+      } catch { /* keep the stored value */ }
       const currentSnap = await userRef.get();
       const current = currentSnap.data() || { telegramId: user.id };
       const language = normalizedLanguage(user.language_code);

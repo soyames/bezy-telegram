@@ -127,6 +127,18 @@ section('Conversation hand-off');
   // dead button was the live "Continue conversation does nothing" failure mode.
   check('a tg:// link never dies silently when openTelegramLink is missing',
     appSource.includes('window.location.href = url'), 'system-opener fallback missing from openTelegramLink');
+  // The WebApp API's openTelegramLink takes https://t.me URLs; tg:// is Telegram's own
+  // in-app scheme and must go straight to the native opener (webview navigation).
+  check('openTelegramLink is only called with an https t.me input',
+    /url\.startsWith\('https:\/\/t\.me\/'\)\) \{[\s\S]{0,140}openTelegramLink\(url\)/.test(appSource),
+    'the https guard no longer owns the openTelegramLink call');
+  check('a tg:// link is handed to the native opener, not the WebApp API',
+    /url\.startsWith\('tg:\/\/'\)\) \{[\s\S]{0,200}window\.location\.href = url/.test(appSource),
+    'tg:// branch missing or not routed to window.location.href');
+  check('a username-less handoff is explained in the UI',
+    appSource.includes("t('app.chat_no_username_hint')"), 'handoff caveat missing from the match card');
+  check('the match notification re-reads the handle from Telegram at creation',
+    read('api/swipe.js').includes("telegramApi('getChat'"), 'getChat handle refresh missing from api/swipe.js');
   // The Messages tab must be the same actionable hierarchy as Matches — primary conversation
   // CTA, ways to start, safety — never a decorative list that cannot reach a conversation.
   check('the Messages tab reuses the full match card hierarchy',
@@ -143,6 +155,30 @@ section('Conversation hand-off');
   // The deck card carries the numeric target id by documented design (the client must be
   // able to name who it is swiping on); the @username remains the match-gated handle and is
   // pinned by the match-card checks above.
+}
+
+// --------------------------------------------- mutual-like matching invariant
+section('NO RECIPROCAL LIKE = NO MATCH');
+{
+  // The invariant is protected at both ends: creation requires a reciprocal like, and the
+  // read path re-verifies the live action documents before displaying anything. A match
+  // document is never trusted on its own.
+  const swipeSource = read('api/swipe.js');
+  const matchesSource = read('api/matches.js');
+  const discoverSource = read('api/discover.js');
+  check('match creation requires a reciprocal like',
+    /const matched = isLike && isReciprocalLike;/.test(swipeSource) && /if \(matched && !existingMatch\.exists\)/.test(swipeSource),
+    'mutual-like condition missing from api/swipe.js');
+  check('a pass ends the match document it overwrites',
+    /endedReason: 'pass'/.test(swipeSource), 'post-match pass does not deactivate the match');
+  check('the matches read path verifies reciprocal actions and never writes',
+    matchesSource.includes("collection('actions')") && !matchesSource.includes('.set('),
+    'api/matches.js must read both action documents and stay read-only');
+  check('compatibility code has no write access to matches',
+    !discoverSource.includes("collection('matches')"), 'api/discover.js references the matches collection');
+  check('exactly one match-creation site exists and it is the mutual-like path',
+    (swipeSource.match(/source: 'mutual_like'/g) || []).length === 1,
+    'the mutual-like creation marker appears more than once or not at all');
 }
 
 // ---------------------------------------------------------------- premium insight (PR-8)

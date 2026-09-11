@@ -245,6 +245,7 @@
     "starter_copied": "Copié. Collez-le dans Telegram.",
     "starters_hint": "Bezy propose une accroche ; la conversation se déroule dans Telegram.",
     "icebreaker_label": "Le brise-glace de {name}",
+    "chat_no_username_hint": "Cette personne n’a pas d’identifiant — Telegram ouvrira son profil ; envoyez votre premier message depuis là.",
     "prompt_none": "Aucune question",
     "prompt_number": "Question {n}",
     "prompts_select_label": "Choisir une question",
