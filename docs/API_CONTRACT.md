@@ -14,7 +14,7 @@ Ground rules that are part of the contract itself:
   the Mini App: `INVALID_SESSION`, `DATABASE_UNAVAILABLE`, `PROFILE_NOT_FOUND`,
   `TARGET_NOT_FOUND`, `PREMIUM_REQUIRED`, `DISCOVERY_LIMIT_REACHED`,
   `SUPER_LIKE_LIMIT_REACHED`, `PREMIUM_UNAVAILABLE`, `AGE_CONFIRMATION_REQUIRED`,
-  `PROCESSING_RESTRICTED`, `RATE_LIMITED`.
+  `PROCESSING_RESTRICTED`, `RATE_LIMITED`, `CONVERSATION_UNAVAILABLE`.
 - Every response carries `ok: true` on success.
 - **Disclosure boundary:** `username` appears only on match cards (`/api/matches`). Deck
   cards, liker cards and every other public shape never carry `username`, `telegramId`,

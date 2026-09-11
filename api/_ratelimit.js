@@ -37,7 +37,13 @@ export const RATE_LIMITS = {
   account_restrict: [{ limit: 20, windowSeconds: 3600 }],
   // Support requests share one bucket across the bot and the Mini App, so neither channel
   // can flood the queue. Genuine support needs are nowhere near this ceiling.
-  support_create: [{ limit: 3, windowSeconds: 3600 }, { limit: 10, windowSeconds: 86400 }]
+  support_create: [{ limit: 3, windowSeconds: 3600 }, { limit: 10, windowSeconds: 86400 }],
+  // Bezy conversations. A fast human typist sends a few messages a minute; these ceilings
+  // stop a scripted flood without ever interrupting a real conversation.
+  messages: [{ limit: 30, windowSeconds: 60 }, { limit: 400, windowSeconds: 3600 }],
+  // Message reads come from the Mini App's polling loop (~4s while a conversation is open)
+  // and from list refreshes, so the ceiling is deliberately far above human navigation.
+  messages_read: [{ limit: 30, windowSeconds: 30 }, { limit: 1500, windowSeconds: 3600 }]
 };
 
 export class RateLimitError extends Error {

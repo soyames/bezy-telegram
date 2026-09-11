@@ -272,6 +272,16 @@ async function deleteAccount(firestore, userId) {
   }
   await matchBatch.commit();
 
+  // Bezy conversations are deleted outright, including every message: erasure covers the
+  // deleted user's message content, and the counterpart's copy of the exchange goes with
+  // it. (Message-retention policy for active accounts is a flagged legal follow-up — see
+  // the roadmap — this only defines the deletion behaviour, which erasure already
+  // required.)
+  const conversationsSnap = await firestore.collection('conversations').where('participants', 'array-contains', userId).get();
+  for (const doc of conversationsSnap.docs) {
+    await firestore.recursiveDelete(doc.ref);
+  }
+
   const retained = {
     payments: (await firestore.collection('bezyPayments').where('telegramUserId', '==', userId).get()).size,
     reportsAboutYou: (await firestore.collection('reports').where('targetId', '==', userId).get()).size

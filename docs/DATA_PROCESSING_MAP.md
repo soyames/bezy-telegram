@@ -30,7 +30,7 @@ Every field below was located in the code, not assumed. "Where" gives the Firest
 | --- | --- | --- | --- |
 | `telegramId` | `users/{id}` (also the document id) | The only user identifier Bezy has; authentication and all relationships key off it | Yes |
 | `firstName` | `users/{id}` | Fallback display name before a profile exists | Yes |
-| `username` | `users/{id}` | The Telegram public handle. Released **only after a mutual match**, to open the conversation | Yes |
+| `username` | `users/{id}` | The Telegram public handle. Released **only after a mutual match** (match cards carry it per the disclosure boundary); no longer used as a conversation contact vector since ADR 0009 | Yes |
 | `languageCode` | `users/{id}` | Language of bot messages and notifications | Yes |
 | `photoUrl` | `users/{id}` | Profile picture shown in Discover | Yes, if photos are shown |
 | ~~`lastName`~~ | — | **No longer collected** (never displayed or used) | Removed |
@@ -72,6 +72,8 @@ Bezy performs **no** age or identity verification and must never describe this a
 | `action` (`like` / `super` / `pass`), `createdAt` | `users/{id}/actions/{targetId}` | Prevents re-showing a decided profile; detects mutual likes |
 | `fromId`, `action`, `createdAt` | `users/{id}/likesReceived/{fromId}` | Reverse index powering the Premium "who liked you" feature |
 | `participants[]`, `source` (`'mutual_like'`), `active`, `createdAt`, `endedAt`, `endedBy`, `endedReason` | `matches/{sortedPair}` | The match itself and whether it is still live |
+| `senderId`, `text`, `createdAt` | `conversations/{sortedPair}/messages/{clientId}` | Bezy conversations between matched users (ADR 0009): message content, sender and time | Yes — the conversation feature |
+| `participants[]`, `status`, `lastMessagePreview`, `lastMessageSenderId`, `lastMessageAt`, `lastRead{userId}` | `conversations/{sortedPair}` | Conversation metadata: single-line preview, unread watermark. `text` itself lives only in the message documents | Yes |
 | `targetId`, `createdAt` | `users/{id}/blocks/{targetId}` | Safety: exclusion from discovery and contact |
 | `actorId`, `createdAt` | `users/{id}/blockedBy/{actorId}` | Mirror so discovery can filter both directions in one read |
 | `usage` (`day`, `discoveryActions`, `superLikes`) | `users/{id}` | Daily free-tier quotas; resets on a new UTC day |
@@ -143,6 +145,7 @@ plausible given what the code does; confirming them is a lawyer's job, not this 
 | Account creation, authentication via Telegram | Contract (Art. 6(1)(b)) | Without it the service cannot be provided at all |
 | Profile storage and display | Contract | The profile *is* the service |
 | Discovery, compatibility scoring, matching | Contract | The core function the user asked for |
+| Messaging between matched users (ADR 0009) | Contract | The conversation feature the user opted into by matching |
 | 18+ declaration record | Legal obligation and/or legitimate interests | Evidence of an adults-only restriction |
 | Block / unmatch | Contract | A user-requested feature |
 | Reports and moderation | Legitimate interests (Art. 6(1)(f)) | Protecting users; a balancing test is required |
@@ -199,6 +202,7 @@ Where the law fixes a period, this document does not guess it.
 | Actions (like/pass/super) | Deleted with the account | Adequate |
 | `likesReceived` mirrors | Deleted with the account, including fan-out to other users | Adequate |
 | Matches | Deactivated on deletion, retaining two Telegram ids | **Implemented** — ended matches purge after **180 days** (operational default) |
+| Messages and conversations (ADR 0009) | Deleted outright when either participant deletes their account (erasure). **No retention period defined for active or ended conversations — LEGAL REVIEW REQUIRED** before a value is set; the operational default for ended conversations (180 days, as matches) is a candidate, not a decision | **Deletion implemented**; active-account retention **undefined by design** — flagged, not invented |
 | Blocks / blockedBy | Deleted with the account, mirrors cleaned | Adequate |
 | Reports | **Retained** after the reported user deletes their account | Needed so a user cannot erase their own conduct record. Period **LEGAL REVIEW REQUIRED** — deliberately unset in the retention mechanism |
 | Payments and invoices | **Retained** after deletion | Accounting/tax obligation. Period **LEGAL REVIEW REQUIRED** — payments deliberately unset; spent invoices purge after **30 days** (operational default) |

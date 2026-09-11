@@ -35,11 +35,10 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟡 **Uncommitted username-less handoff fix on top of `c183037`** (`fix: mutual-match integrity
-and verified-match conversation handoff`). Three related workstreams — match-integrity
-hardening, verified-match handoff, and the bot-button handoff for username-less matches —
-are complete and tested but left **uncommitted and unpushed by instruction**. See §20
-"mutual-like invariant hardened", "verified match handoff fixed", "bot-button handoff".
+🟡 **Uncommitted Bezy-native messaging workstream on top of `0517745`** (`fix: username-less
+match handoff through the bot match message`). The Bezy chat implementation (ADR 0009) is
+complete and tested but left **uncommitted and unpushed by instruction**. See §20 "Bezy
+conversations implemented".
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -47,9 +46,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | (1) Mutual-like invariant fix (see §20 "mutual-like invariant hardened"): `api/swipe.js` (pass deactivates the match it overwrites), `api/matches.js` (read path re-verifies both action documents; read-only), `scripts/diagnose-matches.mjs` (read-only operator diagnostic). (2) Verified-match handoff fix (see §20 "verified match handoff fixed"): `app.js` (`openTelegramLink` routes `tg://` to the native opener; card explains the profile-first handoff), `api/swipe.js` (`getChat` handle refresh at match creation), `index.html`, locales, `tests/contract.test.mjs`, `tests/backend.test.mjs`, `tests/e2e/conversation.spec.js`. (3) Bot-button handoff (see §20 "bot-button handoff"): `app.js` (`chatLinkFor` for username-less matches now opens `https://t.me/BezyDatingBot?start=match_<id>` — live-confirmed that webview-fired `tg://` links do nothing on Android), `api/telegram/webhook.js` (`/start match_<id>` re-sends the match notification to participants only), `api/swipe.js` (`notifyMatch` exported), locale copy for the two-tap hint, tests (contract 108 → 109, backend `/start match_` section, conversation e2e updated) |
-| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regression scenarios, mutual-like state-machine cases and the `/start match_` bot tests are likewise written but unexecuted here |
-| Unpushed | The three uncommitted workstreams above (left uncommitted by instruction). Pushed up to `c183037`; `main` is in sync with `origin/main` at `c183037` |
+| Uncommitted | Bezy-native messaging (see §20 "Bezy conversations implemented"): `api/messages.js` (new — list/send/read with initData-derived sender, derived counterpart, match/block/Premium gates, idempotent clientId, rate-limited), `api/matches.js` (conversation preview + unread per match), `api/relationship.js` (block/unmatch close the conversation), `api/account.js` (deletion erases conversations), `api/swipe.js` (match notification now points at the Bezy conversation; the username getChat heal and the bot-button handoff are removed as obsolete), `api/telegram/webhook.js` (`/start match_` handler removed), `api/_ratelimit.js` (`messages`, `messages_read` buckets), `api/_notify.js` (`messages` category, capped, generic-only), `app.js` (conversation screen: composer, polling, retry, Premium lock, unavailable state, use-this-message, safety menu; Telegram handoff removed), `index.html` (chat screen markup + styles), `locales/en.json`+`fr.json` (12 new keys, conversation/privacy copy updated), `tests/contract.test.mjs` (messaging API pins; hand-off pins replaced), `tests/backend.test.mjs` (Bezy conversations section), `tests/e2e/conversation.spec.js` (rewritten for the chat screen, 8 tests), `tests/localization.test.mjs` (chat runtime ids, notify_messages family, CONVERSATION_UNAVAILABLE), `docs/API_CONTRACT.md` (error catalogue), `docs/adr/0009-bezy-native-messaging.md` (new), `docs/adr/0001-telegram-native.md` (messaging clause marked superseded), ARCHITECTURE.md / DATA_PROCESSING_MAP.md / DPIA_ASSESSMENT.md (messaging updates + legal flags) |
+| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The new Firestore-backed discovery regressions, mutual-like state-machine cases and the Bezy-conversations section are likewise written but unexecuted here. **Flagged legal follow-ups:** message retention for active accounts (undefined — deletion behaviour implemented, retention deliberately not invented), privacy/terms pages still describe Telegram-hosted chats, DPIA/data-map additions pending legal review |
+| Unpushed | The Bezy-native messaging workstream above (left uncommitted by instruction). Pushed up to `0517745`; `main` is in sync with `origin/main` at `0517745` |
 
 ---
 
@@ -58,8 +57,10 @@ before ending the session.
 Not revisitable without an explicit owner decision. Any request that conflicts with these
 must stop and be reported rather than implemented. See §18 for known conflicts.
 
-- Telegram-native: Telegram owns identity, notifications, messaging and platform safety.
-  Bezy owns profiles, discovery, matching, dating-specific safety, Premium and data controls.
+- Telegram-native platform, Bezy-native conversations (ADR 0009): Telegram owns identity,
+  hosting, notifications and platform safety. Bezy owns profiles, discovery, matching,
+  **messaging between matched users** (Firestore storage, delivery inside the Mini App),
+  dating-specific safety, Premium and data controls.
 - Backend **Vercel**, database **Firestore**, auth **Telegram `initData`**.
 - Payments: **Telegram Stars (XTR) only.** No Smart Glocal, no cards, no other provider.
 - Photos: **Telegram photo URLs only.** No Firebase Storage, Cloudinary, S3, Vercel Blob or
@@ -485,6 +486,36 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — Bezy conversations implemented (ADR 0009, uncommitted by instruction)
+- **Decision recorded:** messaging between matched users is now Bezy-native — ADR 0009
+  accepted; ADR 0001's messaging clause marked superseded; roadmap §1 updated. Telegram
+  keeps identity, hosting, notifications and platform safety.
+- **Implemented:** `api/messages.js` (list/send/read; sender from initData only; counterpart
+  derived from the canonical conversation id = sorted pair of Telegram ids; every action
+  gated by active mutual match + no blocks + Premium; idempotent sends via client-generated
+  message ids; `messages`/`messages_read` rate-limit buckets; generic capped Telegram
+  notification, never message content). Conversation preview + unread state attached to
+  `/api/matches`. Block/unmatch close the conversation; account deletion erases it.
+  The Mini App gained a full conversation screen: composer with disabled-empty send,
+  optimistic sends with retry (no duplicates), ~4s poll while open (Firestore stays
+  deny-all to clients — polling is the smallest real-time mechanism the architecture
+  allows), Premium lock screen, unavailable state, why-you-matched header, "Use this
+  message" fills the composer without sending, safety menu (block/report/unmatch). All
+  Telegram chat-handoff code (t.me/tg:// links, the bot-button `/start match_` flow, the
+  username heal) is removed as obsolete.
+- **Tests:** contract 109 → 117 (messaging API + UI pins); localization 188 → 202
+  (chat runtime ids, `notify_messages`, `CONVERSATION_UNAVAILABLE`); discovery 50;
+  conversation e2e rewritten for the chat screen — 8 tests, 12/12 Chromium incl.
+  browsers.spec, 24/24 WebKit+Firefox; backend suite gained the Bezy-conversations section
+  (Premium gate, send, counterpart read, idempotency, empty/oversized/malformed rejection,
+  forged senderId ignored, non-participant and unmatched refusal, block and unmatch close,
+  deletion erases) — written, runs in the credentialed environment.
+- **Flagged legal follow-ups (not decided here):** retention for active-account messages;
+  privacy/terms pages still describe Telegram-hosted chats; DPIA/data-map additions;
+  notification-processing documentation. Deletion behaviour is implemented (erasure), no
+  retention value invented.
+- **Not committed / not pushed / not deployed** (explicit workstream instruction): see §0.
 
 ### Session — bot-button handoff for username-less matches (live-confirmed Android failure, uncommitted by instruction)
 - **Live-confirmed:** for match `2096013731_702749047` the partner has NO `@username`;

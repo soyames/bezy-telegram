@@ -100,6 +100,17 @@ judgement a regulator could disagree with, particularly for an adult service, an
 consent to: the only client-side storage is a language preference. Adding a banner would be
 theatre, not compliance.
 
+**Bezy-native messaging (ADR 0009, 2026-09-11).** Messages between matched users are now
+stored in Firestore and delivered inside the Mini App. Mitigations already implemented:
+message content is never logged, never enters error responses, and never leaves Bezy (the
+Telegram notification is generic, capped, and preference-gated); access requires an active
+mutual match with no blocks plus Premium, verified server-side on every request; account
+deletion erases conversations; Firestore stays deny-all to clients. **LEGAL REVIEW
+REQUIRED:** this extends the processed data (private message content) beyond the previous
+architecture, so the screening above must be re-run against the messaging scope — in
+particular the retention question (no period defined for active conversations) and the
+privacy-policy text, which still describes Telegram-hosted chats.
+
 ---
 
 ## 6. Screening conclusion

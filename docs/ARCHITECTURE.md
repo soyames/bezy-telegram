@@ -12,7 +12,10 @@
 
 ## Product boundary
 
-Bezy is a Telegram-native product. Telegram is the user-facing application, identity layer, notification channel and messaging environment. The Bezy Mini App is the rich UI and is opened from the Bezy bot inside Telegram.
+Bezy is a Telegram-native product. Telegram is the user-facing application, identity layer,
+host and notification channel. Conversations between matched users are Bezy-native (ADR
+0009): stored in Firestore and delivered inside the Mini App. The Bezy Mini App is the rich
+UI and is opened from the Bezy bot inside Telegram.
 
 ## Runtime
 
@@ -24,26 +27,28 @@ Bezy is a Telegram-native product. Telegram is the user-facing application, iden
 
 ## Telegram-Native Communication Principle
 
-Bezy does not replicate Telegram's communication features. Once two users are permitted to
-connect, Bezy hands communication back to Telegram: private messaging, voice calls, video
-calls, media sharing and Telegram-native profile/story experiences all happen in Telegram.
+Once two users are matched, their conversation lives in Bezy (ADR 0009): message storage,
+delivery inside the Mini App, starters, unread state and messaging safety are Bezy's.
+Everything else communication-related stays Telegram's: voice calls, video calls, media
+sharing and Telegram-native profile/story experiences all happen in Telegram.
 
 **Bezy controls** who you discover, who you like or super-like, who is allowed to match with
 you, discovery filters, profile completeness, dating preferences, safety, blocking, reporting,
-verification, match lifecycle and premium dating features.
+verification, match lifecycle, premium dating features and messaging between matched users.
 
-**Telegram provides** identity, the user account and profile, chat, voice calls, video calls,
+**Telegram provides** identity, the user account and profile, voice calls, video calls,
 stories, notifications, media sharing, contacts, privacy settings and transport encryption.
 
 This is an architectural rule, not a preference. It exists to prevent work such as: building a
-Bezy chat system, adding WebRTC or TURN servers, storing messages, call metadata or story media
-in Firestore, or mirroring Telegram stories into Bezy.
+second chat system outside the conversations model, adding WebRTC or TURN servers, storing
+call metadata or story media in Firestore, or mirroring Telegram stories into Bezy.
 
 Practical consequences:
 
-- A match hands off to the Telegram conversation. Voice and video calls are started by the users
-  from Telegram's own call controls; the Bot API cannot initiate a call on a user's behalf
-  (`phone.requestCall` is a user-only MTProto method), so Bezy must never present a button that
+- A match opens the Bezy conversation (ADR 0009). Voice and video calls remain Telegram's —
+  they are started by the users from Telegram's own call controls; the Bot API cannot initiate
+  a call on a user's behalf (`phone.requestCall` is a user-only MTProto method), so Bezy must
+  never present a button that
   claims to place a call.
 - Stories are not copied into Firestore. Where Bezy uses stories at all, it uses Telegram's
   native share-to-story flow from the Mini App rather than hosting story media.
@@ -132,7 +137,10 @@ is deliberately no admin HTTP route and no moderation console: Bezy needs *visib
 reports, not a moderation platform. Bezy does not promise 24/7 human moderation or a response
 time, and the UI does not claim otherwise.
 
-Conversations remain entirely on Telegram, so Telegram's own messaging safety applies to them.
+Conversations between matched users are Bezy-native (ADR 0009), so Bezy messaging safety
+applies: every read and send is re-gated by the active match and the block state server-side,
+block and unmatch close the conversation, and reporting stays available from the conversation
+screen. Telegram-level platform safety is Telegram's and is not duplicated.
 
 ## Privacy and data protection
 
@@ -163,7 +171,7 @@ Implemented data-subject rights (`api/account.js`):
 - No Firebase Cloud Storage for profile photos at this stage.
 - No Google Cloud Functions or other Google Cloud compute.
 - No external payment page.
-- No Bezy-hosted chat database for ordinary conversations; matched users are directed to Telegram for the conversation.
+- Bezy conversations between matched users only (`conversations/{matchId}` + messages), per ADR 0009 — no other chat database, and no messages outside mutual matches.
 
 ## Authentication
 
@@ -210,13 +218,16 @@ The browser/Mini App must not connect directly to Firestore. `firestore.rules` t
     Prompts are optional and never affect `profileComplete`.
 - `users/{telegramId}/actions/{targetTelegramId}` — the current user's like, super-like or pass decision for a target.
 - `matches/{sortedTelegramIdPair}` — a mutual like between two users.
+- `conversations/{sortedTelegramIdPair}` — the Bezy conversation for a mutual match (ADR
+  0009): participants, status, last-message preview, per-user `lastRead`. Messages live in
+  `conversations/{id}/messages/{clientId}` with `senderId`, `text`, `createdAt`.
 
 Implemented as shown: `users/{uid}/blocks` (+ `blockedBy` mirrors) and top-level
 `reports/{autoId}`. Deliberately absent: `subscriptions/{uid}` (Premium lives on the user
-document as `bezyPremium`) and any messaging collection.
+document as `bezyPremium`), any second messaging collection, and call metadata.
 
-Deliberately absent, and must stay absent under the Telegram-Native Communication Principle:
-any collection for messages, conversations, calls, call metadata, story media or story views.
+Deliberately absent, and must stay absent: any collection for calls, call metadata, story
+media or story views, and any message storage outside the mutual-match conversations model.
 
 The Mini App never receives Firestore credentials and never performs direct Firestore reads or writes.
 
@@ -260,13 +271,9 @@ The Mini App never receives Firestore credentials and never performs direct Fire
   are deliberately excluded — explaining a match in those terms would be a sensitive inference.
   The Mini App renders each signal from the locale catalogue and derives its conversation
   starters from the same list, so the explanation and the suggestions cannot disagree.
-  The conversation hand-off itself stays Telegram-native: the primary action opens the
-  counterpart's Telegram conversation via the public `t.me/<username>` link or, for a
-  matched user without a `@username`, Telegram's numeric-user deep link (`tg://user?id=<id>`
-  — the id the match card already carries), both through Telegram's native opener. The Mini
-  App labels the action "Start conversation" until first opened, then "Continue
-  conversation", using a device-local marker only — the actual conversation is entirely
-  Telegram's.
+  The primary action opens the Bezy conversation screen (ADR 0009) — composed, sent and
+  delivered inside the Mini App via `POST /api/messages` — labelled "Start conversation"
+  until first opened, then "Continue conversation" via a device-local marker.
 - `POST /api/premium` — `action: 'status'` returns membership, plans, limits and usage;
   `action: 'invoice'` issues a Telegram Stars invoice link for a plan.
 - `POST /api/likes` — Premium-only: people who liked the current user. Free members receive
@@ -418,12 +425,14 @@ Mutual like?
   ├─ no → next profile
   └─ yes → create match
               ↓
-       Telegram notification
+       Telegram notification ("Start chatting" → Mini App)
               ↓
-       Open Telegram chat
+       Bezy conversation (messages stored in Firestore,
+       delivered inside the Mini App, polled while open)
 ```
 
-Bezy stores the match and connection state, not an ordinary external chat history. Telegram remains the conversation environment.
+Bezy stores the match and the conversation between matched users (ADR 0009); Telegram owns
+identity, hosting and notifications.
 
 ## Billing policy
 

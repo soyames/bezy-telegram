@@ -34,6 +34,11 @@ export const NOTIFICATION_CATEGORIES = {
   matches: { optional: true, dailyCap: 0 },
   super_likes: { optional: true, dailyCap: 5 },
   profile_reminders: { optional: true, dailyCap: 1, windowMs: 7 * DAY_MS },
+  // Bezy conversation messages. Capped: a matched counterpart can generate these at will,
+  // so without a ceiling one person could turn the other's bot chat into a firehose. The
+  // notification is generic — never the message content — and opening Bezy is the call to
+  // action (Telegram owns notifications; Bezy owns the conversation).
+  messages: { optional: true, dailyCap: 10 },
   account: { optional: false, dailyCap: 0 }
 };
 
