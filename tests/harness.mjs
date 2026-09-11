@@ -54,6 +54,7 @@ function tgStub(initData, user, port) {
   version: '8.0', platform: 'android', colorScheme: 'light', themeParams: {},
   ready(){}, expand(){}, disableVerticalSwipes(){},
   openTelegramLink(u){ window.__lastTelegramLink = u; },
+  shareToStory(url, params){ window.__lastStory = { mediaUrl: url, params }; },
   openLink(u){ window.__lastTelegramLink = u; },
   // Simulates the native Stars sheet. The status is whatever the test asked for; the app
   // must still confirm entitlement with the backend rather than trusting it.

@@ -35,10 +35,11 @@ verification is required and missing.
 
 ## 0. Checkpoint status
 
-🟡 **Uncommitted shell-navigation fix on top of `955769c`** (`feat: Bezy-native messaging
-between matched users (ADR 0009)`). The conversation shell-integration workstream is
-complete and tested but left **uncommitted and unpushed by instruction**. See §20
-"conversation screen integrated into the app shell".
+🟡 **Uncommitted Premium-UX / voice-call / stories workstream on top of `ecbb06d`** (`fix:
+integrate the conversation screen into the app shell navigation`). Complete and tested but
+left **uncommitted and unpushed by instruction**. See §20 "Premium entitlement UX
+consistency + voice/call investigation" and "Telegram Stories via the official share-to-story
+event".
 
 This section always records unsaved or unpushed state, because that is what disappears
 between sessions. When work is left uncommitted, list the files and what they contain here
@@ -46,9 +47,9 @@ before ending the session.
 
 | State | Detail |
 | --- | --- |
-| Uncommitted | Conversation shell integration (see §20 "conversation screen integrated into the app shell"): `app.js` (chat layer below the nav z-index with measured nav clearance `--bezy-nav-h`, open switches the underlying view to Messages, nav taps close the conversation, per-match state cache, composer-focus scroll, `resize`/`viewportChanged` re-measurement), `index.html` (`.chat-screen` z-index/padding rework, composer safe-area padding moved into the nav clearance), `tests/e2e/conversation.spec.js` (3 new shell-integration tests, 11 total) |
-| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The Firestore-backed discovery regressions, mutual-like state-machine cases and the Bezy-conversations section are likewise written but unexecuted here. Legal follow-ups from ADR 0009 remain flagged (retention, privacy-policy text, DPIA re-screening) |
-| Unpushed | The shell-integration workstream above (left uncommitted by instruction). Pushed up to `955769c`; `main` is in sync with `origin/main` at `955769c` |
+| Uncommitted | (1) Premium UX consistency + voice/call investigation (see §20 "Premium entitlement UX consistency + voice/call investigation"): `app.js` (boot `loadPremium()`, `renderPremiumSurfaces()` gating promo cards + relabeling `.premium-action` from the single backend verdict), `api/_premium.js` (`messaging` in `PREMIUM_BENEFITS`), `locales/en.json`+`fr.json` (`benefit_messaging`, `starters_hint`), `tests/e2e/premium-ux.spec.js` (new, 6 tests), `tests/contract.test.mjs`, `tests/localization.test.mjs`, `docs/adr/0009-bezy-native-messaging.md` (voice storage boundary, no-official-call-deeplink), `docs/ARCHITECTURE.md`. (2) Telegram Stories via the official share-to-story event (see §20 "Telegram Stories via the official share-to-story event"): `app.js` (feature-detected `shareToStory`/`web_app_share_to_story` action, profile button), `index.html` (share card), `locales/en.json`+`fr.json` (`share_story`, `share_story_caption`), `tests/harness.mjs` (shareToStory stub), `tests/e2e/browsers.spec.js` (story-editor test), `tests/contract.test.mjs` (3 story pins), `docs/ARCHITECTURE.md` (stories/calls bullets), this roadmap |
+| Unverified | N-1, N-2, N-3, N-4, RT-2, RT-3, PR-8, the CN-7 support flow and the P1-3 `languages` tests are written but have never been executed (Firestore quota). §19 lists the three commands that must be green before any is marked 🟢. The Firestore-backed discovery regressions, mutual-like state-machine cases and the Bezy-conversations section are likewise written but unexecuted here. Legal follow-ups from ADR 0009 remain flagged (retention, privacy-policy text, DPIA re-screening); voice messages carry the additional dependency list recorded in ADR 0009 (storage decision, media lifecycle, retention, DPIA, webview mic verification) |
+| Unpushed | Both uncommitted workstreams above (left uncommitted by instruction). Pushed up to `ecbb06d`; `main` is in sync with `origin/main` at `ecbb06d` |
 
 ---
 
@@ -486,6 +487,50 @@ uses ids `9000000xx` only and is cleaned before and after every run. Never mutat
 ## 20. Session log
 
 Newest first.
+
+### Session — Telegram Stories via the official share-to-story event (uncommitted by instruction)
+- **Investigated the API pages provided:** the phone-calls API is MTProto client-only
+  (`phone.requestCall`, conference creation included) — no Mini App path, confirming ADR
+  0009's call limitation. The one officially supported Mini App story surface is the
+  `web_app_share_to_story` web event (JS API: `WebApp.shareToStory`), which opens Telegram's
+  native story editor with a media URL, caption and link widget.
+- **Implemented:** a "Share Bezy to your story" action in Profile (Settings & Privacy) —
+  feature-detected (`tg.shareToStory` or the `TelegramWebviewProxy` event bridge), hidden on
+  unsupported clients; shares Bezy's own brand media (`/assets/bezy-icon.png`), a localized
+  EN/FR caption and a widget link to the canonical bot. No story media is stored in
+  Firestore; Bezy does not view or deep-link into other users' stories.
+- **Tests:** browsers.spec gained the story-editor test (button visible on supporting
+  clients, click produces the exact media/caption/widget payload) — 22/22 Chromium, 44/44
+  WebKit+Firefox; contract 122 → 125 (official event, canonical widget, feature detection);
+  localization 205; discovery 50.
+- **Not committed / not pushed / not deployed** (explicit workstream instruction): see §0.
+
+### Session — Premium entitlement UX consistency + voice/call investigation (uncommitted by instruction)
+- **Premium UX root cause:** the Discover and Matches promotional Premium cards were static
+  markup that always rendered, and entitlement was only fetched when the Premium view
+  opened — so the app never knew an active member was active. **Fixed:** `/api/premium`
+  status loads at boot; `renderPremiumSurfaces()` re-renders the two promo cards and every
+  `.premium-action` button from that single backend verdict — active members see membership
+  status and "View membership", free/expired members keep the upgrade UI; the messaging lock
+  screen already followed the server verdict and stays server-gated. **Benefit added:**
+  `messaging` ("Chat with your matches" / "Discutez avec vos matchs") in
+  `PREMIUM_BENEFITS` (canonical) + `BENEFIT_KEYS` + EN/FR.
+- **Voice messages:** NOT implemented — deferred at the storage boundary (no approved media
+  layer; Firestore binary/base64 explicitly ruled out) plus unverified
+  `getUserMedia`/MediaRecorder reliability inside Telegram webviews. Recorded with the exact
+  dependency list in ADR 0009.
+- **Telegram native 1:1 calls:** NOT launchable from a Mini App — the official deep-link
+  catalogue has no 1:1 call link and the Bot API has no call mechanism. No fake call button
+  was added; the limitation is recorded in ADR 0009 and ARCHITECTURE.md.
+- **Stale copy fixed:** `starters_hint` EN/FR no longer claims the conversation happens in
+  Telegram; a localization pin now forbids "Open Telegram chat" and Telegram-conversation
+  claims anywhere.
+- **Tests:** new Firestore-free `tests/e2e/premium-ux.spec.js` (6 tests: no Unlock pitch for
+  active members, membership page + benefits, FR benefits, free lock + upgrade flow,
+  expired-as-free, active member sends) — 17/17 Chromium with conversation.spec, 42/42
+  WebKit+Firefox; contract 118 → 122 (entitlement surface pins); localization 202 → 205
+  (stale-copy + benefit pins); discovery 50.
+- **Not committed / not pushed / not deployed** (explicit workstream instruction): see §0.
 
 ### Session — conversation screen integrated into the app shell (uncommitted by instruction)
 - **Root cause:** the chat screen was a full-viewport fixed layer (`z-index: 35`) above the

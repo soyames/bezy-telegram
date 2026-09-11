@@ -52,3 +52,37 @@ userbot.
   documentation.
 - Supersedes: the messaging clause of ADR 0001 (Telegram remains the identity, hosting,
   notification and platform layer). Depends on: ADR 0002, ADR 0005.
+
+## Voice messages — deferred at the storage boundary (2026-09-11)
+
+Voice messages are Bezy-native media and the architecture intentionally has no persistent
+media-storage layer. Adding them requires, as one deliberate decision:
+
+1. an approved object-storage layer (Firebase Storage, Vercel Blob or equivalent) with
+   signed, access-controlled URLs — never base64 audio in Firestore (Firestore is the
+   message store, not a media store, and the 1 MiB document ceiling makes it impossible
+   anyway);
+2. a defined media lifecycle — upload quotas, duration/size limits, orphan cleanup for
+   failed sends, deletion on unmatch/account erasure;
+3. a retention decision (the active-account message-retention question applies to audio
+   too) and a DPIA/data-map update;
+4. verification that `getUserMedia`/MediaRecorder actually work inside Telegram's
+   Mini App webviews on the supported clients (known failures and per-session permission
+   re-prompts have been reported; there is no Telegram API that grants permanent
+   microphone access).
+
+Until those four exist, voice messages are **not implemented** and no unsafe workaround
+(base64 payloads, unapproved storage) is introduced.
+
+## Telegram-native 1:1 calls — not launchable from a Mini App (2026-09-11)
+
+Telegram's documented deep-link catalogue (core.telegram.org/api/links) contains **no link
+that starts a one-on-one voice or video call**: the call-related formats are group
+voice/video-chat joins and E2E conference links, and the Bot API exposes no call mechanism.
+A Mini App cannot initiate a private call, and no MTProto/userbot workaround is acceptable.
+
+Consequence: **Bezy does not render a call button** — a button that cannot reliably start a
+call would be fake functionality. Calls remain something matched users arrange themselves
+inside Telegram's own UI (e.g. from a profile or an existing Telegram chat), outside Bezy.
+If Telegram ever ships an official Mini App call capability, this section is the place to
+record the change.

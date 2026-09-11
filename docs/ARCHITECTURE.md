@@ -45,13 +45,18 @@ call metadata or story media in Firestore, or mirroring Telegram stories into Be
 
 Practical consequences:
 
-- A match opens the Bezy conversation (ADR 0009). Voice and video calls remain Telegram's —
-  they are started by the users from Telegram's own call controls; the Bot API cannot initiate
-  a call on a user's behalf (`phone.requestCall` is a user-only MTProto method), so Bezy must
-  never present a button that
-  claims to place a call.
-- Stories are not copied into Firestore. Where Bezy uses stories at all, it uses Telegram's
-  native share-to-story flow from the Mini App rather than hosting story media.
+- A match opens the Bezy conversation (ADR 0009). Voice messages are deferred at the
+  media-storage boundary (no approved storage layer — see ADR 0009). Voice and video calls
+  remain Telegram's: no official deep link or Mini App API starts a 1:1 call
+  (core.telegram.org/api/links; `phone.requestCall` is a user-only MTProto method), so Bezy
+  renders no call button — users arrange calls themselves inside Telegram. Bezy must never
+  present a button that claims to place a call.
+- Telegram Stories are used through the one officially supported Mini App surface:
+  `web_app_share_to_story` opens Telegram's native story editor with Bezy media, a localized
+  caption and the canonical bot widget link — a growth share action, feature-detected so
+  unsupported clients never see a dead control. Bezy does not view, list or deep-link into
+  other users' stories, and story media is never copied into Firestore — Telegram's native
+  share-to-story flow is used rather than hosting story media.
 - Premium must not paywall functionality Telegram already gives users for free. Premium unlocks
   Bezy's matchmaking value — discovery volume, seeing who liked you, advanced filters, super
   likes, priority and visibility — never Telegram's own chat or call features.

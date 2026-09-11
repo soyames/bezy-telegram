@@ -228,6 +228,22 @@ for (const [area, keys] of Object.entries(AREAS)) {
   check(`${area} is fully localized`, gaps.length === 0, gaps.join(','));
 }
 
+// ---------------------------------------------------------------- messaging copy
+section('Messaging copy describes Bezy conversations, not Telegram handoffs');
+{
+  const html = read('index.html');
+  const localesText = [en, fr].map((catalogue) => JSON.stringify(catalogue)).join(' ');
+  check('no remaining "Open Telegram chat" action anywhere',
+    !app.includes('Open Telegram chat') && !html.includes('Open Telegram chat') && !localesText.includes('Open Telegram chat'),
+    'a Telegram chat handoff string remains');
+  check('no copy claims the conversation happens in Telegram',
+    !localesText.includes('happens in Telegram') && !localesText.includes('se déroule dans Telegram'),
+    'stale Telegram-conversation copy remains in a catalogue');
+  check('the canonical Premium benefits include Bezy messaging in both languages',
+    Boolean(en.benefit_messaging) && Boolean(fr.benefit_messaging) && en.benefit_messaging !== fr.benefit_messaging,
+    `en="${en.benefit_messaging}" fr="${fr.benefit_messaging}"`);
+}
+
 // ---------------------------------------------------------------- static markup
 section('No hardcoded copy in runtime-populated elements');
 // Anything applyLocale() or a render function fills must ship empty. Otherwise a French user
