@@ -103,11 +103,70 @@
     .chat-locked .save-btn{max-width:280px}
     @media(max-width:360px){.portrait{height:390px}.app{padding-left:12px;padding-right:12px}.hero h2{font-size:25px}.two-col{grid-template-columns:1fr}}
   </style>
+  <!-- Discovery redesign (Stitch): overrides layered on the existing tokens. No external
+       CSS or fonts — the design language is ported into the app's own stylesheet. -->
+  <style data-purpose="discover-redesign">
+    :root{--bg:#FAF8FE}
+    body{background:#EDE8F5}
+    .app{background:var(--bg)}
+    ::selection{background:#e9d5ff}
+    /* Brand bar: logo tile + "Bezy 💗" + tagline, identical on every page of the shell. */
+    .brand{flex-direction:row;align-items:center;gap:10px}
+    .brand-logo{width:36px;height:40px;border-radius:12px;border:1px solid rgba(233,229,236,.6);box-shadow:0 1px 4px rgba(99,39,155,.08)}
+    .brand-copy{min-width:0}
+    .brand-name{display:flex;align-items:center;gap:4px;font-size:20px;font-weight:800;letter-spacing:-.6px;color:#0f172a;line-height:1}
+    .brand small{color:rgba(88,28,135,.6);font-size:11.5px;font-weight:500;margin-top:2px}
+    /* Hero banner */
+    .hero{background:linear-gradient(135deg,#250F3B 0%,#461763 60%,#5E1F7F 100%);border-radius:24px;padding:20px;box-shadow:0 8px 30px -4px rgba(45,14,80,.08)}
+    .hero:after{background:rgba(217,70,239,.2)}
+    .hero h2{font-size:22px;letter-spacing:-.5px;margin:0 0 6px}
+    .hero p{font-size:12px;color:rgba(243,232,255,.8);max-width:280px}
+    /* Section headers */
+    .section-head h3{font-size:18px;color:#0f172a;font-weight:700;letter-spacing:-.3px}
+    .section-head button{font-size:14px;font-weight:600;color:#7C2AD8;padding:4px 10px;border-radius:8px;letter-spacing:0}
+    .section-head button:hover{background:rgba(243,236,252,.7)}
+    /* Candidate card */
+    .profile-card{border-radius:24px;border:1px solid #F3ECFC;box-shadow:0 8px 30px -4px rgba(45,14,80,.08)}
+    .score{background:rgba(15,23,42,.8);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:5px 10px;font-size:11px}
+    .profile-copy h2{font-size:24px}
+    .profile-copy p{font-size:12px;color:#e2e8f0}
+    .tag{background:rgba(255,255,255,.2);backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.16);color:#fff}
+    .tag-new{background:rgba(14,165,233,.3);border-color:rgba(56,189,248,.4);color:#bae6fd;font-weight:600}
+    .portrait .why-chip{background:rgba(255,255,255,.95);color:#6d28d9;box-shadow:0 1px 3px rgba(15,9,20,.2)}
+    /* Icebreaker prompt card */
+    .card-prompt{background:#FAF7FD;border:1px solid #F3ECFC;border-radius:16px;padding:12px 14px}
+    .card-prompt b{color:#7C2AD8}
+    /* Interaction actions */
+    .actions{gap:10px}
+    .action{border-radius:16px;height:48px;font-size:14px}
+    .pass{background:#f1f5f9;color:#334155}
+    .super{background:#F3ECFC;color:#6d28d9}
+    .like{background:linear-gradient(135deg,#A822D6 0%,#E11D89 100%);box-shadow:0 6px 20px rgba(217,70,239,.35)}
+    .action:active{transform:scale(.95)}
+    /* Stats grid */
+    .stat{border-radius:16px;box-shadow:0 4px 20px -2px rgba(99,39,155,.06)}
+    .stat b{font-size:20px;font-weight:900;letter-spacing:-.4px}
+    .stat:nth-child(2) b{color:#7C2AD8}
+    .stat span{font-size:10.5px;color:#64748b}
+    /* Premium card */
+    .premium{background:linear-gradient(145deg,#260D3B 0%,#3B1259 100%);border-radius:24px}
+    .premium h3{font-size:16px}
+    .premium p{color:rgba(233,213,255,.9)}
+    .premium .stars{color:#fbbf24}
+    .premium .primary{background:#fff;color:#020617;font-size:12px;font-weight:800;padding:10px 20px;border-radius:12px;display:inline-block;width:auto;margin-top:16px}
+    /* Bot attribution */
+    .discover-attribution{text-align:center;padding:4px 0 8px;font-size:11px;font-weight:500;color:rgba(59,7,100,.4)}
+    /* Bottom navigation */
+    .bottom{background:rgba(255,255,255,.95);border-top:1px solid rgba(243,236,252,.8)}
+    .nav button{color:#94a3b8;border-radius:16px}
+    .nav button.active{color:#6d28d9;background:#FAF7FD}
+    .nav button span{font-size:10px}
+  </style>
 </head>
 <body>
   <main class="app" id="bezy-app">
     <header class="top">
-      <div class="brand"><h1 class="pf-sr">Bezy</h1><img class="brand-logo" src="/assets/bezy-logo-without-tagline.png" alt="Bezy" width="52" height="58"><small id="tagline"></small></div>
+      <div class="brand"><h1 class="pf-sr">Bezy</h1><img class="brand-logo" src="/assets/bezy-logo-without-tagline.png" alt="Bezy" width="36" height="40"><div class="brand-copy"><span class="brand-name">Bezy <span aria-hidden="true">💗</span></span><small id="tagline"></small></div></div>
       <button class="icon-btn" id="settingsBtn" aria-label="Settings"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.7 1.7-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56V20h-2.4v-.2a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-1.7-1.7.06-.06A1.7 1.7 0 0 0 8.4 15a1.7 1.7 0 0 0-1.56-1.04H6v-2.4h.2A1.7 1.7 0 0 0 7.76 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 1.7-1.7.06.06A1.7 1.7 0 0 0 11 6.76 1.7 1.7 0 0 0 12.04 5.2V5h2.4v.2A1.7 1.7 0 0 0 15.48 6.76a1.7 1.7 0 0 0 1.88-.34l.06-.06 1.7 1.7-.06.06A1.7 1.7 0 0 0 18.72 10a1.7 1.7 0 0 0 1.56 1.04h.2v2.4h-.2A1.7 1.7 0 0 0 19.4 15Z"></path></svg></button>
     </header>
 
@@ -117,6 +176,7 @@
       <div id="discover-content"><div class="loading" id="discover-loading"></div></div>
       <div class="stats" id="discover-stats"><div class="stat"><b id="people-count">—</b><span id="people-label"></span></div><div class="stat"><b id="match-percent">—</b><span id="match-label"></span></div><div class="stat"><b id="new-count">—</b><span id="new-label"></span></div></div>
       <div class="premium"><div class="row"><div><h3 id="premium-card-title">✨ Bezy Premium</h3><p id="premium-copy">See who liked you, unlock advanced discovery and get more ways to connect.</p></div><div class="stars">⭐</div></div><button class="primary" id="premiumBtn" type="button">View membership</button></div>
+      <p class="discover-attribution" id="discover-powered-by"></p>
     </section>
 
     <section class="view" id="matches-view">
@@ -248,7 +308,7 @@
     </section>
   </main>
 
-  <nav class="bottom" aria-label="Bezy navigation"><div class="nav"><button data-view="discover" class="active" type="button">⌂<span id="nav-discover">Discover</span></button><button data-view="matches" type="button">♥<span id="nav-matches">Matches</span></button><button data-view="messages" type="button">✉<span id="nav-messages">Messages</span></button><button data-view="profile" type="button">◉<span id="nav-profile">Profile</span></button></div></nav>
+  <nav class="bottom" aria-label="Bezy navigation"><div class="nav"><button data-view="discover" class="active" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span id="nav-discover">Discover</span></button><button data-view="matches" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" stroke-linecap="round" stroke-linejoin="round"></path></svg><span id="nav-matches">Matches</span></button><button data-view="messages" type="button"><svg class="icon" viewBox="0 0 24 24"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round"></path></svg><span id="nav-messages">Messages</span></button><button data-view="profile" type="button"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3"></circle></svg><span id="nav-profile">Profile</span></button></div></nav>
   <div class="chat-screen hidden" id="chat-screen" role="dialog" aria-modal="true">
     <header class="chat-head">
       <button class="chat-back" id="chat-back" type="button" aria-label="Close">‹</button>

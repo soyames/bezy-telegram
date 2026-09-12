@@ -301,7 +301,9 @@ section('No hardcoded copy in runtime-populated elements');
     'chat-name', 'chat-sub', 'chat-status', 'chat-messages', 'chat-why', 'chat-locked',
     // The brand tagline ships empty and renders from the active catalogue, so the header
     // never flashes English before the resolved locale paints.
-    'tagline'
+    'tagline',
+    // The bot attribution under the Discover feed is catalogue copy too.
+    'discover-powered-by'
   ];
   for (const id of RUNTIME_FILLED) {
     const m = new RegExp(`id="${id}"[^>]*>([^<]*)<`).exec(html);
