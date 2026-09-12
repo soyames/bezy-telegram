@@ -1,7 +1,7 @@
 {
   "language_name": "Français",
   "app": {
-    "tagline": "Rencontrez quelqu’un qui mérite d’être connu.",
+    "tagline": "Faites une belle rencontre. 💗",
     "discover": "Découvrir",
     "matches": "Matchs",
     "messages": "Messages",
@@ -312,6 +312,9 @@
     "my_profile": "Mon profil",
     "language": "Langue",
     "french": "Français",
-    "english": "English"
+    "english": "English",
+    "german": "Deutsch",
+    "spanish": "Español",
+    "italian": "Italiano"
   }
 }

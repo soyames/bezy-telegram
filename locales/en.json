@@ -1,7 +1,7 @@
 {
   "language_name": "English",
   "app": {
-    "tagline": "Meet someone worth knowing.",
+    "tagline": "Meet someone worth knowing. 💗",
     "discover": "Discover",
     "matches": "Matches",
     "messages": "Messages",
@@ -312,6 +312,9 @@
     "my_profile": "My profile",
     "language": "Language",
     "french": "Français",
-    "english": "English"
+    "english": "English",
+    "german": "Deutsch",
+    "spanish": "Español",
+    "italian": "Italiano"
   }
 }

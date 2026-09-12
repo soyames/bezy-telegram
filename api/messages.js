@@ -1,5 +1,5 @@
 import { db } from './_firebase.js';
-import { requirePost, requireTelegramUser, miniAppUrl, normalizedLanguage } from './_telegram.js';
+import { requirePost, requireTelegramUser, miniAppUrl, normalizedLanguage, localized } from './_telegram.js';
 import { isPremiumActive } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 import { deliverNotification } from './_notify.js';
@@ -91,10 +91,14 @@ async function authorize(firestore, user, conversationId) {
 }
 
 function messageNotification(language, senderName) {
-  const text = language === 'fr'
-    ? `💬 Nouveau message sur Bezy\n\n${senderName} vous a écrit. Ouvrez Bezy pour répondre.`
-    : `💬 New message on Bezy\n\n${senderName} sent you a message. Open Bezy to reply.`;
-  const openBezyText = language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy';
+  const text = localized(language, {
+    en: `💬 New message on Bezy\n\n${senderName} sent you a message. Open Bezy to reply.`,
+    fr: `💬 Nouveau message sur Bezy\n\n${senderName} vous a écrit. Ouvrez Bezy pour répondre.`,
+    de: `💬 Neue Nachricht auf Bezy\n\n${senderName} hat dir geschrieben. Öffne Bezy, um zu antworten.`,
+    es: `💬 Nuevo mensaje en Bezy\n\n${senderName} te ha enviado un mensaje. Abre Bezy para responder.`,
+    it: `💬 Nuovo messaggio su Bezy\n\n${senderName} ti ha inviato un messaggio. Apri Bezy per rispondere.`
+  });
+  const openBezyText = localized(language, { en: '💜 Open Bezy', fr: '💜 Ouvrir Bezy', de: '💜 Bezy öffnen', es: '💜 Abrir Bezy', it: '💜 Apri Bezy' });
   return {
     text,
     reply_markup: { inline_keyboard: [[{ text: openBezyText, web_app: { url: miniAppUrl('messages') } }]] }
@@ -165,8 +169,10 @@ async function sendMessage(req, res, user) {
   // Telegram stays the notification channel; the message content never leaves Bezy. The
   // recipient's preferences and the per-day cap apply (api/_notify.js).
   const other = context.otherData || { telegramId: context.otherId };
+  // The recipient's explicit Bezy choice wins over their Telegram language.
+  const otherLanguage = normalizedLanguage(other.locale || other.languageCode);
   await deliverNotification(firestore, other, 'messages', messageNotification(
-    normalizedLanguage(other.languageCode), context.meData?.profile?.displayName || context.meData?.firstName || 'your match'
+    otherLanguage, context.meData?.profile?.displayName || context.meData?.firstName || localized(otherLanguage, { en: 'your match', fr: 'votre match', de: 'dein Match', es: 'tu match', it: 'il tuo match' })
   ));
 
   return res.status(200).json({ ok: true, message: publicMessage(clientId, { senderId: context.me, text, createdAt: now }) });

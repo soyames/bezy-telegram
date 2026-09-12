@@ -11,7 +11,7 @@ test('the outside-Telegram gate renders on every engine', async ({ page }) => {
   await expect(page.locator('main')).toContainText('Open Bezy from Telegram to continue.');
   const link = page.locator('main a[href="https://t.me/BezyDatingBot"]');
   await expect(link).toHaveCount(1);
-  await expect(page.locator('main img[src="/assets/bezy-icon.png"]')).toHaveCount(1);
+  await expect(page.locator('main img[src="/assets/bezy-logo-without-tagline.png"]')).toHaveCount(1);
 });
 
 test('the privacy page renders in both languages on every engine', async ({ page }) => {

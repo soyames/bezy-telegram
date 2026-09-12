@@ -1,5 +1,5 @@
 import { db } from './_firebase.js';
-import { requirePost, requireTelegramUser, normalizedLanguage } from './_telegram.js';
+import { requirePost, requireTelegramUser, normalizedLanguage, localized } from './_telegram.js';
 import { rateLimit } from './_ratelimit.js';
 import { deliverNotification } from './_notify.js';
 
@@ -24,10 +24,13 @@ function matchId(a, b) {
  * Blocks, unblocks and unmatches stay silent: their effect is visible in the app itself.
  */
 function reportAcknowledgment(language) {
-  if (language === 'fr') {
-    return 'Nous avons bien reçu votre signalement et nous allons l’examiner. En cas de danger immédiat, contactez les autorités locales.';
-  }
-  return 'We received your report and will look into it. If someone is in immediate danger, contact your local authorities.';
+  return localized(language, {
+    en: 'We received your report and will look into it. If someone is in immediate danger, contact your local authorities.',
+    fr: 'Nous avons bien reçu votre signalement et nous allons l’examiner. En cas de danger immédiat, contactez les autorités locales.',
+    de: 'Wir haben deine Meldung erhalten und werden sie prüfen. Bei akuter Gefahr kontaktiere die örtlichen Behörden.',
+    es: 'Hemos recibido tu denuncia y la examinaremos. Si alguien está en peligro inmediato, contacta con las autoridades locales.',
+    it: 'Abbiamo ricevuto la tua segnalazione e la esamineremo. Se qualcuno è in pericolo immediato, contatta le autorità locali.'
+  });
 }
 
 /**

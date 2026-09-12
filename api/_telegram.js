@@ -69,7 +69,71 @@ export function telegramUserLink(user) {
 }
 
 export function normalizedLanguage(languageCode) {
-  return String(languageCode || '').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const code = String(languageCode || '').toLowerCase();
+  if (code.startsWith('fr')) return 'fr';
+  if (code.startsWith('de')) return 'de';
+  if (code.startsWith('es')) return 'es';
+  if (code.startsWith('it')) return 'it';
+  return 'en';
+}
+
+// The five supported Bezy locales. Machine values — never translated, never extended by a
+// regional tag: the canonical Bezy locale stays the two-letter code.
+export const SUPPORTED_LOCALES = ['en', 'fr', 'de', 'es', 'it'];
+
+/**
+ * Normalizes a BCP 47-style language tag ('en-US', 'fr_BE', 'de-AT', 'es-419') to its Bezy
+ * locale. Malformed tags and unsupported languages resolve to '', so they fall through to
+ * the next resolution tier instead of being stored or shown.
+ */
+export function normalizeLanguageTag(code) {
+  const primary = String(code ?? '').trim().toLowerCase().split(/[-_]/)[0];
+  return SUPPORTED_LOCALES.includes(primary) ? primary : '';
+}
+
+/**
+ * The deterministic resolution order shared by the Mini App and the API:
+ *   1. the user's explicit Bezy language choice (manual selection — never overridden);
+ *   2. the Telegram language;
+ *   3. the device/browser language (first supported entry of the browser's preferred list);
+ *   4. English.
+ * Unsupported values fall through to the next tier, so a Portuguese Telegram with a French
+ * device resolves to French, and nothing ever returns a raw tag or null.
+ */
+export function resolveLanguage({ explicit = null, telegram = null, browser = null } = {}) {
+  const explicitTag = normalizeLanguageTag(explicit);
+  if (explicitTag) return explicitTag;
+  const telegramTag = normalizeLanguageTag(telegram);
+  if (telegramTag) return telegramTag;
+  const browsers = Array.isArray(browser) ? browser : [browser];
+  for (const code of browsers) {
+    const tag = normalizeLanguageTag(code);
+    if (tag) return tag;
+  }
+  return 'en';
+}
+
+/**
+ * The server-side view of a user's language: their explicit Bezy choice (`locale`, written
+ * by the Mini App selector) outranks the Telegram language recorded on their document.
+ * Used by every notification path, where only stored user data is available.
+ */
+export function resolveUserLanguage(userData = {}) {
+  return resolveLanguage({ explicit: userData?.locale, telegram: userData?.languageCode });
+}
+
+/**
+ * Picks the localized variant for a normalized language code. English is the reference
+ * locale and the fallback; French, German, Spanish and Italian overrides are explicit.
+ * Used by every bot message, notification and invoice label so a user in any supported
+ * locale never lands on English copy.
+ */
+export function localized(language, { en, fr, de, es, it }) {
+  if (language === 'fr' && fr) return fr;
+  if (language === 'de' && de) return de;
+  if (language === 'es' && es) return es;
+  if (language === 'it' && it) return it;
+  return en;
 }
 
 export async function configureLocalizedCommands() {
@@ -94,9 +158,42 @@ export async function configureLocalizedCommands() {
     { command: 'parametres', description: 'Paramètres' },
     { command: 'assistance', description: 'Aide et assistance' }
   ];
+  const german = [
+    { command: 'start', description: 'Bezy starten' },
+    { command: 'hilfe', description: 'So funktioniert Bezy' },
+    { command: 'profil', description: 'Mein Profil' },
+    { command: 'entdecken', description: 'Personen entdecken' },
+    { command: 'matches', description: 'Meine Matches' },
+    { command: 'premium', description: 'Bezy Premium' },
+    { command: 'einstellungen', description: 'Einstellungen' },
+    { command: 'support', description: 'Hilfe & Support' }
+  ];
+  const spanish = [
+    { command: 'empezar', description: 'Iniciar Bezy' },
+    { command: 'ayuda', description: 'Cómo funciona Bezy' },
+    { command: 'perfil', description: 'Mi perfil' },
+    { command: 'descubrir', description: 'Descubrir personas' },
+    { command: 'matches', description: 'Mis matches' },
+    { command: 'premium', description: 'Bezy Premium' },
+    { command: 'ajustes', description: 'Configuración' },
+    { command: 'soporte', description: 'Ayuda y soporte' }
+  ];
+  const italian = [
+    { command: 'start', description: 'Inizia Bezy' },
+    { command: 'aiuto', description: 'Come funziona Bezy' },
+    { command: 'profilo', description: 'Il mio profilo' },
+    { command: 'scopri', description: 'Scopri persone' },
+    { command: 'matches', description: 'I miei match' },
+    { command: 'premium', description: 'Bezy Premium' },
+    { command: 'impostazioni', description: 'Impostazioni' },
+    { command: 'assistenza', description: 'Aiuto e supporto' }
+  ];
   await Promise.all([
     telegramApi('setMyCommands', { commands: english, scope, language_code: 'en' }),
     telegramApi('setMyCommands', { commands: french, scope, language_code: 'fr' }),
+    telegramApi('setMyCommands', { commands: german, scope, language_code: 'de' }),
+    telegramApi('setMyCommands', { commands: spanish, scope, language_code: 'es' }),
+    telegramApi('setMyCommands', { commands: italian, scope, language_code: 'it' }),
     telegramApi('setMyCommands', { commands: english, scope })
   ]);
 }

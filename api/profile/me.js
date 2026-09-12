@@ -1,5 +1,5 @@
 import { db } from '../_firebase.js';
-import { requirePost, requireTelegramUser } from '../_telegram.js';
+import { requirePost, requireTelegramUser, SUPPORTED_LOCALES } from '../_telegram.js';
 import { rateLimit } from '../_ratelimit.js';
 import { normalizeNotificationSettings, notificationSettings } from '../_notify.js';
 import { processingPaused } from '../_privacy.js';
@@ -109,7 +109,7 @@ export default async function handler(req, res) {
 
   try {
     // Reads are cheap; only writes are rate limited, so opening the app is never blocked.
-    const isWrite = Boolean(req.body?.profile || req.body?.preferences || req.body?.notifications || req.body?.ageEligibilityConfirmed);
+    const isWrite = Boolean(req.body?.profile || req.body?.preferences || req.body?.notifications || req.body?.ageEligibilityConfirmed || req.body?.locale);
     if (isWrite && !(await rateLimit(db(), res, user.id, 'profile_write'))) return;
     return await handleProfile(req, res, user);
   } catch (error) {
@@ -135,6 +135,14 @@ async function handleProfile(req, res, user) {
     photoUrl: user.photo_url || '',
     updatedAt: now
   };
+
+  // The explicit Bezy language choice. Written only when the Mini App selector is used and
+  // only for a supported locale — automatic detection never persists, so a Telegram or
+  // device language change keeps re-resolving. The stored Telegram `languageCode` is
+  // refreshed separately from initData and always loses to `locale` at read time.
+  if (typeof req.body?.locale === 'string' && SUPPORTED_LOCALES.includes(req.body.locale)) {
+    baseData.locale = req.body.locale;
+  }
 
   // Bezy is 18+ only. Eligibility is an explicit self-declaration by the user — it is NOT
   // identity or age verification, and Telegram supplies no verified age. The declaration is

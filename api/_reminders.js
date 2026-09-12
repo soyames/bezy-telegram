@@ -14,7 +14,7 @@
 // Nothing here runs automatically. `scripts/profile-reminders.mjs` drives it, dry-run by
 // default, like the retention policy.
 
-import { normalizedLanguage, miniAppUrl } from './_telegram.js';
+import { normalizedLanguage, localized, miniAppUrl } from './_telegram.js';
 import { deliverNotification } from './_notify.js';
 import { processingPaused } from './_privacy.js';
 
@@ -22,20 +22,33 @@ export const REMINDER_CATEGORY = 'profile_reminders';
 
 /**
  * Bot message text, localized the same way every other bot message is (see
- * `api/swipe.js`): a French telegram gets French, everything else gets English.
+ * `api/swipe.js`): callers pass the resolved language (explicit Bezy choice first,
+ * Telegram language second).
  */
 export function reminderMessage(languageCode) {
   const language = normalizedLanguage(languageCode);
-  if (language === 'fr') {
-    return {
+  return localized(language, {
+    en: {
+      text: 'Your Bezy profile is nearly ready 💜 A quick visit is all it takes to finish it.',
+      button: 'Finish my profile'
+    },
+    fr: {
       text: 'Votre profil Bezy est presque prêt 💜 Une petite visite suffit pour le terminer.',
       button: 'Terminer mon profil'
-    };
-  }
-  return {
-    text: 'Your Bezy profile is nearly ready 💜 A quick visit is all it takes to finish it.',
-    button: 'Finish my profile'
-  };
+    },
+    de: {
+      text: 'Dein Bezy-Profil ist fast fertig 💜 Ein kurzer Besuch genügt, um es abzuschließen.',
+      button: 'Profil fertigstellen'
+    },
+    es: {
+      text: 'Tu perfil de Bezy está casi listo 💜 Con una visita rápida lo terminas.',
+      button: 'Terminar mi perfil'
+    },
+    it: {
+      text: 'Il tuo profilo Bezy è quasi pronto 💜 Basta una visita veloce per completarlo.',
+      button: 'Completa il profilo'
+    }
+  });
 }
 
 /**
@@ -83,7 +96,8 @@ export async function planProfileReminders(firestore, { limit = 200, protectedId
 export async function sendProfileReminders(firestore, plan) {
   const summary = { sent: 0, disabled: 0, capped: 0, failed: 0, noRecipient: 0 };
   for (const user of plan.users) {
-    const message = reminderMessage(user.data?.languageCode);
+    // The user's explicit Bezy choice wins over their Telegram language.
+    const message = reminderMessage(user.data?.locale || user.data?.languageCode);
     const result = await deliverNotification(firestore, user.data, REMINDER_CATEGORY, {
       text: message.text,
       reply_markup: { inline_keyboard: [[{ text: message.button, web_app: { url: miniAppUrl('profile') } }]] }

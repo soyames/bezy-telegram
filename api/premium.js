@@ -6,11 +6,17 @@ import { rateLimit } from './_ratelimit.js';
 
 const PLAN_LABELS = {
   en: { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' },
-  fr: { monthly: 'Mensuel', quarterly: 'Trimestriel', yearly: 'Annuel' }
+  fr: { monthly: 'Mensuel', quarterly: 'Trimestriel', yearly: 'Annuel' },
+  de: { monthly: 'Monatlich', quarterly: 'Vierteljährlich', yearly: 'Jährlich' },
+  es: { monthly: 'Mensual', quarterly: 'Trimestral', yearly: 'Anual' },
+  it: { monthly: 'Mensile', quarterly: 'Trimestrale', yearly: 'Annuale' }
 };
 const INVOICE_DESCRIPTION = {
   en: 'See who liked you, advanced discovery, more Super Likes, increased visibility and unlimited discovery.',
-  fr: 'Voyez qui vous a liké, découverte avancée, plus de Super Likes, visibilité accrue et découverte illimitée.'
+  fr: 'Voyez qui vous a liké, découverte avancée, plus de Super Likes, visibilité accrue et découverte illimitée.',
+  de: 'Sieh, wer dich geliked hat, erweiterte Suche, mehr Super Likes, mehr Sichtbarkeit und unbegrenztes Entdecken.',
+  es: 'Ve quién te ha dado like, descubrimiento avanzado, más Super Likes, más visibilidad y descubrimiento ilimitado.',
+  it: 'Vedi chi ti ha messo like, scoperta avanzata, più Super Like, maggiore visibilità e scoperta illimitata.'
 };
 
 export function publicPlans() {

@@ -1,5 +1,5 @@
 import { db } from './_firebase.js';
-import { requirePost, requireTelegramUser, normalizedLanguage } from './_telegram.js';
+import { requirePost, requireTelegramUser, normalizedLanguage, localized } from './_telegram.js';
 import { premiumState } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 import { notificationSettings, deliverNotification } from './_notify.js';
@@ -23,26 +23,48 @@ const DELETE_CONFIRMATION = 'DELETE';
  * actually changed — an idempotent repeat is not a new event and gets no new message.
  */
 function accountEventMessages(language) {
-  if (language === 'fr') {
-    return {
+  return localized(language, {
+    en: {
+      restricted: 'Processing is now paused. Bezy is storing your data and using none of it. Resume anytime in Bezy → Profile → Safety & privacy.',
+      unrestricted: 'Processing has resumed. Turn on “Show my profile in Discover” when you are ready to be seen again.',
+      objected: 'Your objection is recorded. Bezy has stopped processing your data for discovery and matching. Withdraw it anytime in Bezy → Profile → Safety & privacy.',
+      unobjected: 'Your objection has been withdrawn. Turn on “Show my profile in Discover” when you are ready to be seen again.',
+      deleted: 'Your Bezy account has been deleted. Your profile, likes, passes, matches and blocks are gone. Payment records are kept for accounting. Goodbye 💜'
+    },
+    fr: {
       restricted: 'Le traitement est maintenant suspendu. Bezy conserve vos données et n’en utilise aucune. Reprenez à tout moment dans Bezy → Profil → Sécurité et confidentialité.',
       unrestricted: 'Le traitement a repris. Activez « Montrer mon profil dans Découvrir » quand vous êtes prêt·e à être vu·e à nouveau.',
       objected: 'Votre opposition est enregistrée. Bezy a cessé de traiter vos données pour la découverte et les matchs. Retirez-la à tout moment dans Bezy → Profil → Sécurité et confidentialité.',
       unobjected: 'Votre opposition a été retirée. Activez « Montrer mon profil dans Découvrir » quand vous êtes prêt·e à être vu·e à nouveau.',
       deleted: 'Votre compte Bezy a été supprimé. Votre profil, vos likes, vos passes, vos matchs et vos blocages ont été effacés. Les paiements sont conservés pour la comptabilité. Au revoir 💜'
-    };
-  }
-  return {
-    restricted: 'Processing is now paused. Bezy is storing your data and using none of it. Resume anytime in Bezy → Profile → Safety & privacy.',
-    unrestricted: 'Processing has resumed. Turn on “Show my profile in Discover” when you are ready to be seen again.',
-    objected: 'Your objection is recorded. Bezy has stopped processing your data for discovery and matching. Withdraw it anytime in Bezy → Profile → Safety & privacy.',
-    unobjected: 'Your objection has been withdrawn. Turn on “Show my profile in Discover” when you are ready to be seen again.',
-    deleted: 'Your Bezy account has been deleted. Your profile, likes, passes, matches and blocks are gone. Payment records are kept for accounting. Goodbye 💜'
-  };
+    },
+    de: {
+      restricted: 'Die Verarbeitung ist jetzt pausiert. Bezy speichert deine Daten und nutzt keine davon. Setze sie jederzeit fort unter Bezy → Profil → Sicherheit & Datenschutz.',
+      unrestricted: 'Die Verarbeitung wurde fortgesetzt. Aktiviere „Mein Profil in Entdecken anzeigen“, wenn du wieder sichtbar sein möchtest.',
+      objected: 'Dein Widerspruch ist erfasst. Bezy hat die Verarbeitung deiner Daten für Entdecken und Matches gestoppt. Ziehe ihn jederzeit zurück unter Bezy → Profil → Sicherheit & Datenschutz.',
+      unobjected: 'Dein Widerspruch wurde zurückgezogen. Aktiviere „Mein Profil in Entdecken anzeigen“, wenn du wieder sichtbar sein möchtest.',
+      deleted: 'Dein Bezy-Konto wurde gelöscht. Dein Profil, deine Likes, deine übersprungenen Profile, deine Matches und deine Blockierungen sind entfernt. Zahlungsdatensätze werden für die Buchhaltung aufbewahrt. Auf Wiedersehen 💜'
+    },
+    es: {
+      restricted: 'El tratamiento ya está pausado. Bezy guarda tus datos y no usa ninguno. Reanúdalo cuando quieras en Bezy → Perfil → Seguridad y privacidad.',
+      unrestricted: 'El tratamiento se ha reanudado. Activa «Mostrar mi perfil en Descubrir» cuando quieras que te vuelvan a ver.',
+      objected: 'Tu oposición ha quedado registrada. Bezy ha dejado de tratar tus datos para el descubrimiento y los matches. Retírala cuando quieras en Bezy → Perfil → Seguridad y privacidad.',
+      unobjected: 'Tu oposición ha sido retirada. Activa «Mostrar mi perfil en Descubrir» cuando quieras que te vuelvan a ver.',
+      deleted: 'Tu cuenta de Bezy ha sido eliminada. Tu perfil, tus likes, tus descartes, tus matches y tus bloqueos ya no existen. Los registros de pago se conservan por motivos contables. Hasta pronto 💜'
+    },
+    it: {
+      restricted: 'Il trattamento è ora in pausa. Bezy conserva i tuoi dati e non ne usa nessuno. Riprendilo in qualsiasi momento in Bezy → Profilo → Sicurezza e privacy.',
+      unrestricted: 'Il trattamento è ripreso. Attiva «Mostra il mio profilo in Scopri» quando vuoi essere di nuovo visibile.',
+      objected: 'La tua opposizione è stata registrata. Bezy ha smesso di trattare i tuoi dati per la scoperta e i match. Ritirala in qualsiasi momento in Bezy → Profilo → Sicurezza e privacy.',
+      unobjected: 'La tua opposizione è stata ritirata. Attiva «Mostra il mio profilo in Scopri» quando vuoi essere di nuovo visibile.',
+      deleted: 'Il tuo account Bezy è stato eliminato. Il tuo profilo, i tuoi like, i profili scartati, i tuoi match e i tuoi blocchi non ci sono più. Le registrazioni dei pagamenti vengono conservate a fini contabili. Arrivederci 💜'
+    }
+  });
 }
 
 function sendAccountEvent(firestore, userData, key) {
-  return deliverNotification(firestore, userData, 'account', { text: accountEventMessages(normalizedLanguage(userData?.languageCode))[key] });
+  // The user's explicit Bezy choice wins over their Telegram language.
+  return deliverNotification(firestore, userData, 'account', { text: accountEventMessages(normalizedLanguage(userData?.locale || userData?.languageCode))[key] });
 }
 
 function iso(value) {

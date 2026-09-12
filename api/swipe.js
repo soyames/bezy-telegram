@@ -1,5 +1,5 @@
 import { db } from './_firebase.js';
-import { miniAppUrl, requirePost, requireTelegramUser, normalizedLanguage } from './_telegram.js';
+import { miniAppUrl, requirePost, requireTelegramUser, normalizedLanguage, localized } from './_telegram.js';
 import { isPremiumActive, checkSwipeQuota } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 import { deliverNotification } from './_notify.js';
@@ -14,14 +14,18 @@ function matchId(a, b) {
 // The match notification points at the Bezy conversation (ADR 0009): Bezy owns messaging
 // between matched users, and the button opens the Mini App where the conversation lives.
 function matchMessage(language, name) {
-  return language === 'fr'
-    ? `💜 Match avec ${name} ! Vous vous êtes tous les deux appréciés.\n\nVotre conversation vous attend dans Bezy.`
-    : `💜 You matched with ${name}! You both liked each other.\n\nYour conversation is waiting for you inside Bezy.`;
+  return localized(language, {
+    en: `💜 You matched with ${name}! You both liked each other.\n\nYour conversation is waiting for you inside Bezy.`,
+    fr: `💜 Match avec ${name} ! Vous vous êtes tous les deux appréciés.\n\nVotre conversation vous attend dans Bezy.`,
+    de: `💜 Match mit ${name}! Ihr habt euch gegenseitig geliked.\n\nEure Unterhaltung wartet in Bezy auf euch.`,
+    es: `💜 ¡Match con ${name}! Se han gustado mutuamente.\n\nSu conversación los espera dentro de Bezy.`,
+    it: `💜 Match con ${name}! Vi siete piaciuti a vicenda.\n\nLa vostra conversazione vi aspetta su Bezy.`
+  });
 }
 
 export async function notifyMatch(firestore, user, other, language) {
-  const otherName = other.profile?.displayName || other.firstName || (language === 'fr' ? 'votre match' : 'your match');
-  const openChatText = language === 'fr' ? '💬 Commencer la conversation' : '💬 Start chatting';
+  const otherName = other.profile?.displayName || other.firstName || localized(language, { en: 'your match', fr: 'votre match', de: 'dein Match', es: 'tu match', it: 'il tuo match' });
+  const openChatText = localized(language, { en: '💬 Start chatting', fr: '💬 Commencer la conversation', de: '💬 Unterhaltung starten', es: '💬 Empezar a chatear', it: '💬 Inizia a chattare' });
   const buttons = [[{ text: openChatText, web_app: { url: miniAppUrl('messages') } }]];
   return deliverNotification(firestore, user, 'matches', {
     text: matchMessage(language, otherName),
@@ -41,14 +45,20 @@ export async function notifyMatch(firestore, user, other, language) {
  * like did not already produce a match: a match notification says more and supersedes it.
  */
 function superLikeMessage(language) {
-  return language === 'fr'
-    ? '⭐ Quelqu’un vous a envoyé un Super Like sur Bezy.\n\nContinuez à découvrir — si vous l’aimez en retour, c’est un match.'
-    : '⭐ Someone super liked you on Bezy.\n\nKeep discovering — if you like them back, it\'s a match.';
+  return localized(language, {
+    en: '⭐ Someone super liked you on Bezy.\n\nKeep discovering — if you like them back, it\'s a match.',
+    fr: '⭐ Quelqu’un vous a envoyé un Super Like sur Bezy.\n\nContinuez à découvrir — si vous l’aimez en retour, c’est un match.',
+    de: '⭐ Jemand hat dir auf Bezy einen Super Like geschickt.\n\nEntdecke weiter — wenn du zurücklikst, ist es ein Match.',
+    es: '⭐ Alguien te ha enviado un Super Like en Bezy.\n\nSigue descubriendo: si le devuelves el like, es un match.',
+    it: '⭐ Qualcuno ti ha inviato un Super Like su Bezy.\n\nContinua a scoprire: se ricambi il like, è un match.'
+  });
 }
 
 async function notifySuperLike(firestore, recipient) {
-  const language = normalizedLanguage(recipient.languageCode);
-  const openBezyText = language === 'fr' ? '💜 Ouvrir Bezy' : '💜 Open Bezy';
+  // The recipient's explicit Bezy choice wins over their Telegram language, so a user who
+  // picked French never receives an English Super Like notification.
+  const language = normalizedLanguage(recipient.locale || recipient.languageCode);
+  const openBezyText = localized(language, { en: '💜 Open Bezy', fr: '💜 Ouvrir Bezy', de: '💜 Bezy öffnen', es: '💜 Abrir Bezy', it: '💜 Apri Bezy' });
   return deliverNotification(firestore, recipient, 'super_likes', {
     text: superLikeMessage(language),
     reply_markup: { inline_keyboard: [[{ text: openBezyText, web_app: { url: miniAppUrl('discover') } }]] }
@@ -172,8 +182,9 @@ export default async function handler(req, res) {
     if (result.created) {
       const currentSnap = await userRef.get();
       const current = currentSnap.data() || { telegramId: user.id };
-      const language = normalizedLanguage(user.language_code);
-      const targetLanguage = normalizedLanguage(result.target.languageCode);
+      // Both sides resolve their explicit Bezy choice before their Telegram language.
+      const language = normalizedLanguage(current.locale || user.language_code);
+      const targetLanguage = normalizedLanguage(result.target.locale || result.target.languageCode);
       await Promise.allSettled([
         notifyMatch(firestore, current, result.target, language),
         notifyMatch(firestore, result.target, current, targetLanguage)
