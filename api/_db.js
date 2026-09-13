@@ -20,6 +20,29 @@ pg.types.setTypeParser(1082, value => value);
 
 let pool = null;
 
+/**
+ * The database connection resolves from the environment in this order:
+ *   1. DATABASE_URL (the canonical, explicit variable),
+ *   2. NEON_DATABASE_URL, POSTGRES_URL, POSTGRES_URL_NON_POOLING (Vercel storage
+ *      integrations inject one of these shapes),
+ *   3. discrete PGHOST/PGUSER/PGPASSWORD/PGDATABASE (or their NEON_PG* twins) composed
+ *      into a URL.
+ * Nothing is ever logged — the resolved string only ever reaches the pg driver.
+ */
+export function resolveDatabaseUrl() {
+  const direct = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL
+    || process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
+  if (direct) return direct;
+  const host = process.env.PGHOST || process.env.NEON_PGHOST;
+  const user = process.env.PGUSER || process.env.NEON_PGUSER;
+  const password = process.env.PGPASSWORD ?? process.env.NEON_PGPASSWORD;
+  const database = process.env.PGDATABASE || process.env.NEON_PGDATABASE;
+  if (host && user && password && database) {
+    return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}/${encodeURIComponent(database)}`;
+  }
+  return null;
+}
+
 // URL SSL options override pg's explicit ssl object. Remove them before enforcing
 // certificate and hostname verification, including when a URL says sslmode=disable.
 export function connectionOptions(value) {
@@ -36,16 +59,17 @@ function logFailure(operation, error, extra = {}) {
 }
 
 export function dbReady() {
-  return Boolean(process.env.DATABASE_URL);
+  return Boolean(resolveDatabaseUrl());
 }
 
 export function db() {
   if (!pool) {
-    if (!process.env.DATABASE_URL) {
+    const databaseUrl = resolveDatabaseUrl();
+    if (!databaseUrl) {
       throw new Error('DATABASE_URL is not configured');
     }
     pool = new pg.Pool({
-      ...connectionOptions(process.env.DATABASE_URL),
+      ...connectionOptions(databaseUrl),
       max: 4,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,

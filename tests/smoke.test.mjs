@@ -124,7 +124,7 @@ const unauth = await post('/api/discover', {});
 check('errors are machine codes, not prose or stack traces',
   /^[A-Z_]+$/.test(String(unauth.data.error || '')), JSON.stringify(unauth.data));
 check('no internal detail leaks in an error body',
-  !/database_url|postgresql://|at |Error:|node_modules/i.test(JSON.stringify(unauth.data)), JSON.stringify(unauth.data));
+  !/database_url|postgresql:\/\/|at |Error:|node_modules/i.test(JSON.stringify(unauth.data)), JSON.stringify(unauth.data));
 
 section('The webhook is reachable and guarded');
 const webhookGet = await get('/api/telegram/webhook');
