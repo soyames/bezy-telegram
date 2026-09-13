@@ -231,7 +231,7 @@
     "prompt_placeholder": "Jibu lako",
     "preview_profile": "Ona mwonekano wa wasifu wangu",
     "preview_title": "Jinsi wengine wanavyokuona",
-    "preview_hint": "Hii ni kadi yako jinsi inavyoonekana kwenye Gundua. Jina lako la mtumiaji wa Telegram linabaki siri hadi mechi.",
+    "preview_hint": "Hivi ndivyo kadi yako inavyoonekana kwenye Gundua. Jina lako la mtumiaji la Telegram halionyeshwi kamwe kwa wanachama wengine.",
     "preview_incomplete": "Kamilisha wasifu wako ili kuona jinsi utakavyoonekana.",
     "why_matched": "Kwa nini mlipata mechi",
     "why_interests": "Nyote mnapenda: {values}",
@@ -322,7 +322,18 @@
     "closure_hint": "Kama muunganisho huu hauendi mbele, unaweza kuukatisha vizuri.",
     "starter_universal_1": "Ni nini umekuwa ukifurahia hivi karibuni?",
     "starter_universal_2": "Wikendi nzuri kweli inaonekanaje kwako?",
-    "starter_universal_3": "Ni nini kilikuleta kwenye Bezy?"
+    "starter_universal_3": "Ni nini kilikuleta kwenye Bezy?",
+    "translated_from": "Imetafsiriwa kutoka {lang}",
+    "show_original": "Onyesha asili",
+    "original_label": "Asili · {lang}",
+    "show_translation": "Onyesha tafsiri",
+    "age_status_title": "Umri na uaminifu",
+    "age_self_declared": "18+ — tamko la mwenyewe",
+    "premium_unavailable": "Premium haipatikani kwa muda. Jaribu tena.",
+    "interests_limit": "Maslahi 12 zaidi.",
+    "quota_likes_left": "Imependa {n} zimesalia leo",
+    "quota_super_likes_left": "Super Like {n} zimesalia",
+    "check_payment_status": "Angalia hali ya malipo"
   },
   "profile": {
     "edit": "Hariri wasifu",

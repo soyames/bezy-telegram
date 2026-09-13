@@ -5,7 +5,8 @@ import { SUPPORT_CATEGORIES, createSupportRequest, diagnosePremium, diagnoseDisc
 import { enforceRateLimit } from '../_ratelimit.js';
 
 const COMMAND_VIEWS = {
-  start: null, demarrer: null, help: null, aide: null, hilfe: null, ayuda: null, aiuto: null,
+  start: null, demarrer: null, empezar: null,
+  help: null, aide: null, hilfe: null, ayuda: null, aiuto: null,
   profile: 'profile', profil: 'profile', perfil: 'profile', profilo: 'profile',
   discover: 'discover', decouvrir: 'discover', entdecken: 'discover', descubrir: 'discover', scopri: 'discover',
   matches: 'matches', matchs: 'matches', premium: 'premium',
@@ -685,7 +686,9 @@ async function handleSupportText(chatId, language, from, firestore, messageText)
     telegramUserId: userId,
     category: pending.category,
     details: String(messageText || ''),
-    languageCode: from.language_code || null
+    // The resolved Bezy locale (explicit choice > Telegram language) is what the operator
+    // queue should record — the same language the user actually reads.
+    languageCode: language
   });
   await userRef.update({ pendingSupportRequest: null });
   const text = localized(language, SUPPORT_CONFIRMATION)(reference);
@@ -767,7 +770,7 @@ const PREMIUM_COMMAND = {
 };
 
 async function sendCommand(chatId, command, language) {
-  if (command === 'help' || command === 'aide') {
+  if (command === 'help' || command === 'aide' || command === 'hilfe' || command === 'ayuda' || command === 'aiuto') {
     await telegramApi('sendMessage', { chat_id: chatId, text: helpText(language), parse_mode: 'HTML', reply_markup: { inline_keyboard: [[uiButton(language, null)]] } });
     return;
   }
@@ -1033,6 +1036,16 @@ async function handleSuccessfulPayment(message) {
     const existing = await tx.get(paymentRef);
     if (existing.exists) return { duplicate: true, expiresAt: existing.data()?.membershipExpiresAt || null };
 
+    // The invoice created at pre-checkout is the server-side record of what was offered.
+    // Activation corroborates the update against it — a well-formed successful_payment
+    // without a matching invoice record grants nothing, mirroring the pre-checkout gate.
+    const invoiceSnap = await tx.get(invoiceRef);
+    const invoice = invoiceSnap.exists ? invoiceSnap.data() : null;
+    if (!invoice || invoice.telegramUserId !== parsed.telegramUserId || invoice.planId !== plan.id || Number(invoice.stars) !== plan.stars) {
+      logPayment('successful_payment.rejected', { ...context, reason: 'invoice_mismatch' });
+      return { rejected: true };
+    }
+
     const userSnap = await tx.get(userRef);
     const userData = userSnap.exists ? userSnap.data() : {};
     const expiresAt = nextExpiry(userData, plan, now);
@@ -1069,6 +1082,7 @@ async function handleSuccessfulPayment(message) {
     return { duplicate: false, expiresAt, planId: plan.id };
   });
 
+  if (result.rejected) return result;
   logPayment(result.duplicate ? 'successful_payment.duplicate_ignored' : 'successful_payment.activated', {
     ...context,
     idempotent: result.duplicate,
@@ -1185,7 +1199,14 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!process.env.TELEGRAM_BOT_TOKEN) return res.status(500).json({ error: 'TELEGRAM_BOT_TOKEN is not configured' });
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (expectedSecret && req.headers['x-telegram-bot-api-secret-token'] !== expectedSecret) return res.status(401).json({ error: 'Invalid webhook secret' });
+  // Fail closed: without the shared secret this deployment cannot tell a Telegram update
+  // from a forged one — and payment updates in particular activate Premium. Production and
+  // Preview/Development carry the secret (owner-confirmed); the only unsigned deployment is
+  // the local test harness, which sets a local test secret. An unsigned update is
+  // acknowledged (Telegram retries on non-200) and ignored, never acted on.
+  if (!expectedSecret || req.headers['x-telegram-bot-api-secret-token'] !== expectedSecret) {
+    return res.status(401).json({ error: 'Invalid webhook secret' });
+  }
 
   const update = req.body || {};
 
@@ -1254,7 +1275,7 @@ export default async function handler(req, res) {
   if (message.successful_payment) {
     try {
       const result = await handleSuccessfulPayment(message);
-      if (result && !result.duplicate) await confirmPremium(message.chat.id, language, result.expiresAt);
+      if (result && !result.duplicate && !result.rejected) await confirmPremium(message.chat.id, language, result.expiresAt);
     } catch (error) {
       console.error('Successful-payment handling failed:', error);
     }
@@ -1262,7 +1283,7 @@ export default async function handler(req, res) {
   }
 
   const command = commandName(message.text);
-  if (command === 'support' || command === 'assistance') {
+  if (command === 'support' || command === 'assistance' || command === 'soporte' || command === 'assistenza') {
     await sendSupportMenu(message.chat.id, language);
     return res.status(200).json({ ok: true });
   }
@@ -1282,7 +1303,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  if (command === 'start' || command === 'demarrer') {
+  if (command === 'start' || command === 'demarrer' || command === 'empezar') {
     try { await configureLocalizedCommands(); }
     catch (error) { console.error('Unable to configure Telegram commands:', error); }
   }

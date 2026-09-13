@@ -2,6 +2,7 @@ import { db } from './_firebase.js';
 import { requirePost, requireTelegramUser } from './_telegram.js';
 import { isPremiumActive } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
+import { processingPaused } from './_privacy.js';
 
 export function publicLiker(id, data) {
   const profile = data.profile || {};
@@ -33,23 +34,29 @@ export default async function handler(req, res) {
     const userSnap = await userRef.get();
     const userData = userSnap.exists ? userSnap.data() : {};
 
-    if (!isPremiumActive(userData)) {
-      // The count is a non-identifying teaser: it reveals no profile, name or photo.
-      const pending = await userRef.collection('likesReceived').count().get();
-      return res.status(403).json({ error: 'PREMIUM_REQUIRED', likeCount: pending.data().count || 0 });
-    }
-
+    // People the caller already decided on (including ones they matched with) are not
+    // "waiting": the teaser counts exactly what the Premium list would show.
     const received = await userRef.collection('likesReceived').limit(50).get();
     const decided = new Set((await userRef.collection('actions').get()).docs.map((doc) => doc.id));
+
+    if (!isPremiumActive(userData)) {
+      // The count is a non-identifying teaser: it reveals no profile, name or photo.
+      const pending = received.docs.filter((doc) => !decided.has(doc.id)).length;
+      return res.status(403).json({ error: 'PREMIUM_REQUIRED', likeCount: pending });
+    }
 
     const likes = [];
     for (const doc of received.docs) {
       if (decided.has(doc.id)) continue;
       const likerSnap = await firestore.collection('users').doc(doc.id).get();
       if (!likerSnap.exists) continue;
+      const likerData = likerSnap.data() || {};
+      // A paused liker is stored, not used; an explicitly hidden profile cannot be
+      // reciprocated (the swipe gate refuses it), so showing it would invite a dead end.
+      if (processingPaused(likerData) || likerData.discoverable === false) continue;
       const createdAtMs = doc.data()?.createdAt?.toMillis?.() ?? 0;
       likes.push({
-        ...publicLiker(doc.id, likerSnap.data() || {}),
+        ...publicLiker(doc.id, likerData),
         action: doc.data()?.action || 'like',
         likedAt: createdAtMs ? new Date(createdAtMs).toISOString() : null,
         likedAtMs: createdAtMs

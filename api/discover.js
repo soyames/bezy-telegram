@@ -1,8 +1,9 @@
 import { db } from './_firebase.js';
-import { requirePost, requireTelegramUser } from './_telegram.js';
+import { requirePost, requireTelegramUser, normalizeLanguageTag, resolveUserLanguage } from './_telegram.js';
 import { isPremiumActive, limitsFor, currentUsage } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 import { processingPaused } from './_privacy.js';
+import { localizeProfileTexts } from './_profileText.js';
 
 // Premium members receive a small, deterministic ranking boost. It changes ordering only;
 // it never fabricates candidates and never guarantees a match.
@@ -356,6 +357,9 @@ async function handleDiscover(req, res, user) {
     // A paused account is already undiscoverable, but it is excluded explicitly as well:
     // the legal state, not a derived visibility flag, is what must govern here.
     if (processingPaused(data)) { decidedMisses++; continue; }
+    // The 18+ declaration is enforced on the candidate side too: an account that predates
+    // the age gate and never declared can be served no deck and must appear in no deck.
+    if (data.ageEligibilityConfirmed !== true) { hardMisses++; continue; }
     if (!data.profileComplete || !genderMatches(currentProfile, data.profile)) { hardMisses++; continue; }
     if (!matchesPreferences(preferences, currentProfile, data.profile, isPremium)) { preferenceMisses++; continue; }
     const createdAt = data.createdAt?.toMillis?.() ?? new Date(data.createdAt || 0).getTime();
@@ -408,9 +412,21 @@ async function handleDiscover(req, res, user) {
     inYourCity: eligible.filter((profile) => sameCity(currentProfile.city, profile.city)).length
   };
 
+  // User-generated content follows the viewer's locale: translations are ATTACHED to the
+  // served page only (never substituting the original), cached under the author's own
+  // document, and simply absent when the source and the viewer share a language.
+  const page = eligible.slice(0, 20);
+  // The Mini App sends its already-resolved locale (explicit choice > Telegram > browser >
+  // English). Validating it against SUPPORTED_LOCALES keeps that single resolution chain
+  // authoritative — no second locale system — and the stored values cover older clients.
+  const viewerLocale = normalizeLanguageTag(req.body?.lang) || resolveUserLanguage(currentData);
+  await Promise.all(page.map(async (profile) => {
+    profile.translations = await localizeProfileTexts(db(), profile.id, profile, viewerLocale);
+  }));
+
   return res.status(200).json({
     ok: true,
-    profiles: eligible.slice(0, 20),
+    profiles: page,
     stats,
     preferences,
     needsProfile: false,

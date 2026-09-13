@@ -231,7 +231,7 @@
     "prompt_placeholder": "Tu respuesta",
     "preview_profile": "Vista previa del perfil",
     "preview_title": "Cómo te ven los demás",
-    "preview_hint": "Así es tu tarjeta tal como aparece en Descubrir. Tu nombre de usuario de Telegram permanece oculto hasta el match.",
+    "preview_hint": "Así se ve tu tarjeta en Descubrir. Tu nombre de usuario de Telegram nunca se muestra a otros miembros.",
     "preview_incomplete": "Completa tu perfil para ver cómo se verá.",
     "why_matched": "Por qué hicieron match",
     "why_interests": "A ambos les gusta {values}",
@@ -322,7 +322,18 @@
     "language_ko": "Coreano",
     "starter_universal_1": "¿Qué has estado disfrutando últimamente?",
     "starter_universal_2": "¿Cómo es un fin de semana realmente bueno para ti?",
-    "starter_universal_3": "¿Qué te trajo a Bezy?"
+    "starter_universal_3": "¿Qué te trajo a Bezy?",
+    "translated_from": "Traducido de {lang}",
+    "show_original": "Ver original",
+    "original_label": "Original · {lang}",
+    "show_translation": "Ver traducción",
+    "age_status_title": "Edad y confianza",
+    "age_self_declared": "18+ por autodeclaración",
+    "premium_unavailable": "Premium no está disponible temporalmente. Inténtalo de nuevo.",
+    "interests_limit": "Máximo 12 intereses.",
+    "quota_likes_left": "Quedan {n} likes hoy",
+    "quota_super_likes_left": "Quedan {n} Super Likes",
+    "check_payment_status": "Comprobar el estado del pago"
   },
   "profile": {
     "edit": "Editar perfil",

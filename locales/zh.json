@@ -231,7 +231,7 @@
     "prompt_placeholder": "你的回答",
     "preview_profile": "预览我的资料",
     "preview_title": "别人眼中的你",
-    "preview_hint": "这是你的卡片在「发现」中的样子。你的 Telegram 用户名在配对前保持隐藏。",
+    "preview_hint": "这就是你的卡片在“发现”中的样子。你的 Telegram 用户名绝不会展示给其他成员。",
     "preview_incomplete": "完善你的资料，看看它会是什么样子。",
     "why_matched": "你们为什么配对",
     "why_interests": "你们都喜欢：{values}",
@@ -322,7 +322,18 @@
     "closure_hint": "如果这段连接没有进展，你可以干净地结束它。",
     "starter_universal_1": "最近有什么让你乐在其中的事？",
     "starter_universal_2": "对你来说，一个真正美好的周末是什么样的？",
-    "starter_universal_3": "是什么让你来到 Bezy？"
+    "starter_universal_3": "是什么让你来到 Bezy？",
+    "translated_from": "译自 {lang}",
+    "show_original": "显示原文",
+    "original_label": "原文 · {lang}",
+    "show_translation": "显示译文",
+    "age_status_title": "年龄与信任",
+    "age_self_declared": "18+，自行声明",
+    "premium_unavailable": "Premium 暂时不可用。请重试。",
+    "interests_limit": "最多 12 个兴趣。",
+    "quota_likes_left": "今天还剩 {n} 次喜欢",
+    "quota_super_likes_left": "还剩 {n} 次超级喜欢",
+    "check_payment_status": "查看付款状态"
   },
   "profile": {
     "edit": "编辑资料",

@@ -22,6 +22,9 @@ if (process.env.BEZY_SERVICE_ACCOUNT) {
   process.env.FIREBASE_PRIVATE_KEY = sa.private_key;
 }
 process.env.TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '111111:LOCAL-TEST-BOT-TOKEN';
+// The webhook now fails closed without a secret (api/telegram/webhook.js): the local
+// harness runs with a local test secret, and the test suites' webhook() helpers send it.
+process.env.TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '111111:LOCAL-TEST-WEBHOOK-SECRET';
 
 export const TEST_USERS = {
   a: { id: 900000001, first_name: 'Ada', last_name: 'Test', username: 'ada_bezy_test', language_code: 'en' },
@@ -95,7 +98,15 @@ function vercelRes(res) {
 
 export function startHarness({ port = 3310 } = {}) {
   const telegramCalls = [];
+  const translateCalls = [];
   const realFetch = globalThis.fetch;
+
+  // Profile-content translation is pointed at the harness itself for every run: the real
+  // handlers exercise their real HTTP + parsing path against a deterministic provider, so
+  // no suite depends on translate.googleapis.com and no user text leaves the test box.
+  // The mock's output is `[<target>] <text>` — the target locale stays observable.
+  const previousEndpoint = process.env.BEZY_TRANSLATE_ENDPOINT;
+  process.env.BEZY_TRANSLATE_ENDPOINT = `http://localhost:${port}/__translate?sl={sl}&tl={tl}&q={q}`;
 
   // Outbound Telegram Bot API calls are captured instead of sent. Stars invoice links and
   // pre-checkout answers are therefore observable without touching a live bot.
@@ -119,6 +130,9 @@ export function startHarness({ port = 3310 } = {}) {
 
     if (pathname === '/__test-users') {
       const payload = Object.fromEntries(Object.entries(TEST_USERS).map(([k, u]) => [k, { user: u, initData: makeInitData(u) }]));
+      // The local test webhook secret, so e2e specs can post Telegram updates the same way
+      // Telegram sends them. Local-only: never a production value.
+      payload.webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || '';
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify(payload));
     }
@@ -133,6 +147,25 @@ export function startHarness({ port = 3310 } = {}) {
     }
     if (pathname === '/__reset-telegram-calls') {
       telegramCalls.length = 0;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (pathname === '/__translate') {
+      const sl = url.searchParams.get('sl') || '';
+      const tl = url.searchParams.get('tl') || '';
+      const q = url.searchParams.get('q') || '';
+      translateCalls.push({ sl, tl, q });
+      // Mirrors the shape translate_a/single returns: data[0] is the segment array and
+      // each segment's [0] is the translated text.
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify([[[`[${tl}] ${q}`]], null, sl]));
+    }
+    if (pathname === '/__translate-calls') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(translateCalls));
+    }
+    if (pathname === '/__reset-translate-calls') {
+      translateCalls.length = 0;
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
@@ -184,8 +217,9 @@ export function startHarness({ port = 3310 } = {}) {
     server.listen(port, () => resolve({
       port,
       telegramCalls,
+      translateCalls,
       url: `http://localhost:${port}`,
-      close: () => new Promise((done) => { globalThis.fetch = realFetch; server.close(done); })
+      close: () => new Promise((done) => { globalThis.fetch = realFetch; if (previousEndpoint === undefined) delete process.env.BEZY_TRANSLATE_ENDPOINT; else process.env.BEZY_TRANSLATE_ENDPOINT = previousEndpoint; server.close(done); })
     }));
   });
 }

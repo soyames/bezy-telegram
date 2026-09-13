@@ -35,6 +35,8 @@ export const RATE_LIMITS = {
   // Restriction is a data-subject right, so the ceiling is loose enough that exercising it —
   // including changing one's mind a few times — is never obstructed.
   account_restrict: [{ limit: 20, windowSeconds: 3600 }],
+  // Objection (Art. 21) is the same class of data-subject right as restriction.
+  account_objection: [{ limit: 20, windowSeconds: 3600 }],
   // Support requests share one bucket across the bot and the Mini App, so neither channel
   // can flood the queue. Genuine support needs are nowhere near this ceiling.
   support_create: [{ limit: 3, windowSeconds: 3600 }, { limit: 10, windowSeconds: 86400 }],
@@ -42,8 +44,10 @@ export const RATE_LIMITS = {
   // stop a scripted flood without ever interrupting a real conversation.
   messages: [{ limit: 30, windowSeconds: 60 }, { limit: 400, windowSeconds: 3600 }],
   // Message reads come from the Mini App's polling loop (~4s while a conversation is open)
-  // and from list refreshes, so the ceiling is deliberately far above human navigation.
-  messages_read: [{ limit: 30, windowSeconds: 30 }, { limit: 1500, windowSeconds: 3600 }]
+  // and from list refreshes. The client now marks read only when there is something unread,
+  // but a conversation left open all day still polls: the hourly ceiling must be above
+  // 3600 list refreshes so the product can never rate-limit itself.
+  messages_read: [{ limit: 30, windowSeconds: 30 }, { limit: 3600, windowSeconds: 3600 }]
 };
 
 export class RateLimitError extends Error {

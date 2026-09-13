@@ -231,7 +231,7 @@
     "prompt_placeholder": "Твой ответ",
     "preview_profile": "Предпросмотр моего профиля",
     "preview_title": "Каким тебя видят другие",
-    "preview_hint": "Это твоя карточка такой, какой она появляется в «Знакомствах». Твой никнейм Telegram остаётся скрытым до мэтча.",
+    "preview_hint": "Вот как ваша карточка выглядит в «Знакомствах». Ваше имя пользователя Telegram никогда не показывается другим участникам.",
     "preview_incomplete": "Заполни профиль, чтобы увидеть, как он будет выглядеть.",
     "why_matched": "Почему вы совпали",
     "why_interests": "Вам обоим нравится: {values}",
@@ -322,7 +322,18 @@
     "closure_hint": "Если эта связь не развивается, ты можешь завершить её спокойно.",
     "starter_universal_1": "Что тебе нравится делать в последнее время?",
     "starter_universal_2": "Как выглядит для тебя по-настоящему хороший выходной?",
-    "starter_universal_3": "Что привело тебя в Bezy?"
+    "starter_universal_3": "Что привело тебя в Bezy?",
+    "translated_from": "Перевод с языка: {lang}",
+    "show_original": "Показать оригинал",
+    "original_label": "Оригинал · {lang}",
+    "show_translation": "Показать перевод",
+    "age_status_title": "Возраст и доверие",
+    "age_self_declared": "18+ по самозаявлению",
+    "premium_unavailable": "Premium временно недоступен. Попробуй ещё раз.",
+    "interests_limit": "Не более 12 интересов.",
+    "quota_likes_left": "Сегодня осталось лайков: {n}",
+    "quota_super_likes_left": "Осталось Super Like: {n}",
+    "check_payment_status": "Проверить статус платежа"
   },
   "profile": {
     "edit": "Изменить профиль",

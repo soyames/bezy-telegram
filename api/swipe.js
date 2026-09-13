@@ -162,7 +162,7 @@ export default async function handler(req, res) {
         const quota = checkSwipeQuota(currentData, action, isPremium);
         if (!quota.allowed) {
           const error = new Error(quota.reason);
-          error.quota = { reason: quota.reason, limits: quota.limits, isPremium };
+          error.quota = { reason: quota.reason, usage: quota.usage, limits: quota.limits, isPremium };
           throw error;
         }
         tx.set(userRef, { usage: quota.usage }, { merge: true });
@@ -210,15 +210,23 @@ export default async function handler(req, res) {
     if (result.created) {
       const currentSnap = await userRef.get();
       const current = currentSnap.data() || { telegramId: user.id };
+      // The recipient is re-read AFTER the commit, so a pause or block that landed during
+      // the transaction is respected by the notification path too — the in-transaction
+      // snapshot can be stale by the time the message is delivered.
+      const targetSnap = await targetRef.get();
+      const target = targetSnap.data() || result.target;
       // Both sides resolve their explicit Bezy choice before their Telegram language.
       const language = normalizedLanguage(current.locale || user.language_code);
-      const targetLanguage = normalizedLanguage(result.target.locale || result.target.languageCode);
+      const targetLanguage = normalizedLanguage(target.locale || target.languageCode);
       await Promise.allSettled([
-        notifyMatch(firestore, current, result.target, language),
-        notifyMatch(firestore, result.target, current, targetLanguage)
+        notifyMatch(firestore, current, target, language),
+        notifyMatch(firestore, target, current, targetLanguage)
       ]);
     } else if (result.superLiked) {
-      await notifySuperLike(firestore, result.target);
+      // Same re-read: a super-like notification is suppressed for a recipient who paused
+      // or blocked in the window between the transaction and the delivery.
+      const targetSnap = await targetRef.get();
+      if (targetSnap.exists) await notifySuperLike(firestore, targetSnap.data() || {});
     }
 
     return res.status(200).json({ ok: true, action, matched: result.matched });
@@ -229,7 +237,7 @@ export default async function handler(req, res) {
     if (error.message === 'TARGET_NOT_FOUND') return res.status(404).json({ error: error.message });
     if (error.message === 'PROCESSING_RESTRICTED') return res.status(403).json({ error: error.message });
     if (error.message === 'AGE_CONFIRMATION_REQUIRED') return res.status(403).json({ error: error.message });
-    if (error.quota) return res.status(403).json({ error: error.quota.reason, limits: error.quota.limits, isPremium: error.quota.isPremium });
+    if (error.quota) return res.status(403).json({ error: error.quota.reason, usage: error.quota.usage, limits: error.quota.limits, isPremium: error.quota.isPremium });
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }
 }

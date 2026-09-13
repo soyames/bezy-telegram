@@ -88,6 +88,17 @@ export function normalizeProfile(input = {}) {
   };
 }
 
+/**
+ * The machine view of a user's age-assurance state, derived — never stored — from the
+ * existing 18+ declaration. Today only `selfDeclared18Plus` exists: Telegram's age
+ * verification is a restricted-content mechanism Bezy cannot request (ADR 0010), so no
+ * other value can be produced truthfully. The shape leaves room for a future
+ * `telegramAgeVerified18Plus` state without inventing it now.
+ */
+export function ageStatusOf(data = {}) {
+  return data.ageEligibilityConfirmed === true ? 'selfDeclared18Plus' : null;
+}
+
 export function normalizePreferences(input = {}) {
   const min = Number(input.minAge);
   const max = Number(input.maxAge);
@@ -163,6 +174,19 @@ async function handleProfile(req, res, user) {
   let nextProfile = current.profile || {};
   if (req.body?.profile && typeof req.body.profile === 'object') {
     nextProfile = normalizeProfile(req.body.profile);
+    // The bio/prompt content is the cache key's source; an edited profile must never be
+    // served a stale translation, so the cache subcollection is pruned on every profile
+    // write. It regenerates lazily on the next view.
+    try {
+      const translationsSnap = await ref.collection('profileTranslations').get();
+      if (!translationsSnap.empty) {
+        const batch = db().batch();
+        for (const doc of translationsSnap.docs) batch.delete(doc.ref);
+        await batch.commit();
+      }
+    } catch (error) {
+      console.warn('[bezy-profiletext] cache prune failed:', error.message);
+    }
     // Server-side enforcement: without the declaration a profile can never become complete
     // or discoverable, so a client that skips the age gate still cannot enter Discover.
     if (!ageConfirmed) {
@@ -189,7 +213,10 @@ async function handleProfile(req, res, user) {
   // messages are not represented here at all, so no payload can switch them off.
   let nextNotifications = notificationSettings(current);
   if (req.body?.notifications && typeof req.body.notifications === 'object') {
-    nextNotifications = normalizeNotificationSettings(req.body.notifications);
+    // The payload is merged OVER the stored settings: a partial map (e.g. only
+    // `account: false`) changes what it names and preserves every other deliberate choice,
+    // instead of resetting the unnamed categories to their defaults.
+    nextNotifications = normalizeNotificationSettings({ ...nextNotifications, ...req.body.notifications });
     baseData.notifications = nextNotifications;
   }
 
@@ -219,6 +246,8 @@ async function handleProfile(req, res, user) {
       confirmed: data.ageEligibilityConfirmed === true,
       method: data.ageEligibilityMethod || null
     },
+    // Derived state for honest trust copy: "18+ self-declared" today, never "verified".
+    ageStatus: ageStatusOf(data),
     // Reported explicitly rather than left for the client to infer from `profile`, so an
     // account written before notification settings existed still reports the real defaults.
     notifications: notificationSettings(data),

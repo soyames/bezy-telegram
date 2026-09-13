@@ -231,7 +231,7 @@
     "prompt_placeholder": "आपका जवाब",
     "preview_profile": "मेरी प्रोफ़ाइल का पूर्वावलोकन",
     "preview_title": "दूसरे आपको कैसे देखते हैं",
-    "preview_hint": "यह आपका कार्ड है जैसा खोजें में दिखता है। आपका Telegram यूज़रनेम मैच तक छिपा रहता है।",
+    "preview_hint": "डिस्कवर में आपका कार्ड ऐसा दिखता है। आपका Telegram यूज़रनेम अन्य सदस्यों को कभी नहीं दिखाया जाता।",
     "preview_incomplete": "यह कैसा दिखेगा यह देखने के लिए अपनी प्रोफ़ाइल पूरी करें।",
     "why_matched": "आपका मैच क्यों हुआ",
     "why_interests": "आप दोनों को पसंद है: {values}",
@@ -322,7 +322,18 @@
     "closure_hint": "अगर यह जुड़ाव आगे नहीं बढ़ रहा, तो आप इसे साफ़ तरीके से समाप्त कर सकते हैं।",
     "starter_universal_1": "हाल ही में आप किस चीज़ का आनंद ले रहे हैं?",
     "starter_universal_2": "आपके लिए सचमुच अच्छा वीकेंड कैसा दिखता है?",
-    "starter_universal_3": "आपको Bezy तक क्या लेकर आया?"
+    "starter_universal_3": "आपको Bezy तक क्या लेकर आया?",
+    "translated_from": "{lang} से अनुवादित",
+    "show_original": "मूल दिखाएँ",
+    "original_label": "मूल · {lang}",
+    "show_translation": "अनुवाद दिखाएँ",
+    "age_status_title": "आयु और भरोसा",
+    "age_self_declared": "18+ — स्व-घोषणा",
+    "premium_unavailable": "Premium अभी कुछ समय के लिए अनुपलब्ध है। फिर कोशिश करें।",
+    "interests_limit": "अधिकतम 12 रुचियाँ।",
+    "quota_likes_left": "आज {n} लाइक बचे हैं",
+    "quota_super_likes_left": "{n} सुपर लाइक बचे हैं",
+    "check_payment_status": "भुगतान की स्थिति जाँचें"
   },
   "profile": {
     "edit": "प्रोफ़ाइल बदलें",

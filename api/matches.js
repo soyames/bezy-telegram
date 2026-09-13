@@ -1,5 +1,7 @@
 import { db } from './_firebase.js';
-import { requirePost, requireTelegramUser } from './_telegram.js';
+import { requirePost, requireTelegramUser, normalizeLanguageTag, resolveUserLanguage } from './_telegram.js';
+import { processingPaused } from './_privacy.js';
+import { localizeProfileTexts } from './_profileText.js';
 
 export function publicMatch(id, data) {
   const profile = data.profile || {};
@@ -78,11 +80,18 @@ export default async function handler(req, res) {
 
 async function handleMatches(req, res, user) {
   const selfSnap = await db().collection('users').doc(String(user.id)).get();
-  const myProfile = selfSnap.data()?.profile || {};
+  const selfData = selfSnap.data() || {};
+  const myProfile = selfData.profile || {};
+  // A paused account keeps access to its OWN stored data — restriction is not a trap that
+  // locks someone out of their own match list (the export works for the same reason). What
+  // stops is processing for dating purposes: new likes, new matches, and the OTHER side
+  // reading the paused profile. The counterpart-side check below enforces that half.
+  // Same resolution as Discover: the Mini App's resolved locale wins (validated against
+  // SUPPORTED_LOCALES), the stored explicit/Telegram values cover older clients.
+  const viewerLocale = normalizeLanguageTag(req.body?.lang) || resolveUserLanguage(selfData);
 
   const snapshot = await db().collection('matches')
     .where('participants', 'array-contains', String(user.id))
-    .limit(50)
     .get();
 
   const isLike = (action) => action === 'like' || action === 'super';
@@ -106,6 +115,9 @@ async function handleMatches(req, res, user) {
       db().collection('conversations').doc(matchDoc.id).get()
     ]);
     if (!otherSnap.exists) return;
+    // A counterpart whose account is paused has withdrawn from processing: their profile
+    // and preview are not served to the viewer's match list either.
+    if (processingPaused(otherSnap.data() || {})) return;
     const myAction = myActionSnap.exists ? myActionSnap.data()?.action : '';
     const otherAction = otherActionSnap.exists ? otherActionSnap.data()?.action : '';
     if (!isLike(myAction) || !isLike(otherAction)) return;
@@ -127,7 +139,7 @@ async function handleMatches(req, res, user) {
     // Firestore Timestamps do not survive JSON serialization in a usable shape,
     // so the API returns milliseconds and an ISO string the Mini App can render.
     const matchedAtMs = matchData.createdAt?.toMillis?.() ?? new Date(matchData.createdAt || 0).getTime();
-    matches.push({
+    const card = {
       ...publicMatch(otherId, otherData),
       // Why you matched, and the starter suggestions derived from it, are computed from the
       // same shared signals so the two can never disagree.
@@ -136,7 +148,10 @@ async function handleMatches(req, res, user) {
       matchedAtMs: Number.isFinite(matchedAtMs) ? matchedAtMs : 0,
       matchedAt: Number.isFinite(matchedAtMs) && matchedAtMs > 0 ? new Date(matchedAtMs).toISOString() : null,
       conversation
-    });
+    };
+    // Same viewer-locale treatment as Discover: translations attached, originals preserved.
+    card.translations = await localizeProfileTexts(db(), otherId, card, viewerLocale);
+    matches.push(card);
   }));
 
   matches.sort((a, b) => b.matchedAtMs - a.matchedAtMs);

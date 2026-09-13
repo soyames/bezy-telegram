@@ -231,7 +231,7 @@
     "prompt_placeholder": "あなたの回答",
     "preview_profile": "プロフィールをプレビュー",
     "preview_title": "他の人から見たあなた",
-    "preview_hint": "発見で表示されるあなたのカードです。Telegram のユーザー名はマッチするまで非公開です。",
+    "preview_hint": "これは発見画面でのあなたのカードの表示です。あなたのTelegramユーザー名が他のメンバーに表示されることはありません。",
     "preview_incomplete": "プロフィールを完成させると見た目を確認できます。",
     "why_matched": "マッチした理由",
     "why_interests": "お二人とも好き：{values}",
@@ -322,7 +322,18 @@
     "closure_hint": "このつながりが進まないなら、きれいに終わらせることができます。",
     "starter_universal_1": "最近、楽しんでいることは何ですか？",
     "starter_universal_2": "あなたにとって本当にいい週末ってどんな感じですか？",
-    "starter_universal_3": "Bezy を始めたきっかけは何ですか？"
+    "starter_universal_3": "Bezy を始めたきっかけは何ですか？",
+    "translated_from": "{lang} から翻訳",
+    "show_original": "原文を表示",
+    "original_label": "原文 · {lang}",
+    "show_translation": "翻訳を表示",
+    "age_status_title": "年齢と信頼",
+    "age_self_declared": "18+（自己申告）",
+    "premium_unavailable": "Premium は一時的に利用できません。もう一度お試しください。",
+    "interests_limit": "興味は最大12個まで。",
+    "quota_likes_left": "本日あと {n} いいね",
+    "quota_super_likes_left": "スーパーいいね あと {n}",
+    "check_payment_status": "支払い状況を確認"
   },
   "profile": {
     "edit": "プロフィールを編集",

@@ -167,15 +167,37 @@ async function exportData(firestore, userId) {
   if (!snap.exists) return { account: null, note: 'No Bezy account exists for this Telegram user.' };
   const data = snap.data() || {};
 
-  const [actions, blocks, likesReceived, matchesSnap, payments, reports, supportSnap] = await Promise.all([
+  const [actions, blocks, likesReceived, matchesSnap, payments, reports, supportSnap, conversationsSnap] = await Promise.all([
     userRef.collection('actions').get(),
     userRef.collection('blocks').get(),
     userRef.collection('likesReceived').get(),
     firestore.collection('matches').where('participants', 'array-contains', userId).get(),
     firestore.collection('bezyPayments').where('telegramUserId', '==', userId).get(),
     firestore.collection('reports').where('reporterId', '==', userId).get(),
-    firestore.collection('supportRequests').where('telegramUserId', '==', userId).get()
+    firestore.collection('supportRequests').where('telegramUserId', '==', userId).get(),
+    firestore.collection('conversations').where('participants', 'array-contains', userId).get()
   ]);
+
+  // Bezy conversations (ADR 0009) hold the data subject's own message content — Art. 15/20
+  // access and portability cover it. One read per conversation for its messages; the
+  // counterpart's identity is already known to the caller from the match itself.
+  const conversations = [];
+  for (const conv of conversationsSnap.docs) {
+    const messages = await firestore.collection('conversations').doc(conv.id).collection('messages')
+      .orderBy('createdAt', 'asc').get();
+    conversations.push({
+      conversationId: conv.id,
+      otherTelegramId: (conv.data().participants || []).find((p) => p !== userId) ?? null,
+      status: conv.data().status ?? 'open',
+      lastMessageAt: iso(conv.data().lastMessageAt),
+      messages: messages.docs.map((m) => ({
+        id: m.id,
+        senderId: m.data().senderId,
+        text: String(m.data().text || ''),
+        createdAt: iso(m.data().createdAt)
+      }))
+    });
+  }
 
   return {
     exportedAt: new Date().toISOString(),
@@ -222,6 +244,7 @@ async function exportData(firestore, userId) {
       endedAt: iso(d.data().endedAt)
     })),
     reportsYouFiled: reports.docs.map((d) => ({ reason: d.data().reason, status: d.data().status, at: iso(d.data().createdAt) })),
+    conversations,
     supportRequests: supportSnap.docs.map((d) => ({
       reference: d.data().reference || d.id,
       category: d.data().category,
@@ -235,7 +258,7 @@ async function exportData(firestore, userId) {
       paidAt: iso(d.data().processedAt), refundedAt: iso(d.data().refundedAt)
     })),
     notes: [
-      'Conversations take place in Telegram and are not stored by Bezy.',
+      'Bezy conversations are stored by Bezy (see "conversations" above) and are deleted when you delete your account.',
       'Reports filed about you are not included: disclosing them would identify the reporter.',
       'Payment records are retained for accounting purposes after account deletion.'
     ]
@@ -339,17 +362,21 @@ async function setProcessingObjection(firestore, userId, objected) {
  * outcome.
  *
  * Deliberately retained:
- *   - bezyPayments: financial records kept for accounting/tax obligations. They hold a
- *     Telegram id, a plan, an amount and timestamps — no profile content — and are the
- *     minimum needed to reconcile a Stars transaction. Retention period is a LEGAL REVIEW
- *     item, not something this code should invent.
- *   - reports filed BY others ABOUT this user: deleting them would let a user erase the
- *     safety record of their own conduct. They reference Telegram ids only.
+ *   - bezyPayments and bezyInvoices: financial records kept for accounting/tax obligations.
+ *     They hold a Telegram id, a plan, an amount and timestamps — no profile content — and
+ *     are the minimum needed to reconcile a Stars transaction. Retention period is a LEGAL
+ *     REVIEW item, not something this code should invent.
+ *   - reports in both directions: reports filed ABOUT this user cannot be deleted, or a
+ *     user could erase the safety record of their own conduct. Reports filed BY this user
+ *     about others are likewise kept, so a reporter cannot retract the safety record by
+ *     erasing their account — a basis/period question flagged for legal review, not
+ *     decided in code.
  */
 async function deleteAccount(firestore, userId) {
   const userRef = firestore.collection('users').doc(userId);
   const snap = await userRef.get();
   if (!snap.exists) return { deleted: true, alreadyDeleted: true, retained: {} };
+  const data = snap.data() || {};
 
   // Remove this user from other people's "who liked you" lists before their own action
   // records are destroyed, since those records are what identify the fan-out targets.
@@ -390,7 +417,11 @@ async function deleteAccount(firestore, userId) {
 
   const retained = {
     payments: (await firestore.collection('bezyPayments').where('telegramUserId', '==', userId).get()).size,
-    reportsAboutYou: (await firestore.collection('reports').where('targetId', '==', userId).get()).size
+    // Invoices are retained for accounting like the payments they record, so the deletion
+    // response says so rather than letting a retained document go unreported.
+    invoices: (await firestore.collection('bezyInvoices').where('telegramUserId', '==', userId).get()).size,
+    reportsAboutYou: (await firestore.collection('reports').where('targetId', '==', userId).get()).size,
+    reportsYouFiled: (await firestore.collection('reports').where('reporterId', '==', userId).get()).size
   };
 
   // Sent while the account still exists: the user's durable record that erasure happened.

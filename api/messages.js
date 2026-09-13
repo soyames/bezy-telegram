@@ -27,11 +27,14 @@ function matchId(a, b) {
 
 // One conversation per pair, derived from the ids inside the conversationId: it must
 // contain the caller's own id and its canonical matchId form must equal what was sent.
+// The shape is pinned to two numeric ids so a malformed id answers 404 instead of
+// surfacing an Admin SDK document-path error as a 500.
 function counterpart(userId, conversationId) {
-  const parts = String(conversationId || '').split('_');
-  if (parts.length !== 2) return null;
+  const value = String(conversationId || '');
+  if (!/^\d+_\d+$/.test(value)) return null;
+  const parts = value.split('_');
   const other = parts.find((id) => id !== String(userId));
-  if (!other || matchId(userId, other) !== String(conversationId)) return null;
+  if (!other || matchId(userId, other) !== value) return null;
   return other;
 }
 
@@ -63,6 +66,12 @@ async function authorize(firestore, user, conversationId) {
   // answer with the identical error, so the endpoint cannot probe who has a Bezy account.
   const participants = (matchData?.participants || []).map(String);
   if (!matchData || matchData.active === false || !participants.includes(me) || !participants.includes(otherId)) {
+    throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
+  }
+  // A counterpart whose account is paused (restriction or objection) has withdrawn from
+  // processing: their messages must not be read or written, exactly like their profile
+  // leaves Discover.
+  if (processingPaused(otherSnap.exists ? otherSnap.data() || {} : {})) {
     throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
   }
   // Blocks are read in both directions from the caller's own mirror documents: a block
@@ -133,10 +142,13 @@ export function publicMessage(docId, data) {
 async function listMessages(req, res, user) {
   const firestore = db();
   const context = await authorize(firestore, user, req.body?.conversationId);
+  // Descending + reverse keeps the NEWEST 200 messages: the cap truncates old history,
+  // never the recent end of the conversation (the previous ascending query returned the
+  // oldest 200, which silently froze every conversation at message 200).
   const messagesSnap = await firestore.collection('conversations')
     .doc(String(req.body.conversationId)).collection('messages')
-    .orderBy('createdAt', 'asc').limit(200).get();
-  const messages = messagesSnap.docs.map((doc) => publicMessage(doc.id, doc.data()));
+    .orderBy('createdAt', 'desc').limit(200).get();
+  const messages = messagesSnap.docs.map((doc) => publicMessage(doc.id, doc.data())).reverse();
   return res.status(200).json({ ok: true, conversationId: String(req.body.conversationId), messages });
 }
 
@@ -145,7 +157,24 @@ async function markRead(req, res, user) {
   const context = await authorize(firestore, user, req.body?.conversationId);
   const ref = firestore.collection('conversations').doc(String(req.body.conversationId));
   const now = new Date();
-  await ref.set({ lastRead: { [context.me]: now }, updatedAt: now }, { merge: true });
+  // The watermark is the newest message actually listed (the client sends its timestamp)
+  // capped at now, and it never moves backwards — a message that lands during the list
+  // round trip must not be silently marked read before it is ever rendered. The client
+  // value is only a read watermark: it cannot grant or hide anything.
+  const claimed = new Date(req.body?.lastMessageAt || 0).getTime();
+  const snapshot = await ref.get();
+  const existing = snapshot.exists ? snapshot.data() || {} : {};
+  const previous = existing.lastRead?.[context.me]?.toMillis?.() ?? 0;
+  const watermark = new Date(Math.max(previous, Math.min(now.getTime(), Number.isFinite(claimed) ? claimed : 0)));
+  // The conversation document carries participants on every write, so the erasure query
+  // (participants array-contains) can always see it — a read-only conversation is never
+  // orphaned after account deletion.
+  await ref.set({
+    participants: [context.me, context.otherId].sort(),
+    matchId: String(req.body.conversationId),
+    lastRead: { [context.me]: watermark },
+    updatedAt: now
+  }, { merge: true });
   return res.status(200).json({ ok: true });
 }
 
@@ -165,21 +194,51 @@ async function sendMessage(req, res, user) {
   const now = new Date();
 
   // Idempotent: a retried send carries the same clientId and lands on the same document.
-  // The existing document is returned as-is, never overwritten.
+  // The existing document is returned as-is, never overwritten — but only when it is the
+  // caller's own message. A clientId collision with the counterpart's message is answered
+  // generically, never by leaking the other side's text.
   const existing = await messageRef.get();
-  if (existing.exists) return res.status(200).json({ ok: true, message: publicMessage(clientId, existing.data()), duplicate: true });
+  if (existing.exists) {
+    if (existing.data()?.senderId !== context.me) {
+      return res.status(409).json({ error: 'INVALID_ACTION' });
+    }
+    return res.status(200).json({ ok: true, message: publicMessage(clientId, existing.data()), duplicate: true });
+  }
 
-  await messageRef.set({ senderId: context.me, text, createdAt: now });
-  await conversationRef.set({
-    participants: [context.me, context.otherId].sort(),
-    matchId: conversationId,
-    status: 'open',
-    createdAt: now,
-    updatedAt: now,
-    lastMessageAt: now,
-    lastMessagePreview: text.slice(0, 80),
-    lastMessageSenderId: context.me
-  }, { merge: true });
+  // The write is transactional with a re-read of the match and both block mirrors, so a
+  // send that passed authorization before a block, unmatch or deletion commit lands
+  // afterwards cannot persist message content or resurrect a closed conversation.
+  await firestore.runTransaction(async (tx) => {
+    const [matchDoc, blockedMine, blockedTheirs, conversationDoc] = await Promise.all([
+      tx.get(firestore.collection('matches').doc(conversationId)),
+      tx.get(firestore.collection('users').doc(context.me).collection('blocks').doc(context.otherId)),
+      tx.get(firestore.collection('users').doc(context.me).collection('blockedBy').doc(context.otherId)),
+      tx.get(conversationRef)
+    ]);
+    const liveMatch = matchDoc.exists ? matchDoc.data() : null;
+    const participants = (liveMatch?.participants || []).map(String);
+    const stillValid = liveMatch && liveMatch.active !== false
+      && participants.includes(context.me) && participants.includes(context.otherId)
+      && !blockedMine.exists && !blockedTheirs.exists;
+    if (!stillValid) throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
+
+    const existingInTx = await tx.get(messageRef);
+    if (existingInTx.exists) return; // duplicate landed while this transaction started
+
+    const conversation = conversationDoc.exists ? conversationDoc.data() || {} : {};
+    tx.set(messageRef, { senderId: context.me, text, createdAt: now });
+    tx.set(conversationRef, {
+      ...conversation,
+      participants: [context.me, context.otherId].sort(),
+      matchId: conversationId,
+      status: 'open',
+      createdAt: conversation.createdAt || now,
+      updatedAt: now,
+      lastMessageAt: now,
+      lastMessagePreview: text.slice(0, 80),
+      lastMessageSenderId: context.me
+    });
+  });
 
   // Telegram stays the notification channel; the message content never leaves Bezy. The
   // recipient's preferences and the per-day cap apply (api/_notify.js).

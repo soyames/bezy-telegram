@@ -60,7 +60,7 @@ check('BEZY_MINI_APP_URL is an https origin without a path',
 
 console.log('\nOptional:');
 console.log(`  ${env.TELEGRAM_WEBHOOK_SECRET ? 'SET  ' : 'unset'} TELEGRAM_WEBHOOK_SECRET` +
-  (env.TELEGRAM_WEBHOOK_SECRET ? '  -> the same value must be passed to setWebhook, or Telegram gets 401' : '  -> webhook accepts unauthenticated posts'));
+  (env.TELEGRAM_WEBHOOK_SECRET ? '  -> the same value must be passed to setWebhook, or Telegram gets 401' : '  -> webhook fails closed: every update is refused (401) until the secret is configured'));
 for (const [name, note] of [
   ['BEZY_PREMIUM_STARS_MONTHLY', 'default 250'],
   ['BEZY_PREMIUM_STARS_QUARTERLY', 'default 600'],

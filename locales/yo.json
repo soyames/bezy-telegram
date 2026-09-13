@@ -231,7 +231,7 @@
     "prompt_placeholder": "Ìdáhùn rẹ",
     "preview_profile": "Wo àkọọ́lẹ̀ mi ṣáájú",
     "preview_title": "Bí àwọn ẹlòmíràn ṣe ń rí ẹ",
-    "preview_hint": "Èyí ni káàdì rẹ bí ó ṣe ń hàn nínú Ṣàwárí. Orúkọ Telegram rẹ máa ń farasin títí di mátìsì.",
+    "preview_hint": "Báyìí ni káàdì rẹ ṣe ń hàn nínú Ṣàwárí. Orúkọ oníṣe Telegram rẹ kì í hàn fún àwọn ọmọ ẹgbẹ́ mìíràn rí.",
     "preview_incomplete": "Parí àkọọ́lẹ̀ rẹ láti rí bí yóò ṣe rí.",
     "why_matched": "Kí nìdí tí ẹ fi ní mátìsì",
     "why_interests": "Ẹ̀yin méjèèjì fẹ́ràn: {values}",
@@ -322,7 +322,18 @@
     "closure_hint": "Tí ìsopọ̀ yìí kò bá ń tẹ̀síwájú, o lè fi òpin sí i lọ́nà tó mọ́.",
     "starter_universal_1": "Kí ni ohun tí o ti ń gbádùn láìpẹ́ yìí?",
     "starter_universal_2": "Báwo ni òpin ọ̀sẹ̀ tó dára gan-an ṣe ń rí fún ẹ?",
-    "starter_universal_3": "Kí ló mú ọ wá sí Bezy?"
+    "starter_universal_3": "Kí ló mú ọ wá sí Bezy?",
+    "translated_from": "A túmọ̀ rẹ̀ láti {lang}",
+    "show_original": "Fi èdè àkọ́kọ́ hàn",
+    "original_label": "Èdè àkọ́kọ́ · {lang}",
+    "show_translation": "Fi ìtumọ̀ hàn",
+    "age_status_title": "Ọjọ́ orí àti ìgbẹ́kẹ̀lé",
+    "age_self_declared": "18+ — ìkéde ara ẹni",
+    "premium_unavailable": "Premium kò sí lárọ̀ọ́wọ́tó báyìí. Gbìyànjú lẹ́ẹ̀kan sí i.",
+    "interests_limit": "Ọ̀pọ̀lọpọ̀ ìfẹ́ méjìlá (12).",
+    "quota_likes_left": "{n} like ló kù lónìí",
+    "quota_super_likes_left": "Súpà Like {n} ló kù",
+    "check_payment_status": "Ṣàyẹ̀wò ipò ìsanwó"
   },
   "profile": {
     "edit": "Ṣàtúnṣe àkọọ́lẹ̀",

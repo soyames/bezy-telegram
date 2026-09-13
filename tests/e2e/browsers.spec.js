@@ -46,6 +46,20 @@ test('the story share action opens Telegram story editor with the official event
   // The only Mini-App-supported Telegram Stories surface is web_app_share_to_story: the
   // client opens its native story editor with the Bezy media, a localized caption and the
   // canonical bot widget link. The button exists only on supporting clients.
+  // Firestore-free: the API is stubbed so the suite runs on every engine without
+  // credentials — a real account API would gate an unseeded user at the 18+ declaration,
+  // which is correct product behavior and not what this spec pins.
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/profile/me') {
+      return route.fulfill({ json: { profile: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman', seeking: 'men', interests: [], bio: '', prompts: [], languages: [], discoverable: true, profileComplete: true }, notifications: null, processingRestricted: false, processingObjection: false, needsAgeConfirmation: false } });
+    }
+    if (url.pathname === '/api/premium') return route.fulfill({ json: { ok: true, premium: { active: false }, plans: [] } });
+    if (url.pathname === '/api/matches') return route.fulfill({ json: { ok: true, matches: [] } });
+    if (url.pathname === '/api/discover') return route.fulfill({ json: { ok: true, profiles: [], stats: null, preferences: null } });
+    if (url.pathname === '/api/likes') return route.fulfill({ json: { ok: true, likes: [], likeCount: 0 } });
+    return route.fulfill({ json: { ok: true } });
+  });
   await page.goto('/?as=a');
   await page.locator('.nav button[data-view="profile"]').click();
   await page.locator('#tab-settings').click();

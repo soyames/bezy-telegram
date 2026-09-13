@@ -271,7 +271,10 @@ test('Premium activates once the backend confirms payment', async ({ page }) => 
     const status = await (await page.request.post('/api/premium', { data: { initData: users.a.initData, action: 'status' } })).json();
     const calls = await (await page.request.get('/__telegram-calls')).json();
     const invoice = calls.filter((c) => c.method === 'createInvoiceLink').pop();
+    // The webhook fails closed without the shared secret; the harness's local test secret
+    // travels with the update exactly like Telegram's registered secret does in production.
     await page.request.post('/api/telegram/webhook', {
+      headers: { 'x-telegram-bot-api-secret-token': users.webhookSecret || '' },
       data: {
         message: {
           chat: { id: Number(ADA) }, from: { id: Number(ADA), language_code: 'en' },
@@ -311,7 +314,7 @@ test('Premium screen is fully localized in French', async ({ page }) => {
   await expect(page.locator('#premium-content')).not.toContainText('app.');
 });
 
-test('free discovery limit pushes the user to Premium', async ({ page }) => {
+test('free discovery limit explains itself without an uninvited teleport', async ({ page }) => {
   await db.collection('users').doc(ADA).set({
     usage: { day: new Date().toISOString().slice(0, 10), discoveryActions: 30, superLikes: 1 }
   }, { merge: true });
@@ -320,6 +323,9 @@ test('free discovery limit pushes the user to Premium', async ({ page }) => {
   await expect(page.locator('#profile-card')).toBeVisible();
   await page.locator('#likeBtn').click();
 
+  // The deliberate behavior: a calm explanation in place — the Premium card is already on
+  // this very screen, so the app must not yank the user away mid-swipe.
   await expect(page.locator('#toast')).toContainText("today's discovery limit");
-  await expect(page.locator('#premium-view')).toHaveClass(/active/);
+  await expect(page.locator('#premium-view')).not.toHaveClass(/active/);
+  await expect(page.locator('#discover-view')).toHaveClass(/active/);
 });

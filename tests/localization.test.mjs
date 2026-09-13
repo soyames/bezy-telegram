@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizeLanguageTag, resolveLanguage, resolveUserLanguage, SUPPORTED_LOCALES } from '../api/_telegram.js';
+import { normalizeLanguageTag, resolveLanguage, resolveUserLanguage, normalizedLanguage, SUPPORTED_LOCALES } from '../api/_telegram.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -75,14 +75,14 @@ for (const [lang, cat] of Object.entries(LOCALES)) {
 const SHARED_LOANWORDS = ['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo'];
 const ALLOWED_IDENTICAL = {
   fr: new Set(['messages', 'super', 'premium_title', 'plan', 'language_name', 'reason_spam', 'notifications_title',
-    'language_sw', 'language_yo', 'language_hi']),
+    'original_label', 'language_sw', 'language_yo', 'language_hi']),
   de: new Set(['super', 'plan', 'matches', 'like', 'support_cat_likes_matches', 'premium_title', 'reason_spam', 'support_cat_premium',
-    'language_yo', 'language_hi']),
+    'original_label', 'language_yo', 'language_hi']),
   es: new Set(['super', 'plan', 'matches', 'like', 'match_score', 'premium_title', 'reason_spam',
-    'legal_privacy', 'language_yo', 'language_hi']),
+    'legal_privacy', 'original_label', 'language_yo', 'language_hi']),
   it: new Set(['super', 'like', 'match_score', 'premium_title', 'reason_spam', 'support_cat_premium',
     'privacy', 'language_sw', 'language_yo', 'language_hi']),
-  pt: new Set(['super', 'like', 'match_score', 'matches', 'legal_privacy', 'premium_title', 'reason_spam', 'support_cat_premium', ...SHARED_LOANWORDS]),
+  pt: new Set(['super', 'like', 'match_score', 'matches', 'legal_privacy', 'original_label', 'premium_title', 'reason_spam', 'support_cat_premium', ...SHARED_LOANWORDS]),
   ru: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
   pl: new Set(['super', 'plan', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
   ar: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
@@ -266,7 +266,7 @@ for (const [key, token] of [['why_interests', '{values}'], ['why_city', '{values
 // ---------------------------------------------------------------- feature coverage
 section('Feature areas are covered in every language');
 const AREAS = {
-  'age gate': ['age_gate_title', 'age_gate_body', 'age_confirm', 'age_deny', 'age_note', 'age_blocked_title', 'age_blocked_body'],
+  'age gate': ['age_gate_title', 'age_gate_body', 'age_confirm', 'age_deny', 'age_note', 'age_blocked_title', 'age_blocked_body', 'age_status_title', 'age_self_declared'],
   premium: ['premium_intro', 'choose_plan', 'subscribe_with_stars', 'active_until', 'days_remaining', 'premium_active', 'stars_note', 'stars_needed', 'not_telegram_premium', 'premium_expired', 'premium_revoked', 'premium_lapsed_hint'],
   payment: ['preparing_checkout', 'payment_cancelled', 'payment_failed', 'payment_received', 'payment_pending', 'payment_processing'],
   deletion: ['delete_account', 'delete_explain', 'delete_retained', 'delete_type', 'delete_done_title', 'delete_done_body'],
@@ -278,6 +278,7 @@ const AREAS = {
   'profile preview': ['preview_profile', 'preview_title', 'preview_hint', 'preview_incomplete'],
   'why you matched': ['why_matched', 'why_interests', 'why_city', 'why_age', 'why_languages', 'why_none'],
   'conversation starters': ['starters_title', 'starters_hint', 'starter_interest', 'starter_city', 'starter_languages', 'starter_generic', 'starter_copy', 'starter_copied', 'starter_universal_1', 'starter_universal_2', 'starter_universal_3'],
+  'profile-content translation': ['translated_from', 'show_original', 'original_label', 'show_translation'],
   'notification preferences': ['notifications_title', 'notifications_hint', 'notify_matches', 'notify_super_likes', 'notify_super_likes_note', 'notify_profile_reminders', 'notify_profile_reminders_note', 'notifications_saved'],
   languages: ['languages_label', 'languages_hint', 'filter_languages', 'filter_languages_hint'],
   'restriction of processing': ['restrict_title', 'restrict_explain', 'restrict_action', 'restrict_confirm', 'restricted_badge', 'restricted_notice', 'unrestrict_action', 'restrict_done', 'unrestrict_done', 'restrict_note', 'error_processing_restricted'],
@@ -492,11 +493,16 @@ check('message timestamps render in every time locale',
   'chat time formatting is missing a locale mapping');
 
 const telegramSource = read('api/_telegram.js');
-for (const [code, label] of [['de', 'German'], ['es', 'Spanish'], ['it', 'Italian']]) {
-  check(`normalizedLanguage resolves ${label} Telegram language codes to ${code}`,
-    telegramSource.includes(`startsWith('${code}')`) && telegramSource.includes(`return '${code}'`),
-    `api/_telegram.js has no ${code} branch`);
+// normalizedLanguage is the single resolver behind every bot/notification/payment message;
+// it must route ALL 17 supported locales to themselves — a five-locale remnant would serve
+// English copy to twelve supported languages.
+for (const code of SUPPORTED_LOCALES) {
+  check(`normalizedLanguage resolves ${code} (and its regional tags) to ${code}`,
+    normalizedLanguage(code) === code && normalizedLanguage(`${code}-XX`) === code && normalizedLanguage(`${code}_XX`) === code,
+    `got ${normalizedLanguage(code)} / ${normalizedLanguage(`${code}-XX`)}`);
 }
+check('normalizedLanguage falls back to English for unsupported languages',
+  normalizedLanguage('uk') === 'en' && normalizedLanguage('') === 'en' && normalizedLanguage('xx') === 'en');
 check('the localized() picker is the one shared five-language mechanism',
   /export function localized\(/.test(telegramSource), 'localized() not found in api/_telegram.js');
 
@@ -600,7 +606,9 @@ section('No partial locale: every language-carrying object holds all seventeen')
       else if (entry.name.endsWith('.js')) apiFiles.push(rel);
     }
   })('api');
-  const source = apiFiles.map((f) => read(f)).join('\n') + '\n' + app;
+  // api/_profileText.js holds the language-detection data (script blocks + Latin
+  // fingerprints for the script-detected locales), not a localized() map — exempt.
+  const source = apiFiles.filter((f) => f !== 'api/_profileText.js').map((f) => read(f)).join('\n') + '\n' + app;
   const literals = [];
   let i = 0;
   while (i < source.length) {

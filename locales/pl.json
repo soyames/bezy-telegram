@@ -231,7 +231,7 @@
     "prompt_placeholder": "Twoja odpowiedź",
     "preview_profile": "Podgląd mojego profilu",
     "preview_title": "Jak widzą cię inni",
-    "preview_hint": "To twoja karta taka, jaka pojawia się w Odkrywaniu. Twój nick Telegram zostaje ukryty aż do dopasowania.",
+    "preview_hint": "Tak wygląda twoja karta w Odkrywaniu. Twoja nazwa użytkownika Telegram nigdy nie jest pokazywana innym członkom.",
     "preview_incomplete": "Uzupełnij profil, aby zobaczyć, jak będzie wyglądał.",
     "why_matched": "Dlaczego się dopasowaliście",
     "why_interests": "Obojgu wam podoba się: {values}",
@@ -322,7 +322,18 @@
     "closure_hint": "Jeśli ta więź nie posuwa się naprzód, możesz zakończyć ją czysto.",
     "starter_universal_1": "Co ostatnio sprawia ci przyjemność?",
     "starter_universal_2": "Jak wygląda dla ciebie naprawdę dobry weekend?",
-    "starter_universal_3": "Co sprowadziło cię do Bezy?"
+    "starter_universal_3": "Co sprowadziło cię do Bezy?",
+    "translated_from": "Przetłumaczone z {lang}",
+    "show_original": "Pokaż oryginał",
+    "original_label": "Oryginał · {lang}",
+    "show_translation": "Pokaż tłumaczenie",
+    "age_status_title": "Wiek i zaufanie",
+    "age_self_declared": "18+ — oświadczenie własne",
+    "premium_unavailable": "Premium jest chwilowo niedostępne. Spróbuj ponownie.",
+    "interests_limit": "Maksymalnie 12 zainteresowań.",
+    "quota_likes_left": "Zostało dziś {n} polubień",
+    "quota_super_likes_left": "Zostało {n} Super Polubień",
+    "check_payment_status": "Sprawdź status płatności"
   },
   "profile": {
     "edit": "Edytuj profil",

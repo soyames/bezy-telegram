@@ -30,8 +30,11 @@ async function call(path, who, body = {}) {
   return { status: res.status, data: await res.json().catch(() => ({})), headers: res.headers };
 }
 async function webhook(update, headers = {}) {
+  // Default to the harness's local test secret; the explicit-secret tests below override it.
   const res = await fetch(`${BASE}/api/telegram/webhook`, {
-    method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(update)
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': process.env.TELEGRAM_WEBHOOK_SECRET || '', ...headers },
+    body: JSON.stringify(update)
   });
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
@@ -326,11 +329,15 @@ try {
   check('no payment was created by any malformed update',
     (await firestore.collection('bezyPayments').get()).docs.filter((d) => isTestId(d.data().telegramUserId)).length === 0);
   check('webhook rejects a wrong secret when one is configured', await (async () => {
+    const previous = process.env.TELEGRAM_WEBHOOK_SECRET;
     process.env.TELEGRAM_WEBHOOK_SECRET = 'sec-test-secret';
     const bad = await webhook({ message: { chat: { id: 900000001 }, from: { id: 900000001 }, text: '/start' } }, { 'x-telegram-bot-api-secret-token': 'wrong' });
     const good = await webhook({ message: { chat: { id: 900000001 }, from: { id: 900000001 }, text: '/start' } }, { 'x-telegram-bot-api-secret-token': 'sec-test-secret' });
+    // Fail closed: with NO secret configured, no update is trusted — not all updates.
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
-    return bad.status === 401 && good.status === 200;
+    const unsigned = await webhook({ message: { chat: { id: 900000001 }, from: { id: 900000001 }, text: '/start' } });
+    process.env.TELEGRAM_WEBHOOK_SECRET = previous;
+    return bad.status === 401 && good.status === 200 && unsigned.status === 401;
   })());
 
   // ---------------------------------------------------------------- leakage
@@ -357,7 +364,9 @@ try {
   await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
   await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
   const matched = (await call('/api/matches', 'a')).data.matches[0] || {};
-  check('a matched user does receive the Telegram handle', matched.username === 'bo_bezy_test', String(matched.username));
+  // ADR 0005 + ADR 0009: the handle is a contact vector with no product consumer anymore,
+  // so it is released NOWHERE — including to a matched user.
+  check('no shape carries the Telegram handle, matched or not', !('username' in matched), String(matched.username));
   check('matches do not duplicate the raw Telegram id', matched.telegramId === undefined);
   await clearRateLimits();
 

@@ -102,18 +102,28 @@ async function report(firestore, userId, targetId, body) {
   const details = String(body?.details ?? '').trim().slice(0, DETAILS_MAX);
   const now = new Date();
 
-  const ref = await firestore.collection('reports').add({
-    reporterId: userId,
-    targetId,
-    reason,
-    details,
-    status: 'open',
-    createdAt: now
-  });
-
   // Reporting always blocks as well: a user who reports someone should not keep seeing them.
+  // The block is written first — the safety action is the one that must survive — so a
+  // report-write failure can never silently drop the block. If the report fails afterwards,
+  // the caller still learns both facts.
   await block(firestore, userId, targetId);
-  return { reported: true, reportId: ref.id, reason };
+  let reported = true;
+  let reportId = null;
+  try {
+    const ref = await firestore.collection('reports').add({
+      reporterId: userId,
+      targetId,
+      reason,
+      details,
+      status: 'open',
+      createdAt: now
+    });
+    reportId = ref.id;
+  } catch (error) {
+    reported = false;
+    console.warn('[bezy-safety] report write failed after block:', error.message);
+  }
+  return { reported, reportId, reason };
 }
 
 /**
@@ -204,9 +214,11 @@ export default async function handler(req, res) {
       // A report about a non-existent account is accepted in appearance but not stored:
       // there is nothing to moderate, and storing it would let anyone fill the moderation
       // queue with entries for arbitrary Telegram ids. The acknowledgment below is sent in
-      // both cases and is identical, so it cannot be used to tell the two apart.
+      // both cases and is identical, so it cannot be used to tell the two apart. It is
+      // awaited: the reporter's record of receipt must not be lost to a frozen serverless
+      // instance on the discarded-report path.
       const ack = reportAcknowledgment(normalizedLanguage(selfSnap.data()?.languageCode));
-      deliverNotification(firestore, selfSnap.data() || {}, 'account', { text: ack });
+      await deliverNotification(firestore, selfSnap.data() || {}, 'account', { text: ack });
       if (!targetExists) return res.status(200).json({ ok: true, reported: true, reason: REPORT_REASONS.has(req.body?.reason) ? req.body.reason : 'other' });
       return res.status(200).json({ ok: true, ...(await report(firestore, userId, targetId, req.body)) });
     }

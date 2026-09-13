@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
 const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account', support: '/api/support', messages: '/api/messages' };
-const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null, chatCache: new Map() };
+const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null, chatCache: new Map(), swipeInFlight: false, matchesError: false, likesError: false, premiumCheckPending: false, quota: null };
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char])); }
@@ -74,6 +74,9 @@ function applyLocale() {
   setText('premium-title', t('app.premium_title')); setText('premium-back', t('app.discover'));
   setText('premium-card-title', `✨ ${t('app.premium_title')}`); setText('matches-premium-title', `💎 ${t('app.more_connections')}`);
   setText('notifications-title', t('app.notifications_title')); setText('notifications-hint', t('app.notifications_hint')); renderNotificationSettings();
+  // Trust copy is precise: what was verified (nothing), by whom (no one — self-declared),
+  // and what was not (identity/age). Never a bare "Verified".
+  setText('age-status-title', t('app.age_status_title')); setText('age-status', t('app.age_self_declared')); setText('age-status-note', t('app.age_note'));
   setText('safety-title', t('app.safety_title')); setText('safety-intro', t('app.safety_intro')); setText('data-title', t('app.data_title')); setText('privacy-by-design', t('app.privacy_by_design')); setText('data-controls-btn', t('app.data_controls')); setText('rights-note', t('app.rights_note'));
   setText('blocked-list-btn', t('app.blocked_people')); setText('export-data-btn', t('app.export_data')); setText('delete-account-btn', t('app.delete_account'));
   renderRestriction();
@@ -104,7 +107,9 @@ const ERROR_KEYS = {
   PREMIUM_REQUIRED: 'app.premium_required',
   DISCOVERY_LIMIT_REACHED: 'app.discovery_limit',
   SUPER_LIKE_LIMIT_REACHED: 'app.super_like_limit',
-  PREMIUM_UNAVAILABLE: 'app.payment_failed',
+  // PREMIUM_UNAVAILABLE covers any Premium failure including plain status reads — a
+  // checkout-failure string would misdescribe a read error.
+  PREMIUM_UNAVAILABLE: 'app.premium_unavailable',
   AGE_CONFIRMATION_REQUIRED: 'app.error_age_required',
   PROCESSING_RESTRICTED: 'app.error_processing_restricted',
   RATE_LIMITED: 'app.rate_limited',
@@ -173,11 +178,15 @@ function openFilters() {
     // default bound instead, so clearing a field can never shrink the deck by accident.
     // On the free plan the city controls are disabled, and the payload keeps the unfiltered
     // defaults so the stored preferences always match what the user was shown.
+    // When Premium status is still unknown (state.premium === null, the fetch failed or is
+    // in flight) the stored city/same-city values are preserved rather than wiped: an
+    // unknown entitlement must never cost a paying member their saved filters.
+    const stored = state.preferences || {};
     $('filter-apply').onclick = () => savePreferences({
       minAge: Number($('filter-min-age').value) || 18,
       maxAge: Number($('filter-max-age').value) || 100,
-      city: premium ? $('filter-city').value : '',
-      sameCityOnly: premium ? $('filter-same-city').checked : false,
+      city: premium ? $('filter-city').value : (state.premium === null ? String(stored.city || '') : ''),
+      sameCityOnly: premium ? $('filter-same-city').checked : (state.premium === null ? Boolean(stored.sameCityOnly) : false),
       languages: readLanguageChips('filter-languages')
     });
     $('filter-reset').onclick = () => savePreferences({ minAge: 18, maxAge: 100, city: '', sameCityOnly: false, languages: [] });
@@ -334,8 +343,43 @@ function promptCardHtml(profile) {
     .filter((prompt) => PROMPT_IDS.includes(prompt?.id) && String(prompt?.answer || '').trim())
     .slice(0, MAX_PROMPTS);
   if (!answered.length) return '';
-  const items = answered.map((prompt) => `<div class="card-prompt"><b>${escapeHtml(promptQuestion(prompt.id))}</b><p>${escapeHtml(prompt.answer)}</p></div>`).join('');
+  const items = answered.map((prompt) => {
+    const translation = profile.translations?.[`prompt:${prompt.id}`];
+    return `<div class="card-prompt tr-group"><b>${escapeHtml(promptQuestion(prompt.id))}</b><p class="tr-target" dir="auto">${escapeHtml(translation ? translation.text : prompt.answer)}</p>${translation ? translationToggle(translation, prompt.answer, '') : ''}</div>`;
+  }).join('');
   return `<div class="card-prompts">${items}</div>`;
+}
+
+// The translate affordance: a small note plus a toggle button that swaps between the
+// translated text and the user's original words. The original is always preserved in the
+// button's data attributes — never edited, never overwritten, never fabricated.
+function translationToggle(translation, original, city) {
+  return `<div class="tr-row"><span class="tr-note">${escapeHtml(t('app.translated_from').replace('{lang}', languageName(translation.sourceLang)))}</span> <button type="button" class="tr-toggle" data-original="${escapeHtml(original)}" data-translated="${escapeHtml(translation.text)}" data-source="${escapeHtml(translation.sourceLang)}" data-city="${escapeHtml(city)}">${escapeHtml(t('app.show_original'))}</button></div>`;
+}
+
+// Attached after each render that contains translated cards. The toggle flips the target
+// text and its label between the translation and the original — both directions.
+function bindTranslationToggles(root) {
+  root.querySelectorAll('.tr-toggle').forEach((button) => {
+    button.onclick = () => {
+      const group = button.closest('.tr-group');
+      const target = group?.querySelector('.tr-target');
+      const note = group?.querySelector('.tr-note');
+      const showingOriginal = button.dataset.mode === 'original';
+      if (target) {
+        const city = button.dataset.city;
+        const text = showingOriginal ? button.dataset.translated : button.dataset.original;
+        target.textContent = city ? [city, text].filter(Boolean).join(' · ') || '💜 Bezy' : text;
+      }
+      if (note) {
+        note.textContent = showingOriginal
+          ? t('app.translated_from').replace('{lang}', languageName(button.dataset.source))
+          : t('app.original_label').replace('{lang}', languageName(button.dataset.source));
+      }
+      button.textContent = showingOriginal ? t('app.show_original') : t('app.show_translation');
+      button.dataset.mode = showingOriginal ? 'translated' : 'original';
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -346,14 +390,17 @@ function promptCardHtml(profile) {
 
 function profileCompletionPercent() {
   // One definition of completeness: the same four fields the backend requires for the
-  // profile to go live (`api/profile/me.js`: displayName, age, city, gender). The bar and
-  // the status pill can no longer contradict each other — a live profile reads 100%.
+  // profile to go live (`api/profile/me.js`: displayName, age, city, gender) plus the 18+
+  // declaration, which the server also requires. The bar and the status pill can no longer
+  // contradict each other — a live profile reads 100%, and a pre-declaration profile never
+  // shows 100% next to a "Complete your profile" status.
   const account = state.account || {}, profile = account.profile || {};
   const checks = [
-    Boolean(profile.displayName || account.firstName),
+    Boolean(profile.displayName), // the server requires the stored name — firstName is not a substitute
     Boolean(profile.age),
     Boolean(profile.city),
-    Boolean(profile.gender)
+    Boolean(profile.gender),
+    account.ageEligibility?.confirmed === true
   ];
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);
 }
@@ -388,6 +435,9 @@ function addInterest(raw) {
   const value = String(raw || '').trim().replace(/,+$/, '');
   if (!value) return;
   const list = interestList();
+  // The server stores at most 12; the client enforces the same cap and says so, instead of
+  // accepting a 13th interest that silently disappears on save.
+  if (list.length >= 12) { showToast(t('app.interests_limit')); return; }
   if (list.some((item) => item.toLowerCase() === value.toLowerCase())) return;
   list.push(value);
   setInterests(list);
@@ -515,6 +565,16 @@ function renderStats() {
   setText('people-count', String(stats.available ?? 0));
   setText('match-percent', stats.bestMatch ? `${stats.bestMatch}%` : '—');
   setText('new-count', String(stats.newToday ?? 0));
+  // The server computes the day's remaining actions; the UI says so quietly instead of
+  // letting the user discover the wall by hitting it.
+  const quota = state.quota;
+  const note = $('quota-line');
+  if (note) {
+    const parts = [];
+    if (quota && Number.isFinite(quota.limits?.discoveryActions)) parts.push(t('app.quota_likes_left').replace('{n}', String(quota.discoveryRemaining)));
+    if (quota && Number.isFinite(quota.limits?.superLikes)) parts.push(t('app.quota_super_likes_left').replace('{n}', String(quota.superLikesRemaining)));
+    note.textContent = parts.join(' · ');
+  }
 }
 
 // Premium compatibility insight (PR-8): the deterministic score explained with the terms the
@@ -539,7 +599,8 @@ function profileCardHtml(profile, { actions = false } = {}) {
   const initial = (profile.displayName || 'B').charAt(0).toUpperCase();
   const image = profile.photoUrl ? `<img src="${escapeHtml(profile.photoUrl)}" alt="">` : '';
   const age = profile.age ? `, ${escapeHtml(profile.age)}` : '';
-  const meta = [profile.city, profile.bio].filter(Boolean).map(escapeHtml).join(' · ');
+  const bioTranslation = profile.translations?.bio;
+  const meta = [profile.city, bioTranslation ? bioTranslation.text : profile.bio].filter(Boolean).map(escapeHtml).join(' · ');
   const isNewChip = profile.isNew ? `<span class="tag tag-new">🆕 ${escapeHtml(t('app.new_today'))}</span>` : '';
   const tags = languageTags(profile.languages) + isNewChip
     + (profile.interests || []).slice(0, 5).map((interest) => `<span class="tag">${escapeHtml(interest)}</span>`).join('');
@@ -565,7 +626,7 @@ function profileCardHtml(profile, { actions = false } = {}) {
   const controls = actions
     ? `<div class="actions"><button class="action pass" id="passBtn" type="button">✕ ${escapeHtml(t('app.pass'))}</button><button class="action super" id="superBtn" type="button">★ ${escapeHtml(t('app.super'))}</button><button class="action like" id="likeBtn" type="button">♥ ${escapeHtml(t('app.like'))}</button></div>`
     : '';
-  return `<article class="profile-card" id="profile-card"><div class="portrait">${image}${score}<div class="avatar-letter">${escapeHtml(initial)}</div><div class="portrait-overlay"></div><div class="profile-copy"><h2>${escapeHtml(profile.displayName || t('app.bezy_member'))}${age}</h2><p>${meta || '💜 Bezy'}</p><div class="tags">${tags}</div>${whyLine}${breakdown}</div></div>${promptCardHtml(profile)}${controls}</article>`;
+  return `<article class="profile-card" id="profile-card"><div class="portrait">${image}${score}<div class="avatar-letter">${escapeHtml(initial)}</div><div class="portrait-overlay"></div><div class="profile-copy"><h2>${escapeHtml(profile.displayName || t('app.bezy_member'))}${age}</h2><div class="tr-group"><p class="tr-target" dir="auto">${meta || '💜 Bezy'}</p>${bioTranslation ? translationToggle(bioTranslation, profile.bio, profile.city) : ''}</div><div class="tags">${tags}</div>${whyLine}${breakdown}${actions ? `<button class="card-safety" id="deck-safety" type="button">${escapeHtml(t('app.safety_actions'))}</button>` : ''}</div></div>${promptCardHtml(profile)}${controls}</article>`;
 }
 
 function renderDiscover() {
@@ -589,7 +650,7 @@ function renderDiscover() {
       host.innerHTML = `<div class="empty"><p>${escapeHtml(t('app.empty_filters'))}</p><button class="ghost-btn" id="empty-adjust-filters" type="button">${escapeHtml(t('app.adjust_filters'))}</button><button class="ghost-btn" id="empty-reset-filters" type="button">${escapeHtml(t('app.reset_filters'))}</button></div>`;
       $('empty-adjust-filters').onclick = openFilters;
       $('empty-reset-filters').onclick = async () => {
-        try { await savePreferences({ minAge: 18, maxAge: 100, city: '', sameCityOnly: false, languages: [] }); await loadDiscover(); } catch { /* toast from savePreferences */ }
+        try { await savePreferences({ minAge: 18, maxAge: 100, city: '', sameCityOnly: false, languages: [] }); } catch { /* toast from savePreferences */ }
       };
       return;
     }
@@ -621,6 +682,9 @@ function renderDiscover() {
     return;
   }
   host.innerHTML = profileCardHtml(profile, { actions: true });
+  bindTranslationToggles(host);
+  // Safety is available on the deck too — block and report must not require a match.
+  if ($('deck-safety')) $('deck-safety').onclick = () => openDeckSafety(profile);
   if ($('passBtn')) $('passBtn').onclick = () => actOnCurrent('pass');
   if ($('superBtn')) $('superBtn').onclick = () => actOnCurrent('super');
   if ($('likeBtn')) $('likeBtn').onclick = () => actOnCurrent('like');
@@ -657,23 +721,42 @@ function openPreview() {
 async function loadDiscover() {
   if (!state.account?.profileComplete) { state.profiles = []; state.stats = null; renderDiscover(); return; }
   try {
-    const data = await api(API.discover);
+    // `lang` carries the already-resolved viewer locale (explicit > Telegram > browser) so
+    // the server attaches profile-content translations for the same language the UI shows.
+    const data = await api(API.discover, { body: { lang: state.lang } });
     state.profiles = data.profiles || [];
     state.stats = data.stats || null;
+    state.quota = data.quota || null;
     state.preferences = data.preferences || state.preferences;
     state.emptyReason = data.emptyReason ?? null;
     state.currentIndex = 0;
     renderDiscover();
   } catch (error) {
-    const host = $('discover-content'); if (host) host.innerHTML = `<div class="empty">${escapeHtml(errorText(error))}</div>`;
+    // A failed deck load is recoverable, not a dead end: the error names itself and offers
+    // the one action that makes sense.
+    const host = $('discover-content');
+    if (host) host.innerHTML = `<div class="empty"><p>${escapeHtml(errorText(error))}</p><button class="ghost-btn" id="deck-retry" type="button">${escapeHtml(t('app.check_later'))}</button></div>`;
+    const retry = $('deck-retry');
+    if (retry) retry.onclick = () => { renderDiscover(); loadDiscover(); };
   }
 }
 async function actOnCurrent(action) {
   const profile = state.profiles[state.currentIndex]; if (!profile) return;
+  // One action in flight at a time: a double tap must never fire two swipes whose second
+  // response splices an un-actioned card out of the deck.
+  if (state.swipeInFlight) return;
+  state.swipeInFlight = true;
   try {
     const result = await api(API.swipe, { body: { targetId: profile.id, action } });
     state.profiles.splice(state.currentIndex, 1);
-    if (state.stats) state.stats.available = Math.max(0, (state.stats.available || 1) - 1);
+    // The stats describe the deck in hand, so they follow the swipe: availability falls,
+    // and best/new are recomputed from the profiles still in front of the user.
+    const remaining = state.profiles;
+    if (state.stats) {
+      state.stats.available = remaining.length;
+      state.stats.bestMatch = remaining.length ? Math.max(...remaining.map((p) => Number(p.compatibility) || 0)) : 0;
+      state.stats.newToday = remaining.filter((p) => p.isNew).length;
+    }
     if (result.matched) {
       showToast(t('app.match_created'));
       await loadMatches();
@@ -700,7 +783,22 @@ async function actOnCurrent(action) {
       showToast(error.error === 'DISCOVERY_LIMIT_REACHED' ? t('app.discovery_limit') : t('app.super_like_limit'));
       return;
     }
+    // The target is gone from the server's reality (paused, hidden, blocked, deleted):
+    // keeping the card on screen would turn every tap into the same dead end. The deck
+    // advances instead, exactly as if the swipe had succeeded.
+    if (error.error === 'TARGET_NOT_FOUND') {
+      state.profiles.splice(state.currentIndex, 1);
+      if (state.stats) state.stats.available = state.profiles.length;
+      if (!state.profiles.length) {
+        try { await loadDiscover(); } catch { renderDiscover(); }
+        return;
+      }
+      renderDiscover();
+      return;
+    }
     showToast(errorText(error));
+  } finally {
+    state.swipeInFlight = false;
   }
 }
 
@@ -841,7 +939,13 @@ function openChat(match) {
   if (!screen || !match) return;
   stopChatPolling();
   const cached = state.chatCache.get(match.matchId) || null;
-  state.chat = { match, messages: cached ? cached.messages : [], pending: cached ? cached.pending : new Map(), locked: false, unavailable: false };
+  // `unread` seeds the read-marking from the list's own snapshot; a counterpart message
+  // arriving during polling flips it back on.
+  state.chat = { match, messages: cached ? cached.messages : [], pending: cached ? cached.pending : new Map(), locked: false, unavailable: false, unread: Boolean(match.conversation?.unread), loadFailed: false };
+  // The previous conversation's messages must never sit under the new match's name: the
+  // history area starts empty (loading) and renders only for the conversation being opened.
+  const history = $('chat-messages');
+  if (history) history.innerHTML = `<div class="chat-empty"><p>${escapeHtml(t('app.loading'))}</p></div>`;
   markChatOpened(match.matchId);
   setText('chat-name', match.displayName || t('app.bezy_member'));
   setText('chat-sub', [match.age ? String(match.age) : '', match.city].filter(Boolean).join(' · '));
@@ -866,7 +970,6 @@ function openChat(match) {
   showView('messages');
   loadChatMessages();
   startChatPolling();
-  markChatRead();
 }
 
 function closeChat() {
@@ -896,14 +999,43 @@ async function loadChatMessages() {
     if (state.chat !== chat) return;
     chat.locked = false;
     chat.unavailable = false;
-    chat.messages = data.messages || [];
-    renderChatMessages();
-    markChatRead();
+    const next = data.messages || [];
+    // The polling loop renders only when something actually changed — rebuilding the list
+    // every tick would destroy scroll position and text selection for nothing.
+    const signature = JSON.stringify({
+      ids: next.map((m) => m.id),
+      pending: [...chat.pending.entries()].map(([id, p]) => `${id}:${p.failed}`).join('|')
+    });
+    const changed = signature !== chat.renderedSignature;
+    chat.messages = next;
+    if (changed) {
+      chat.renderedSignature = signature;
+      renderChatMessages();
+    }
+    // A newly arrived counterpart message makes the conversation unread again; the read
+    // watermark follows the newest message actually listed, so nothing lands under it
+    // without ever being rendered.
+    const myId = String(state.telegramUser?.id || '');
+    const newest = next.length ? next[next.length - 1] : null;
+    if (newest && newest.senderId !== myId && newest.id !== chat.lastSeenCounterpartId) {
+      chat.unread = true;
+      chat.lastSeenCounterpartId = newest.id;
+    }
+    if (chat.unread) markChatRead(newest?.createdAt || null);
   } catch (error) {
     if (state.chat !== chat) return;
     if (error.error === 'PREMIUM_REQUIRED') { chat.locked = true; renderChatLocked(); }
     else if (error.error === 'CONVERSATION_UNAVAILABLE') { chat.unavailable = true; renderChatUnavailable(); }
-    // RATE_LIMITED and network failures: keep the current screen; the poll retries.
+    else if (!chat.messages.length) {
+      // A failed FIRST load with nothing on screen says so instead of claiming the
+      // conversation is empty; the poll keeps retrying behind the visible control.
+      chat.loadFailed = true;
+      const host = $('chat-messages');
+      if (host) host.innerHTML = `<div class="chat-empty"><p>${escapeHtml(t('app.error_generic'))}</p><button class="chat-starters-btn" id="chat-load-retry" type="button">${escapeHtml(t('app.check_later'))}</button></div>`;
+      const retry = $('chat-load-retry');
+      if (retry) retry.onclick = () => loadChatMessages();
+    }
+    // RATE_LIMITED and network failures with content on screen: keep it; the poll retries.
   }
 }
 
@@ -923,11 +1055,22 @@ function renderChatMessages() {
   const host = $('chat-messages');
   if (!chat || !host) return;
   const myId = String(state.telegramUser?.id || '');
+  // Reading history must never yank the user to the bottom: the position is preserved
+  // unless they were already near the newest message (reading live).
+  const nearBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 80;
+  const scrollTop = host.scrollTop;
   const confirmed = new Set(chat.messages.map((message) => message.id));
-  const items = chat.messages.map((message) => chatMessageHtml(message, myId, false));
+  const rendered = new Set();
+  const items = [];
+  for (const message of chat.messages) {
+    if (rendered.has(message.id)) continue; // the server never sends duplicates; stay defensive
+    rendered.add(message.id);
+    items.push(chatMessageHtml(message, myId, false));
+  }
   // Pending sends render after the confirmed history; a failed send keeps its retry.
   for (const [clientId, pending] of chat.pending) {
-    if (!confirmed.has(clientId)) {
+    if (!confirmed.has(clientId) && !rendered.has(clientId)) {
+      rendered.add(clientId);
       items.push(`<div class="msg sent ${pending.failed ? 'failed' : 'pending'}" data-message="${escapeHtml(clientId)}">${escapeHtml(pending.text)}${pending.failed ? `<button class="msg-retry" type="button" data-retry="${escapeHtml(clientId)}">${escapeHtml(t('app.msg_retry'))}</button>` : ''}</div>`);
     }
   }
@@ -947,7 +1090,7 @@ function renderChatMessages() {
       deliverChatMessage(pending);
     };
   });
-  host.scrollTop = host.scrollHeight;
+  host.scrollTop = nearBottom ? host.scrollHeight : scrollTop;
 }
 
 async function sendChat(rawText) {
@@ -971,7 +1114,9 @@ async function deliverChatMessage(pending) {
     chat.pending.delete(pending.clientId);
     if (data.message) chat.messages.push(data.message);
     renderChatMessages();
-    markChatRead();
+    // Sending reads your own conversation; the watermark follows the newest listed message.
+    const newest = chat.messages.length ? chat.messages[chat.messages.length - 1] : null;
+    markChatRead(newest?.createdAt || null);
   } catch (error) {
     if (state.chat !== chat) return;
     if (error.error === 'PREMIUM_REQUIRED') { chat.pending.clear(); chat.locked = true; renderChatLocked(); }
@@ -999,10 +1144,19 @@ function renderChatUnavailable() {
   updateChatSendState();
 }
 
-function markChatRead() {
+function markChatRead(lastMessageAt) {
   const chat = state.chat;
   if (!chat || chat.locked || chat.unavailable) return;
-  api(API.messages, { body: { action: 'read', conversationId: chat.match.matchId } }).catch(() => { /* the poll retries */ });
+  api(API.messages, { body: { action: 'read', conversationId: chat.match.matchId, lastMessageAt } })
+    .then(() => {
+      if (state.chat !== chat) return;
+      chat.unread = false;
+      // The Messages list behind this screen must agree: the unread badge and the
+      // "waiting" state clear without waiting for the next /api/matches fetch.
+      const match = state.matches.find((m) => m.id === chat.match.id);
+      if (match?.conversation) match.conversation = { ...match.conversation, unread: false };
+    })
+    .catch(() => { /* the poll retries */ });
 }
 
 function startChatPolling() {
@@ -1027,8 +1181,9 @@ function matchCardHtml(match, idPrefix = '') {
   // The primary action opens the Bezy conversation screen — no Telegram handoff (ADR 0009).
   const chat = `<button class="mf-primary" data-open-chat="${escapeHtml(match.id)}" type="button">${escapeHtml(chatLabel(match))}</button>`;
   const firstPrompt = (match.prompts || []).find((prompt) => prompt?.id && String(prompt?.answer || '').trim());
+  const icebreakerTranslation = firstPrompt ? match.translations?.[`prompt:${firstPrompt.id}`] : null;
   const icebreaker = firstPrompt
-    ? `<div class="mf-icebreaker"><span class="mf-icebreaker-label">${escapeHtml(t('app.icebreaker_label').replace('{name}', match.displayName || t('app.bezy_member')))}</span><p>${escapeHtml(firstPrompt.answer)}</p></div>`
+    ? `<div class="mf-icebreaker tr-group"><span class="mf-icebreaker-label">${escapeHtml(t('app.icebreaker_label').replace('{name}', match.displayName || t('app.bezy_member')))}</span><p class="tr-target" dir="auto">${escapeHtml(icebreakerTranslation ? icebreakerTranslation.text : firstPrompt.answer)}</p>${icebreakerTranslation ? translationToggle(icebreakerTranslation, firstPrompt.answer, '') : ''}</div>`
     : '';
   // The conversation preview for the Messages list: last message line and unread state.
   const preview = match.conversation?.lastMessagePreview
@@ -1086,10 +1241,22 @@ function renderMatches() {
   const grid = $('match-grid'), empty = $('matches-empty'), conversations = $('conversation-list'), messageEmpty = $('message-empty'), carousel = $('matches-carousel');
   if (!grid || !empty || !conversations || !messageEmpty) return;
   setText('match-count', String(state.matches.length));
+  if (state.matchesError && !state.matches.length) {
+    // The fetch failed: say so instead of claiming there are no matches. One retry control.
+    grid.innerHTML = '';
+    empty.innerHTML = `<p>${escapeHtml(t('app.error_generic'))}</p><button class="ghost-btn" id="matches-retry" type="button">${escapeHtml(t('app.check_later'))}</button>`;
+    empty.classList.remove('hidden');
+    conversations.innerHTML = '';
+    messageEmpty.classList.add('hidden');
+    if (carousel) carousel.innerHTML = '';
+    $('matches-retry').onclick = () => loadMatches();
+    return;
+  }
   if (!state.matches.length) { grid.innerHTML = ''; empty.textContent = t('app.no_matches'); empty.classList.remove('hidden'); conversations.innerHTML = ''; messageEmpty.classList.remove('hidden'); if (carousel) carousel.innerHTML = ''; return; }
   empty.classList.add('hidden');
   if (carousel) carousel.innerHTML = matchesCarouselHtml(state.matches);
   grid.innerHTML = state.matches.map(matchCardHtml).join('');
+  bindTranslationToggles(grid);
   bindChatOpeners(grid);
   grid.querySelectorAll('[data-starters]').forEach((button) => {
     button.onclick = () => {
@@ -1108,6 +1275,7 @@ function renderMatches() {
   // safety — so a conversation is always one primary tap away.
   conversations.innerHTML = state.matches.map((match) => matchCardHtml(match, 'c')).join('');
   messageEmpty.classList.add('hidden');
+  bindTranslationToggles(conversations);
   bindChatOpeners(conversations);
   conversations.querySelectorAll('[data-starters]').forEach((button) => {
     button.onclick = () => {
@@ -1179,7 +1347,12 @@ function renderPremium() {
   host.querySelectorAll('[data-plan]').forEach((button) => {
     button.onclick = () => { state.selectedPlan = button.dataset.plan; renderPremium(); };
   });
-  if ($('premium-buy')) $('premium-buy').onclick = startCheckout;
+  if ($('premium-buy')) {
+    // While a payment is still processing, the buy button becomes a status check: buying
+    // again would double-charge Stars for the same moment of doubt.
+    $('premium-buy').onclick = state.premiumCheckPending ? refreshPremiumUntilActive : startCheckout;
+    if (state.premiumCheckPending) $('premium-buy').textContent = t('app.check_payment_status');
+  }
   renderLikers();
 }
 
@@ -1197,6 +1370,11 @@ function planCards(plans = []) {
 function renderLikers() {
   const host = $('likers-host');
   if (!host) return;
+  if (state.likesError) {
+    host.innerHTML = `<div class="empty"><p>${escapeHtml(t('app.error_generic'))}</p><button class="ghost-btn" id="likes-retry" type="button">${escapeHtml(t('app.check_later'))}</button></div>`;
+    $('likes-retry').onclick = () => loadLikes();
+    return;
+  }
   if (!state.premium?.premium?.active) {
     const count = state.likeCount || 0;
     host.innerHTML = `<div class="locked"><b>🔒 ${escapeHtml(count ? t('app.likes_waiting').replace('{n}', count) : t('app.who_liked_you'))}</b>${escapeHtml(t('app.who_liked_you_locked'))}</div>`;
@@ -1223,6 +1401,10 @@ async function respondToLiker(targetId, action) {
   try {
     const result = await api(API.swipe, { body: { targetId, action } });
     state.likes = (state.likes || []).filter((liker) => liker.id !== targetId);
+    // The same person is now decided: they must not reappear in the Discover deck either,
+    // or the user would be offered a profile they just acted on.
+    const deckIndex = state.profiles.findIndex((p) => p.id === targetId);
+    if (deckIndex >= 0) state.profiles.splice(deckIndex, 1);
     renderLikers();
     if (result.matched) {
       showToast(t('app.match_created'));
@@ -1268,10 +1450,17 @@ async function loadLikes() {
     const data = await api(API.likes);
     state.likes = data.likes || [];
     state.likeCount = data.likeCount || 0;
+    state.likesError = false;
   } catch (error) {
-    // A free member is expected to be refused here; the count is still shown as a teaser.
-    state.likes = [];
-    state.likeCount = error.likeCount || 0;
+    if (error.error === 'PREMIUM_REQUIRED') {
+      // A free member is expected to be refused here; the count is still shown as a teaser.
+      state.likes = [];
+      state.likeCount = error.likeCount || 0;
+      state.likesError = false;
+    } else {
+      // A real failure must not read as "no one is waiting" or "0 people liked you".
+      state.likesError = true;
+    }
   }
   renderLikers();
 }
@@ -1283,20 +1472,32 @@ async function startCheckout() {
     const { invoiceLink } = await api(API.premium, { body: { action: 'invoice', planId: state.selectedPlan } });
     if (!invoiceLink) throw new Error(t('app.payment_failed'));
     if (!tg?.openInvoice) { showToast(t('app.payment_unsupported')); return; }
+    // The sheet callback is asynchronous: the screen must not re-render from stale state
+    // while the status poll below is still running, so every render happens inside the
+    // callback after the poll settles.
     tg.openInvoice(invoiceLink, async (status) => {
+      if (button) button.disabled = false;
       if (status === 'paid') {
         showToast(t('app.payment_received'));
         // Telegram reporting "paid" is not proof of entitlement: the backend activates
         // Premium from the webhook, so the app re-reads authoritative membership state.
         await refreshPremiumUntilActive();
-      } else if (status === 'cancelled') showToast(t('app.payment_cancelled'));
+        return;
+      }
+      if (status === 'pending') {
+        // "Pending" is not a failure — the webhook may still land. The same authoritative
+        // poll runs, and a give-up leaves a status-check button instead of a dead screen.
+        showToast(t('app.payment_pending'));
+        await refreshPremiumUntilActive();
+        return;
+      }
+      if (status === 'cancelled') showToast(t('app.payment_cancelled'));
       else if (status === 'failed') showToast(t('app.payment_failed'));
-      else if (status === 'pending') showToast(t('app.payment_pending'));
+      renderPremium();
     });
   } catch (error) {
     showToast(error.error === 'INVALID_PLAN' ? t('app.error_generic') : t('app.payment_failed'));
-  } finally {
-    if (button) { button.disabled = false; renderPremium(); }
+    if (button) button.disabled = false;
   }
 }
 
@@ -1308,7 +1509,9 @@ async function refreshPremiumUntilActive(attempts = 5) {
       const data = await api(API.premium, { body: { action: 'status' } });
       state.premium = data;
       if (data.premium?.active) {
+        state.premiumCheckPending = false;
         renderPremium();
+        renderPremiumSurfaces();
         await loadLikes();
         showToast(t('app.premium_active'));
         return true;
@@ -1316,6 +1519,9 @@ async function refreshPremiumUntilActive(attempts = 5) {
     } catch { /* retried below */ }
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
+  // The payment may still land: the buy control turns into a status check instead of
+  // re-offering a second charge.
+  state.premiumCheckPending = true;
   renderPremium();
   showToast(t('app.payment_processing'));
   return false;
@@ -1340,6 +1546,20 @@ function openMatchActions(match) {
   });
 }
 
+// The same safety sheet for someone the user has NOT matched with (from Discover): block
+// and report must not require a match — "block or report anyone who makes you
+// uncomfortable" is the copy's own promise. Unmatch is a match-only action and is absent.
+function openDeckSafety(profile) {
+  openSheet(profile.displayName || t('app.bezy_member'), `
+    <button class="ghost-btn" data-act="block">${escapeHtml(t('app.block'))}</button>
+    <button class="ghost-btn" data-act="report" style="color:var(--danger)">${escapeHtml(t('app.report'))}</button>
+    <p class="filter-note">${escapeHtml(t('app.safety_sheet_note'))}</p>
+  `, (host) => {
+    host.querySelector('[data-act="block"]').onclick = () => confirmAction('block', profile);
+    host.querySelector('[data-act="report"]').onclick = () => openReportSheet(profile);
+  });
+}
+
 function confirmAction(action, match) {
   openSheet(t(`app.${action}`), `
     <p class="filter-note" style="font-size:13px;margin-bottom:14px">${escapeHtml(t(`app.${action}_confirm`).replace('{name}', match.displayName || t('app.bezy_member')))}</p>
@@ -1353,6 +1573,9 @@ function confirmAction(action, match) {
         showToast(t(`app.${action}_done`));
         // The open conversation closes with the relationship it depended on.
         if (state.chat?.match?.id === match.id) closeChat();
+        // A deck card the user just acted on must leave the deck too.
+        const deckIndex = state.profiles.findIndex((p) => p.id === match.id);
+        if (deckIndex >= 0) { state.profiles.splice(deckIndex, 1); renderDiscover(); }
         await loadMatches();
       } catch (error) { showToast(errorText(error)); }
     };
@@ -1374,6 +1597,9 @@ function openReportSheet(match) {
         await api(API.relationship, { body: { action: 'report', targetId: match.id, reason: $('report-reason').value, details: $('report-details').value } });
         closeSheet();
         showToast(t('app.report_done'));
+        // Reported = blocked = decided: the person leaves the deck as well as the match list.
+        const deckIndex = state.profiles.findIndex((p) => p.id === match.id);
+        if (deckIndex >= 0) { state.profiles.splice(deckIndex, 1); renderDiscover(); }
         await loadMatches();
       } catch (error) { showToast(errorText(error)); }
     };
@@ -1567,24 +1793,30 @@ function openSupportForm() {
 
 async function openSupportHistory() {
   openSheet(t('app.support_history'), `<div class="loading" id="support-history-list">${escapeHtml(t('app.loading'))}</div>`, () => {});
+  // The sheet can be closed while the request is in flight; every touch of the list node
+  // below is null-guarded so a closed sheet is a no-op, never an unhandled rejection.
+  const list = () => $('support-history-list');
+  const write = (html) => { const node = list(); if (node) node.innerHTML = html; };
   try {
     const data = await api(API.support, { body: { action: 'list' } });
     const requests = data.requests || [];
-    $('support-history-list').innerHTML = requests.length
+    write(requests.length
       ? requests.map((r) => `<div class="menu-row"><div class="left"><b>${escapeHtml(r.reference)}</b><span>${escapeHtml(supportCategoryLabel(r.category))} · ${escapeHtml(supportStatusLabel(r.status))}${r.createdAt ? ` · ${escapeHtml(r.createdAt.slice(0, 10))}` : ''}</span></div></div>`).join('')
-      : `<div class="empty">${escapeHtml(t('app.support_history_empty'))}</div>`;
+      : `<div class="empty">${escapeHtml(t('app.support_history_empty'))}</div>`);
   } catch (error) {
-    $('support-history-list').innerHTML = `<div class="empty">${escapeHtml(errorText(error))}</div>`;
+    write(`<div class="empty">${escapeHtml(errorText(error))}</div>`);
   }
   // Intake lives behind the history, so the card itself keeps exactly two CTAs: Get help
   // and My support requests. This button opens the same structured form as before.
+  const node = list();
+  if (!node) return;
   const newRequest = document.createElement('button');
   newRequest.id = 'support-new-btn';
   newRequest.className = 'ghost-btn';
   newRequest.type = 'button';
   newRequest.textContent = t('app.support_contact');
   newRequest.style.marginTop = '12px';
-  $('support-history-list').after(newRequest);
+  node.after(newRequest);
   newRequest.onclick = () => openSupportForm();
 }
 
@@ -1607,7 +1839,20 @@ function openDeleteAccount() {
   });
 }
 
-async function loadMatches(messagesView = false) { try { const data = await api(API.matches); state.matches = data.matches || []; renderMatches(); } catch (error) { if (messagesView) showToast(errorText(error)); } }
+async function loadMatches(messagesView = false) {
+  try {
+    const data = await api(API.matches, { body: { lang: state.lang } });
+    state.matches = data.matches || [];
+    state.matchesError = false;
+    renderMatches();
+  } catch (error) {
+    // A failed fetch must not paint "No matches yet" as if it were true — that is a lie
+    // about the state of the account. The list keeps whatever it had and says the truth.
+    state.matchesError = true;
+    if (messagesView) showToast(errorText(error));
+    renderMatches();
+  }
+}
 
 async function saveProfile(event) {
   event.preventDefault();
@@ -1737,6 +1982,10 @@ function bindEvents() {
       try { localStorage.setItem('bezy-language', button.dataset.language); } catch { /* storage unavailable */ }
       api(API.profile, { body: { locale: button.dataset.language } }).catch(() => {});
       renderAccount();
+      // Profile-content translations target the viewer's locale, so a language switch
+      // refetches the decks; otherwise the cards would keep the previous locale's wording.
+      loadDiscover();
+      loadMatches();
     } catch { showToast(t('app.error_generic')); }
   }));
 }
@@ -1794,7 +2043,7 @@ async function init() {
     state.lang = 'en';
     state.dict = {
       // BEGIN fallback catalogue — generated from locales/en.json by scripts/sync-fallback-locale.mjs
-      app: {"tagline":"Meet someone worth knowing. 💗","discover":"Discover","matches":"Matches","messages":"Messages","profile":"Profile","for_you":"For you","filters":"Filters","pass":"Pass","super":"Super","like":"Like","your_matches":"Your matches","protected_by_bezy":"Protected by Bezy","view_membership":"View membership","unlock_premium":"Unlock Premium","privacy":"Privacy","terms":"Terms","settings":"Settings","no_conversations":"Your conversations will appear here after a mutual match.","discover_intro":"Real people. Mutual interest. Conversations that stay inside Bezy.","discover_title":"Find your kind of connection.","premium_copy":"See who liked you, unlock advanced discovery and get more ways to connect.","matches_premium_copy":"Premium members get more discovery options and can see who already liked them.","people_available":"people to discover","best_match":"best match","new_today":"new today","match_score":"match","min_age":"Minimum age","max_age":"Maximum age","any_city":"Any city","same_city_only":"Only show people in my city","apply_filters":"Apply filters","reset_filters":"Reset filters","filters_applied":"Filters applied.","filters_note":"Filters are saved to your account and applied every time you open Discover.","conversation_hint":"Private conversations with your matches.","profile_live":"Your profile is live in Discover.","premium_title":"Bezy Premium","premium_intro":"Unlock more ways to discover meaningful connections.","premium_active_intro":"You're a Premium member. Thank you for supporting Bezy.","benefit_who_liked_you":"See who liked you","benefit_advanced_discovery":"Advanced discovery","benefit_more_super_likes":"More Super Likes","benefit_increased_visibility":"Increased visibility","benefit_unlimited_discovery":"Unlimited discovery","benefit_messaging":"Chat with your matches","choose_plan":"Choose your plan","plan":"Plan","plan_monthly":"Monthly","plan_quarterly":"Quarterly","plan_yearly":"Yearly","months_count":"{n} months of Premium","best_value":"Best value","subscribe_with_stars":"Subscribe with Telegram Stars","renew_with_stars":"Renew with Telegram Stars","renew":"Renew or extend","active_until":"Active until","days_remaining":"Days remaining","stars_note":"Payment is handled inside Telegram with Stars. Bezy never sees your card details.","who_liked_you":"Who liked you","who_liked_you_locked":"Premium members can see everyone who already liked them, and match instantly.","likes_waiting":"{n} people already liked you","no_likes_yet":"No one is waiting yet. Keep discovering.","preparing_checkout":"Preparing checkout…","payment_cancelled":"Payment cancelled.","payment_failed":"We couldn't start the payment. Please try again.","payment_received":"Payment received. Activating your Bezy Premium…","payment_pending":"Your payment is still processing.","payment_processing":"Your payment is being processed. Premium will activate shortly.","payment_unsupported":"Please update Telegram to pay with Stars.","premium_active":"💎 Bezy Premium is active.","premium_required":"This is a Premium feature.","premium_expired":"Your Bezy Premium has expired.","discovery_limit":"You've reached today's discovery limit. Premium removes it.","super_like_limit":"You've used today's Super Likes. Premium gives you more.","profile_hidden":"Your profile is saved but hidden from Discover.","loading":"Loading…","refresh":"Refresh","start_conversation":"Start conversation","continue_conversation":"Continue conversation","no_matches":"No matches yet. Keep discovering — your next connection could be here.","no_profiles":"No more profiles right now. Check back soon.","empty_filters":"Your filters are hiding everyone right now. Adjust them, or reset them to see everyone.","empty_pool":"You've seen everyone nearby for now. New people join all the time — check back later.","empty_no_supply":"Bezy is brand new here — no one discoverable yet. Check back soon, and tell someone about Bezy.","empty_eligibility":"No one nearby matches who you're looking for right now. You can update “I am” and “Looking for” in your profile, or check back later.","empty_eligibility_you":"Your profile is currently shown as {gender}, looking for {seeking}.","empty_eligibility_edit":"Update my profile","gender_placeholder":"Choose…","adjust_filters":"Adjust filters","check_later":"Check again","complete_profile":"Complete your profile to start discovering people.","profile_complete_pct":"{percent}% complete","profile_saved":"Your profile has been saved.","saved_badge":"Saved","match_created":"It’s a match! 💜","error_generic":"Something went wrong. Please try again.","show_profile":"Show my profile in Discover","discoverable_note":"When off, your profile is saved but hidden from Discover.","legal_privacy":"Legal","language":"Language","edit_profile":"Edit profile","settings_privacy":"Settings & Privacy","core_profile":"Core Profile","display_name":"Display name","age":"Age","city":"City","gender":"I am","seeking":"Looking for","interests":"Interests","interests_placeholder":"Travel, music, books","add_interest":"Add interest","add_interest_placeholder":"Add an interest…","bio":"About me","bio_placeholder":"Tell people something memorable about your day or what makes you smile...","woman":"Woman","man":"Man","non_binary":"Non-binary","prefer_not_to_say":"Prefer not to say","women":"Women","men":"Men","everyone":"Everyone","save_profile":"Save profile","my_profile":"My profile","more_connections":"More connections","navigation":"Bezy navigation","close":"Close","meta_description":"Bezy — meet someone worth knowing, entirely inside Telegram.","bezy_member":"Bezy member","error_session":"Your Telegram session could not be verified. Please reopen Bezy.","error_database":"Bezy could not reach its database. Please try again.","error_profile_missing":"Complete your profile to start discovering people.","error_target_missing":"That profile is no longer available.","age_gate_title":"Bezy is only available to people aged 18 and over.","age_gate_body":"By continuing, I confirm that I am 18 or older.","age_confirm":"I am 18 or older","age_deny":"I am under 18","age_note":"Bezy does not verify identity or age. This is your own declaration.","age_blocked_title":"Bezy is for adults aged 18 and over.","age_blocked_body":"You cannot create a Bezy profile, discover people or match. Thank you for being honest.","error_age_required":"Please confirm you are 18 or older to continue.","safety_title":"Safety","safety_intro":"Block or report anyone who makes you uncomfortable.","data_title":"Privacy & your data","data_controls":"Data & privacy controls","data_controls_intro":"Bezy keeps your data while processing is paused or objected to — nothing is deleted, and you can lift either at any time.","privacy_by_design":"Messages stay between you and your match. Your photos stay on Telegram. We use your city, not your GPS.","safety_actions":"Safety options","safety_sheet_note":"Blocking and reporting take effect immediately and are enforced by Bezy's servers.","block":"Block","unblock":"Unblock","unblock_done":"This person has been unblocked.","block_confirm":"{name} will no longer see you or be able to contact you through Bezy. Your match will be ended.","block_done":"Blocked.","unmatch":"Unmatch","unmatch_confirm":"End your match with {name}? Neither of you will see the other in Bezy again.","unmatch_done":"Unmatched.","report":"Report","report_reason":"Reason","report_details":"What happened? (optional)","report_send":"Send report","report_done":"Report sent. This person has also been blocked.","report_note":"Reporting also blocks this person. Bezy reviews reports; we cannot promise a response time.","reason_harassment":"Harassment or abuse","reason_spam":"Spam","reason_scam":"Scam or fraud","reason_fake_profile":"Fake profile or impersonation","reason_inappropriate_content":"Inappropriate content","reason_underage":"Appears to be under 18","reason_other":"Something else","blocked_people":"Blocked people","no_blocked":"You haven't blocked anyone.","cancel":"Cancel","export_data":"Download my data","export_preparing":"Preparing your data…","export_ready":"Your data has been downloaded.","delete_account":"Delete my account","delete_explain":"This permanently deletes your Bezy profile, your likes and passes, your matches and your blocks. It cannot be undone.","delete_retained":"Records of payments you made and their invoice links are kept for accounting, and reports — filed by you or about you — are kept for safety. Your Telegram account itself is not affected.","delete_type":"Type DELETE to confirm","delete_done_title":"Your Bezy account has been deleted.","delete_done_body":"You can close this window. If you ever want to come back, just open Bezy again and create a new profile.","rights_note":"For corrections or a complaint, contact contacts@digitalconcordia.com.","legal_help":"Legal help","footer_note":"Built with intention","share_story":"Share Bezy to your story","share_story_caption":"Find your kind of connection — meet someone worth knowing on Bezy 💜","remove":"Remove","support_title":"Help & support","support_intro":"Bezy support can help diagnose common problems.","support_help":"Get help","support_formal":"Need to make a formal privacy or legal request? Contact us.","support_contact":"Contact support","support_history":"My support requests","support_history_empty":"You have no support requests.","support_form_title":"Contact support","support_form_category":"What is it about?","support_form_details":"Describe the problem","support_form_placeholder":"What happened? What have you tried?","support_submit":"Send","support_required":"Choose a topic and describe the problem.","support_done":"Your support request has been received. Reference: {ref}. We'll review it and get back to you here.","support_cat_premium":"Premium & Telegram Stars","support_cat_profile":"Profile","support_cat_likes_matches":"Likes & Matches","support_cat_discovery":"Discovery","support_cat_privacy_account":"Privacy & Account","support_cat_problem":"Report a problem","support_cat_contact":"Contact support","support_status_open":"Open","support_status_in_progress":"In progress","support_status_resolved":"Resolved","support_status_closed":"Closed","support_email":"Email support","support_expectation":"We read every message and aim to answer within 3 working days.","rate_limited":"You're going a little fast. Please try again in a moment.","rate_limited_minutes":"You've done that too many times. Please try again in about {n} minutes.","stars_needed":"You need Telegram Stars in your balance to subscribe. You can top up in Telegram under Settings, then My Stars.","not_telegram_premium":"Telegram Premium is a separate Telegram subscription. It does not include Bezy Premium — Bezy Premium is paid separately with Stars.","premium_revoked":"Your Bezy Premium was refunded.","premium_lapsed_hint":"You can subscribe again below. Your profile, matches and conversations are unaffected.","prompts_title":"Prompts & icebreakers","prompts_hint":"Optional. Answer up to three — they appear on your profile and give people something to open with.","prompt_perfect_sunday":"A perfect Sunday for me…","prompt_i_value":"Something I value…","prompt_first_date":"My ideal first date…","prompt_should_know":"One thing you should know about me…","prompt_talk_for_hours":"Something I could talk about for hours…","prompt_placeholder":"Your answer","preview_profile":"Preview my profile","preview_title":"How others see you","preview_hint":"This is your card as it appears in Discover. Your Telegram username stays hidden until you match.","preview_incomplete":"Complete your profile to see how it will look.","why_matched":"Why you matched","why_interests":"You both like {values}","why_city":"You are both in {values}","why_age":"You are close in age","why_languages":"You both speak {values}","why_none":"You liked each other.","starters_title":"Ways to start","starter_interest":"Ask about {value} — you both like it.","starter_city":"Ask what they love about {value}.","starter_generic":"Start with something simple — say hi and ask about their day.","start_with":"Start with","starter_copy":"Copy","starter_copied":"Copied. You can paste it into the conversation.","starters_hint":"Bezy suggests an opener; the conversation happens right here in Bezy.","icebreaker_label":"{name}'s icebreaker","msg_placeholder":"Write a message…","msg_send":"Send","msg_send_failed":"Message not sent.","msg_retry":"Try again","msg_no_messages":"No messages yet — start the conversation.","msg_conversation_unavailable":"This conversation is no longer available.","msg_use_this_message":"Use this message","msg_premium_locked":"Your match is real and your conversation is ready. Messaging is a Premium capability — unlock Premium to continue.","notify_messages":"New messages","notify_messages_note":"When a match sends you a message","prompt_none":"No prompt","prompt_number":"Prompt {n}","prompts_select_label":"Choose a prompt","prompts_answer_label":"Prompt answer","notifications_title":"Notifications","notifications_hint":"Choose what Bezy sends you in Telegram. Payment and account messages are always sent, because they are a record of something that happened to your account.","notify_matches":"New matches","notify_super_likes":"Super Likes you receive","notify_super_likes_note":"Bezy never says who sent it — open Bezy and decide for yourself.","notify_profile_reminders":"Profile reminders","notify_profile_reminders_note":"At most one a week, and only while your profile is incomplete.","notifications_saved":"Notification settings saved.","restrict_title":"Pause all processing","restrict_explain":"Bezy keeps your data but stops using it. Your profile leaves Discover, you cannot like or match, and Bezy stops sending you match and Super Like messages. Nothing is deleted, and you can lift this at any time.","restrict_action":"Pause processing","restrict_confirm":"Pause processing now","restricted_badge":"Processing is paused.","restricted_notice":"Bezy is storing your data and nothing else. Lift the pause to return to Discover.","unrestrict_action":"Resume processing","restrict_done":"Processing is paused. Your data is kept, not used.","unrestrict_done":"Processing resumed. Turn on “Show my profile in Discover” when you are ready to be seen again.","restrict_note":"This is the right to restriction of processing. Payment and account messages are still sent, and you can still download or delete your data.","error_processing_restricted":"Processing is paused for your account. Resume it in Safety & privacy to continue.","objection_title":"Object to processing","objection_explain":"You have the right to object to the way Bezy processes your data (GDPR Art. 21). If you object, Bezy stops using your data for discovery and matching: your profile leaves Discover, you cannot like or match, and Bezy stops sending you match and Super Like messages. Nothing is deleted, and you can withdraw the objection at any time.","objection_confirm":"Object now","object_action":"Object to processing","objection_badge":"You have objected to processing.","objection_notice":"Bezy is storing your data and nothing else. Withdraw the objection to return to Discover.","unobject_action":"Withdraw objection","objection_done":"Objection recorded. Bezy has stopped processing your data.","unobject_done":"Objection withdrawn. Turn on “Show my profile in Discover” when you are ready to be seen again.","objection_note":"This is the right to object to processing. Your data is kept, not deleted, and you can still download or delete your data.","languages_label":"Languages I speak","languages_hint":"Optional. Up to five. Used to show you people you can actually talk to.","languages_chosen_count":"{chosen} of {max} chosen","filter_languages":"Languages they speak","filter_languages_hint":"Leave empty to see everyone. Profiles that have not listed a language are always shown.","language_en":"English","language_fr":"French","language_es":"Spanish","language_pt":"Portuguese","language_ar":"Arabic","language_de":"German","language_it":"Italian","language_ru":"Russian","language_sw":"Swahili","language_yo":"Yoruba","powered_by":"Powered by @BezyDatingBot","filter_premium_note":"City and same-city filters are a Premium capability. Age and languages always work on the free plan.","match_state_new":"New match","match_state_waiting":"Waiting for your reply","match_state_quiet":"Quiet for a while","starter_languages":"Ask about {value} — you both speak it.","closure_hint":"If this connection isn't moving forward, you can end it cleanly.","language_pl":"Polish","language_tr":"Turkish","language_hi":"Hindi","language_id":"Indonesian","language_zh":"Chinese","language_ja":"Japanese","language_ko":"Korean","starter_universal_1":"What’s something you’ve been enjoying lately?","starter_universal_2":"What does a really good weekend look like for you?","starter_universal_3":"What brought you to Bezy?"},
+      app: {"tagline":"Meet someone worth knowing. 💗","discover":"Discover","matches":"Matches","messages":"Messages","profile":"Profile","for_you":"For you","filters":"Filters","pass":"Pass","super":"Super","like":"Like","your_matches":"Your matches","protected_by_bezy":"Protected by Bezy","view_membership":"View membership","unlock_premium":"Unlock Premium","privacy":"Privacy","terms":"Terms","settings":"Settings","no_conversations":"Your conversations will appear here after a mutual match.","discover_intro":"Real people. Mutual interest. Conversations that stay inside Bezy.","discover_title":"Find your kind of connection.","premium_copy":"See who liked you, unlock advanced discovery and get more ways to connect.","matches_premium_copy":"Premium members get more discovery options and can see who already liked them.","people_available":"people to discover","best_match":"best match","new_today":"new today","match_score":"match","min_age":"Minimum age","max_age":"Maximum age","any_city":"Any city","same_city_only":"Only show people in my city","apply_filters":"Apply filters","reset_filters":"Reset filters","filters_applied":"Filters applied.","filters_note":"Filters are saved to your account and applied every time you open Discover.","conversation_hint":"Private conversations with your matches.","profile_live":"Your profile is live in Discover.","premium_title":"Bezy Premium","premium_intro":"Unlock more ways to discover meaningful connections.","premium_active_intro":"You're a Premium member. Thank you for supporting Bezy.","benefit_who_liked_you":"See who liked you","benefit_advanced_discovery":"Advanced discovery","benefit_more_super_likes":"More Super Likes","benefit_increased_visibility":"Increased visibility","benefit_unlimited_discovery":"Unlimited discovery","benefit_messaging":"Chat with your matches","choose_plan":"Choose your plan","plan":"Plan","plan_monthly":"Monthly","plan_quarterly":"Quarterly","plan_yearly":"Yearly","months_count":"{n} months of Premium","best_value":"Best value","subscribe_with_stars":"Subscribe with Telegram Stars","renew_with_stars":"Renew with Telegram Stars","renew":"Renew or extend","active_until":"Active until","days_remaining":"Days remaining","stars_note":"Payment is handled inside Telegram with Stars. Bezy never sees your card details.","who_liked_you":"Who liked you","who_liked_you_locked":"Premium members can see everyone who already liked them, and match instantly.","likes_waiting":"{n} people already liked you","no_likes_yet":"No one is waiting yet. Keep discovering.","preparing_checkout":"Preparing checkout…","payment_cancelled":"Payment cancelled.","payment_failed":"We couldn't start the payment. Please try again.","payment_received":"Payment received. Activating your Bezy Premium…","payment_pending":"Your payment is still processing.","payment_processing":"Your payment is being processed. Premium will activate shortly.","payment_unsupported":"Please update Telegram to pay with Stars.","premium_active":"💎 Bezy Premium is active.","premium_required":"This is a Premium feature.","premium_expired":"Your Bezy Premium has expired.","discovery_limit":"You've reached today's discovery limit. Premium removes it.","super_like_limit":"You've used today's Super Likes. Premium gives you more.","profile_hidden":"Your profile is saved but hidden from Discover.","loading":"Loading…","refresh":"Refresh","start_conversation":"Start conversation","continue_conversation":"Continue conversation","no_matches":"No matches yet. Keep discovering — your next connection could be here.","no_profiles":"No more profiles right now. Check back soon.","empty_filters":"Your filters are hiding everyone right now. Adjust them, or reset them to see everyone.","empty_pool":"You've seen everyone nearby for now. New people join all the time — check back later.","empty_no_supply":"Bezy is brand new here — no one discoverable yet. Check back soon, and tell someone about Bezy.","empty_eligibility":"No one nearby matches who you're looking for right now. You can update “I am” and “Looking for” in your profile, or check back later.","empty_eligibility_you":"Your profile is currently shown as {gender}, looking for {seeking}.","empty_eligibility_edit":"Update my profile","gender_placeholder":"Choose…","adjust_filters":"Adjust filters","check_later":"Check again","complete_profile":"Complete your profile to start discovering people.","profile_complete_pct":"{percent}% complete","profile_saved":"Your profile has been saved.","saved_badge":"Saved","match_created":"It’s a match! 💜","error_generic":"Something went wrong. Please try again.","show_profile":"Show my profile in Discover","discoverable_note":"When off, your profile is saved but hidden from Discover.","legal_privacy":"Legal","language":"Language","edit_profile":"Edit profile","settings_privacy":"Settings & Privacy","core_profile":"Core Profile","display_name":"Display name","age":"Age","city":"City","gender":"I am","seeking":"Looking for","interests":"Interests","interests_placeholder":"Travel, music, books","add_interest":"Add interest","add_interest_placeholder":"Add an interest…","bio":"About me","bio_placeholder":"Tell people something memorable about your day or what makes you smile...","woman":"Woman","man":"Man","non_binary":"Non-binary","prefer_not_to_say":"Prefer not to say","women":"Women","men":"Men","everyone":"Everyone","save_profile":"Save profile","my_profile":"My profile","more_connections":"More connections","navigation":"Bezy navigation","close":"Close","meta_description":"Bezy — meet someone worth knowing, entirely inside Telegram.","bezy_member":"Bezy member","error_session":"Your Telegram session could not be verified. Please reopen Bezy.","error_database":"Bezy could not reach its database. Please try again.","error_profile_missing":"Complete your profile to start discovering people.","error_target_missing":"That profile is no longer available.","age_gate_title":"Bezy is only available to people aged 18 and over.","age_gate_body":"By continuing, I confirm that I am 18 or older.","age_confirm":"I am 18 or older","age_deny":"I am under 18","age_note":"Bezy does not verify identity or age. This is your own declaration.","age_blocked_title":"Bezy is for adults aged 18 and over.","age_blocked_body":"You cannot create a Bezy profile, discover people or match. Thank you for being honest.","error_age_required":"Please confirm you are 18 or older to continue.","safety_title":"Safety","safety_intro":"Block or report anyone who makes you uncomfortable.","data_title":"Privacy & your data","data_controls":"Data & privacy controls","data_controls_intro":"Bezy keeps your data while processing is paused or objected to — nothing is deleted, and you can lift either at any time.","privacy_by_design":"Messages stay between you and your match. Your photos stay on Telegram. We use your city, not your GPS.","safety_actions":"Safety options","safety_sheet_note":"Blocking and reporting take effect immediately and are enforced by Bezy's servers.","block":"Block","unblock":"Unblock","unblock_done":"This person has been unblocked.","block_confirm":"{name} will no longer see you or be able to contact you through Bezy. Your match will be ended.","block_done":"Blocked.","unmatch":"Unmatch","unmatch_confirm":"End your match with {name}? Neither of you will see the other in Bezy again.","unmatch_done":"Unmatched.","report":"Report","report_reason":"Reason","report_details":"What happened? (optional)","report_send":"Send report","report_done":"Report sent. This person has also been blocked.","report_note":"Reporting also blocks this person. Bezy reviews reports; we cannot promise a response time.","reason_harassment":"Harassment or abuse","reason_spam":"Spam","reason_scam":"Scam or fraud","reason_fake_profile":"Fake profile or impersonation","reason_inappropriate_content":"Inappropriate content","reason_underage":"Appears to be under 18","reason_other":"Something else","blocked_people":"Blocked people","no_blocked":"You haven't blocked anyone.","cancel":"Cancel","export_data":"Download my data","export_preparing":"Preparing your data…","export_ready":"Your data has been downloaded.","delete_account":"Delete my account","delete_explain":"This permanently deletes your Bezy profile, your likes and passes, your matches and your blocks. It cannot be undone.","delete_retained":"Records of payments you made and their invoice links are kept for accounting, and reports — filed by you or about you — are kept for safety. Your Telegram account itself is not affected.","delete_type":"Type DELETE to confirm","delete_done_title":"Your Bezy account has been deleted.","delete_done_body":"You can close this window. If you ever want to come back, just open Bezy again and create a new profile.","rights_note":"For corrections or a complaint, contact contacts@digitalconcordia.com.","legal_help":"Legal help","footer_note":"Built with intention","share_story":"Share Bezy to your story","share_story_caption":"Find your kind of connection — meet someone worth knowing on Bezy 💜","remove":"Remove","support_title":"Help & support","support_intro":"Bezy support can help diagnose common problems.","support_help":"Get help","support_formal":"Need to make a formal privacy or legal request? Contact us.","support_contact":"Contact support","support_history":"My support requests","support_history_empty":"You have no support requests.","support_form_title":"Contact support","support_form_category":"What is it about?","support_form_details":"Describe the problem","support_form_placeholder":"What happened? What have you tried?","support_submit":"Send","support_required":"Choose a topic and describe the problem.","support_done":"Your support request has been received. Reference: {ref}. We'll review it and get back to you here.","support_cat_premium":"Premium & Telegram Stars","support_cat_profile":"Profile","support_cat_likes_matches":"Likes & Matches","support_cat_discovery":"Discovery","support_cat_privacy_account":"Privacy & Account","support_cat_problem":"Report a problem","support_cat_contact":"Contact support","support_status_open":"Open","support_status_in_progress":"In progress","support_status_resolved":"Resolved","support_status_closed":"Closed","support_email":"Email support","support_expectation":"We read every message and aim to answer within 3 working days.","rate_limited":"You're going a little fast. Please try again in a moment.","rate_limited_minutes":"You've done that too many times. Please try again in about {n} minutes.","stars_needed":"You need Telegram Stars in your balance to subscribe. You can top up in Telegram under Settings, then My Stars.","not_telegram_premium":"Telegram Premium is a separate Telegram subscription. It does not include Bezy Premium — Bezy Premium is paid separately with Stars.","premium_revoked":"Your Bezy Premium was refunded.","premium_lapsed_hint":"You can subscribe again below. Your profile, matches and conversations are unaffected.","prompts_title":"Prompts & icebreakers","prompts_hint":"Optional. Answer up to three — they appear on your profile and give people something to open with.","prompt_perfect_sunday":"A perfect Sunday for me…","prompt_i_value":"Something I value…","prompt_first_date":"My ideal first date…","prompt_should_know":"One thing you should know about me…","prompt_talk_for_hours":"Something I could talk about for hours…","prompt_placeholder":"Your answer","preview_profile":"Preview my profile","preview_title":"How others see you","preview_hint":"This is your card as it appears in Discover. Your Telegram username is never shown to other members.","preview_incomplete":"Complete your profile to see how it will look.","why_matched":"Why you matched","why_interests":"You both like {values}","why_city":"You are both in {values}","why_age":"You are close in age","why_languages":"You both speak {values}","why_none":"You liked each other.","starters_title":"Ways to start","starter_interest":"Ask about {value} — you both like it.","starter_city":"Ask what they love about {value}.","starter_generic":"Start with something simple — say hi and ask about their day.","start_with":"Start with","starter_copy":"Copy","starter_copied":"Copied. You can paste it into the conversation.","starters_hint":"Bezy suggests an opener; the conversation happens right here in Bezy.","icebreaker_label":"{name}'s icebreaker","msg_placeholder":"Write a message…","msg_send":"Send","msg_send_failed":"Message not sent.","msg_retry":"Try again","msg_no_messages":"No messages yet — start the conversation.","msg_conversation_unavailable":"This conversation is no longer available.","msg_use_this_message":"Use this message","msg_premium_locked":"Your match is real and your conversation is ready. Messaging is a Premium capability — unlock Premium to continue.","notify_messages":"New messages","notify_messages_note":"When a match sends you a message","prompt_none":"No prompt","prompt_number":"Prompt {n}","prompts_select_label":"Choose a prompt","prompts_answer_label":"Prompt answer","notifications_title":"Notifications","notifications_hint":"Choose what Bezy sends you in Telegram. Payment and account messages are always sent, because they are a record of something that happened to your account.","notify_matches":"New matches","notify_super_likes":"Super Likes you receive","notify_super_likes_note":"Bezy never says who sent it — open Bezy and decide for yourself.","notify_profile_reminders":"Profile reminders","notify_profile_reminders_note":"At most one a week, and only while your profile is incomplete.","notifications_saved":"Notification settings saved.","restrict_title":"Pause all processing","restrict_explain":"Bezy keeps your data but stops using it. Your profile leaves Discover, you cannot like or match, and Bezy stops sending you match and Super Like messages. Nothing is deleted, and you can lift this at any time.","restrict_action":"Pause processing","restrict_confirm":"Pause processing now","restricted_badge":"Processing is paused.","restricted_notice":"Bezy is storing your data and nothing else. Lift the pause to return to Discover.","unrestrict_action":"Resume processing","restrict_done":"Processing is paused. Your data is kept, not used.","unrestrict_done":"Processing resumed. Turn on “Show my profile in Discover” when you are ready to be seen again.","restrict_note":"This is the right to restriction of processing. Payment and account messages are still sent, and you can still download or delete your data.","error_processing_restricted":"Processing is paused for your account. Resume it in Safety & privacy to continue.","objection_title":"Object to processing","objection_explain":"You have the right to object to the way Bezy processes your data (GDPR Art. 21). If you object, Bezy stops using your data for discovery and matching: your profile leaves Discover, you cannot like or match, and Bezy stops sending you match and Super Like messages. Nothing is deleted, and you can withdraw the objection at any time.","objection_confirm":"Object now","object_action":"Object to processing","objection_badge":"You have objected to processing.","objection_notice":"Bezy is storing your data and nothing else. Withdraw the objection to return to Discover.","unobject_action":"Withdraw objection","objection_done":"Objection recorded. Bezy has stopped processing your data.","unobject_done":"Objection withdrawn. Turn on “Show my profile in Discover” when you are ready to be seen again.","objection_note":"This is the right to object to processing. Your data is kept, not deleted, and you can still download or delete your data.","languages_label":"Languages I speak","languages_hint":"Optional. Up to five. Used to show you people you can actually talk to.","languages_chosen_count":"{chosen} of {max} chosen","filter_languages":"Languages they speak","filter_languages_hint":"Leave empty to see everyone. Profiles that have not listed a language are always shown.","language_en":"English","language_fr":"French","language_es":"Spanish","language_pt":"Portuguese","language_ar":"Arabic","language_de":"German","language_it":"Italian","language_ru":"Russian","language_sw":"Swahili","language_yo":"Yoruba","powered_by":"Powered by @BezyDatingBot","filter_premium_note":"City and same-city filters are a Premium capability. Age and languages always work on the free plan.","match_state_new":"New match","match_state_waiting":"Waiting for your reply","match_state_quiet":"Quiet for a while","starter_languages":"Ask about {value} — you both speak it.","closure_hint":"If this connection isn't moving forward, you can end it cleanly.","language_pl":"Polish","language_tr":"Turkish","language_hi":"Hindi","language_id":"Indonesian","language_zh":"Chinese","language_ja":"Japanese","language_ko":"Korean","starter_universal_1":"What’s something you’ve been enjoying lately?","starter_universal_2":"What does a really good weekend look like for you?","starter_universal_3":"What brought you to Bezy?","translated_from":"Translated from {lang}","show_original":"Show original","original_label":"Original · {lang}","show_translation":"Show translation","age_status_title":"Age & trust","age_self_declared":"18+ self-declared","premium_unavailable":"Premium is temporarily unavailable. Please try again.","interests_limit":"Up to 12 interests.","quota_likes_left":"{n} likes left today","quota_super_likes_left":"{n} Super Likes left","check_payment_status":"Check payment status"},
       // END fallback catalogue
     };
     document.documentElement.lang = 'en';

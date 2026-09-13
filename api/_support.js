@@ -41,6 +41,12 @@ export async function createSupportRequest(firestore, { telegramUserId, category
   const userId = String(telegramUserId);
   const counterRef = firestore.collection('supportMeta').doc('refs');
   const now = new Date();
+  // Normalization lives here, the single choke point: both channels (Mini App endpoint and
+  // bot intake) get the same category allow-list and the same 1000-character ceiling, so
+  // neither can store a longer description or an invalid category.
+  const normalized = normalizeSupportRequest({ category, details });
+  if (!normalized.category) throw new Error('INVALID_CATEGORY');
+  details = normalized.details;
 
   const reference = await firestore.runTransaction(async (tx) => {
     const counterSnap = await tx.get(counterRef);
@@ -125,8 +131,13 @@ export function diagnoseProfile(userData = {}) {
   if (!(Number.isInteger(profile.age) && profile.age >= 18 && profile.age <= 100)) missing.push('age');
   if (!String(profile.city || '').trim()) missing.push('city');
   if (!String(profile.gender || '').trim()) missing.push('gender');
-  if (!String(profile.seeking || '').trim()) missing.push('seeking');
-  return { complete: userData?.profileComplete === true, missing };
+  // `seeking` is NOT required: the server defaults it to `everyone` and never blocks a
+  // profile for lacking it, so the diagnostic must not name it as missing.
+  // The 18+ declaration IS required — the same profile is not live without it. Completeness
+  // is derived from the missing list, so the diagnostic never disagrees with itself over a
+  // stale stored flag.
+  if (userData?.ageEligibilityConfirmed !== true) missing.push('ageDeclaration');
+  return { complete: missing.length === 0, missing };
 }
 
 export function diagnoseMatches(matchCount = 0) {

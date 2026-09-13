@@ -231,7 +231,7 @@
     "prompt_placeholder": "Votre réponse",
     "preview_profile": "Prévisualiser mon profil",
     "preview_title": "Ce que les autres voient",
-    "preview_hint": "Voici votre carte telle qu’elle apparaît dans Découvrir. Votre nom d’utilisateur Telegram reste masqué jusqu’au match.",
+    "preview_hint": "Voici votre carte telle qu’elle apparaît dans Découvrir. Votre nom d’utilisateur Telegram n’est jamais montré aux autres membres.",
     "preview_incomplete": "Complétez votre profil pour voir à quoi il ressemblera.",
     "why_matched": "Pourquoi vous avez matché",
     "why_interests": "Vous aimez tous les deux {values}",
@@ -322,7 +322,18 @@
     "language_ko": "Coréen",
     "starter_universal_1": "Qu’est-ce qui vous plaît en ce moment ?",
     "starter_universal_2": "À quoi ressemble un très bon week-end pour vous ?",
-    "starter_universal_3": "Qu’est-ce qui vous a amené sur Bezy ?"
+    "starter_universal_3": "Qu’est-ce qui vous a amené sur Bezy ?",
+    "translated_from": "Traduit depuis {lang}",
+    "show_original": "Voir l’original",
+    "original_label": "Original · {lang}",
+    "show_translation": "Voir la traduction",
+    "age_status_title": "Âge et confiance",
+    "age_self_declared": "18+ sur déclaration",
+    "premium_unavailable": "Premium est temporairement indisponible. Réessayez.",
+    "interests_limit": "12 centres d’intérêt maximum.",
+    "quota_likes_left": "{n} likes restants aujourd’hui",
+    "quota_super_likes_left": "{n} Super Likes restants",
+    "check_payment_status": "Vérifier le statut du paiement"
   },
   "profile": {
     "edit": "Modifier le profil",

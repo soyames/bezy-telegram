@@ -64,12 +64,11 @@ export function miniAppUrl(view) {
 }
 
 export function normalizedLanguage(languageCode) {
-  const code = String(languageCode || '').toLowerCase();
-  if (code.startsWith('fr')) return 'fr';
-  if (code.startsWith('de')) return 'de';
-  if (code.startsWith('es')) return 'es';
-  if (code.startsWith('it')) return 'it';
-  return 'en';
+  // The legacy five-locale resolver is upgraded to the full 17-locale system: every bot,
+  // notification and payment message now follows the same normalization as the Mini App.
+  // Unsupported languages still fall back to English — the resolution chain above
+  // (normalizeLanguageTag → resolveLanguage) remains the only other step.
+  return normalizeLanguageTag(languageCode) || 'en';
 }
 
 // The five supported Bezy locales. Machine values — never translated, never extended by a
@@ -128,7 +127,12 @@ export function localized(language, { en, fr, de, es, it, pt, ru, pl, ar, tr, sw
   return variants[language] || en;
 }
 
+// Command registration is a deployment concern, not a per-user one: the 18 setMyCommands
+// calls run once per serverless process (a cold start re-registers), never on every /start.
+let commandsConfigured = false;
 export async function configureLocalizedCommands() {
+  if (commandsConfigured) return;
+  commandsConfigured = true;
   const scope = { type: 'all_private_chats' };
   const english = [
     { command: 'start', description: 'Start Bezy' },

@@ -231,7 +231,7 @@
     "prompt_placeholder": "Your answer",
     "preview_profile": "Preview my profile",
     "preview_title": "How others see you",
-    "preview_hint": "This is your card as it appears in Discover. Your Telegram username stays hidden until you match.",
+    "preview_hint": "This is your card as it appears in Discover. Your Telegram username is never shown to other members.",
     "preview_incomplete": "Complete your profile to see how it will look.",
     "why_matched": "Why you matched",
     "why_interests": "You both like {values}",
@@ -322,7 +322,18 @@
     "language_ko": "Korean",
     "starter_universal_1": "What’s something you’ve been enjoying lately?",
     "starter_universal_2": "What does a really good weekend look like for you?",
-    "starter_universal_3": "What brought you to Bezy?"
+    "starter_universal_3": "What brought you to Bezy?",
+    "translated_from": "Translated from {lang}",
+    "show_original": "Show original",
+    "original_label": "Original · {lang}",
+    "show_translation": "Show translation",
+    "age_status_title": "Age & trust",
+    "age_self_declared": "18+ self-declared",
+    "premium_unavailable": "Premium is temporarily unavailable. Please try again.",
+    "interests_limit": "Up to 12 interests.",
+    "quota_likes_left": "{n} likes left today",
+    "quota_super_likes_left": "{n} Super Likes left",
+    "check_payment_status": "Check payment status"
   },
   "profile": {
     "edit": "Edit profile",

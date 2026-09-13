@@ -10,11 +10,12 @@ import { publicProfile, compatibilityBreakdown, filtersActive, compatibility, pa
 import { publicMatch, sharedSignals } from '../api/matches.js';
 import { publicLiker } from '../api/likes.js';
 import { publicPlans } from '../api/premium.js';
-import { normalizeProfile, normalizePreferences, PROMPT_IDS, LANGUAGE_IDS } from '../api/profile/me.js';
+import { normalizeProfile, normalizePreferences, ageStatusOf, PROMPT_IDS, LANGUAGE_IDS } from '../api/profile/me.js';
 import { premiumState, limitsFor, currentUsage, checkSwipeQuota, premiumPlans, LIMITS } from '../api/_premium.js';
 import { defaultNotificationSettings, normalizeNotificationSettings, OPTIONAL_CATEGORIES } from '../api/_notify.js';
 import { processingPaused } from '../api/_privacy.js';
 import { reminderMessage } from '../api/_reminders.js';
+import { detectLanguage, needsTranslation, hashFor, TRANSLATABLE_LOCALES } from '../api/_profileText.js';
 import { retentionPolicy, isConfigured } from '../api/_retention.js';
 import { SUPPORT_CATEGORIES, SUPPORT_STATUSES, SUPPORT_DETAILS_MAX, formatSupportReference, normalizeSupportRequest, diagnosePremium, diagnoseDiscovery, diagnoseProfile } from '../api/_support.js';
 import { REPORT_STATUSES, triageTransition, summarizeReports } from '../api/_moderation.js';
@@ -450,7 +451,11 @@ section('Support flow (contract version 1.2)');
   check('discovery diagnostics name states, never other users',
     keys(diagnoseDiscovery({})).sort().join(',') === ['ageEligibilityConfirmed', 'discoverable', 'discoveryRemaining', 'filtersActive', 'processingObjection', 'processingRestricted', 'profileComplete'].sort().join(','));
   check('profile diagnostics list only the documented required fields',
-    diagnoseProfile({ profile: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman' } }).missing.join(',') === 'seeking');
+    // `seeking` is NOT required (server defaults to everyone) and the 18+ declaration IS:
+    // the diagnostic mirrors the server's real completeness definition.
+    diagnoseProfile({ profile: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman' } }).missing.join(',') === 'ageDeclaration'
+    && diagnoseProfile({ ageEligibilityConfirmed: true, profile: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman' } }).missing.length === 0
+    && diagnoseProfile({ ageEligibilityConfirmed: true, profile: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman' } }).complete === true);
   check('retention policy covers support requests', 'supportRequests' in retentionPolicy());
   check('support requests have the proposed operational default and stay overridable',
     isConfigured(retentionPolicy().supportRequests)
@@ -526,7 +531,8 @@ section('Architecture decision records (version 1)');
     '0006-no-analytics.md',
     '0007-localization-presentation-only.md',
     '0008-billing-disabled-free-tier.md',
-    '0009-bezy-native-messaging.md'
+    '0009-bezy-native-messaging.md',
+    '0010-age-assurance-no-identity-verification.md'
   ];
   check('the ADR directory holds exactly the documented ADRs',
     fs.readdirSync(path.join(root, 'docs/adr')).filter((f) => f.endsWith('.md')).sort().join(',') === ADRS.slice().sort().join(','),
@@ -536,6 +542,79 @@ section('Architecture decision records (version 1)');
     check(`${file} records status and decision`,
       /- \*\*Status:\*\*/.test(body) && /## Decision/.test(body) && /## Consequences/.test(body));
   }
+}
+
+// --------------------------------------------- profile-content translation (pure parts)
+section('Profile-content translation: detection and gating');
+{
+  check('the translatable locale set mirrors the product locales',
+    JSON.stringify([...TRANSLATABLE_LOCALES]) === JSON.stringify(['en', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'pl', 'ar', 'tr', 'sw', 'yo', 'hi', 'id', 'zh', 'ja', 'ko']),
+    TRANSLATABLE_LOCALES.join(','));
+
+  const DETECT = [
+    ['Je ne perds mon temps pour une cause sans vision', 'fr'],
+    ['I don\'t waste my time on a cause without a vision', 'en'],
+    ['Ich verschwende keine Zeit für eine Sache ohne Vision', 'de'],
+    ['No pierdo el tiempo con una causa sin visión', 'es'],
+    ['Non perdo tempo per una causa senza visione', 'it'],
+    ['Não perco tempo com uma causa sem visão', 'pt'],
+    ['Nie tracę czasu na sprawę bez wizji', 'pl'],
+    ['Bir vizyonu olmayan dava için zaman harcamam', 'tr'],
+    ['Sipotezi muda wangu kwa jambo lisilo na maono', 'sw'],
+    ['Mi ò fi àkókò mi ṣòfò fún ọ̀ràn tí kò ní ìràn', 'yo'],
+    ['Saya tidak membuang waktu untuk hal tanpa visi', 'id'],
+    ['最近、楽しんでいることは何ですか？', 'ja'],
+    ['요즘 즐기고 있는 것이 무엇인가요?', 'ko'],
+    ['最近有什么让你乐在其中的事？', 'zh'],
+    ['Что тебе нравится делать в последнее время?', 'ru'],
+    ['ما الشيء الذي تستمتع به مؤخرًا؟', 'ar'],
+    ['हाल ही में आप किस चीज़ का आनंद ले रहे हैं?', 'hi'],
+    ['Maria', null],
+    ['', null],
+    ['🙂🙂🙂', null],
+    ['https://example.com/x', null]
+  ];
+  for (const [input, expected] of DETECT) {
+    check(`detectLanguage(${JSON.stringify(input.slice(0, 30))}) -> ${JSON.stringify(expected)}`,
+      detectLanguage(input) === expected, `got ${JSON.stringify(detectLanguage(input))}`);
+  }
+
+  const GATE = [
+    ['', false], ['hi', false], ['🙂🙂', false], ['https://x.co', false], ['12345', false],
+    ['Je ne perds mon temps', true], ['A really good weekend', true]
+  ];
+  for (const [input, expected] of GATE) {
+    check(`needsTranslation(${JSON.stringify(input)}) -> ${expected}`, needsTranslation(input) === expected, String(needsTranslation(input)));
+  }
+
+  check('hashFor is deterministic and content-bound',
+    hashFor('abc') === hashFor('abc') && hashFor('abc') !== hashFor('abd') && /^[0-9a-f]{32}$/.test(hashFor('abc')));
+}
+
+// -------------------------------- age assurance: self-declaration, no verification surface
+section('Age assurance: the only truthful state today is self-declared');
+{
+  check('a confirmed 18+ declaration derives selfDeclared18Plus',
+    ageStatusOf({ ageEligibilityConfirmed: true }) === 'selfDeclared18Plus');
+  check('an unconfirmed account derives null, not a verification state',
+    ageStatusOf({}) === null && ageStatusOf({ ageEligibilityConfirmed: false }) === null);
+
+  // The client can only ever submit the declaration. Any verification-looking field is
+  // ignored by the write path: Telegram age verification is not available to Bezy (ADR
+  // 0010), so no request can mark a user as age-verified — not today, not by forgery.
+  const forged = normalizeProfile({
+    ...ADA_DOC.profile,
+    ageStatus: 'telegramAgeVerified18Plus',
+    ageVerified: true,
+    telegramAgeVerified: true,
+    verified: 'yes'
+  });
+  check('client-supplied verification fields never enter the stored profile',
+    !('ageStatus' in forged) && !('ageVerified' in forged) && !('telegramAgeVerified' in forged) && !('verified' in forged),
+    Object.keys(forged).join(','));
+  check('the forged payload still normalizes to exactly the documented profile shape',
+    JSON.stringify(Object.keys(forged).sort()) === JSON.stringify(SHAPES.profileStored.slice().sort()),
+    Object.keys(forged).join(','));
 }
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);

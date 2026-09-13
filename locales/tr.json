@@ -231,7 +231,7 @@
     "prompt_placeholder": "Cevabın",
     "preview_profile": "Profilimi önizle",
     "preview_title": "Başkaları seni nasıl görüyor",
-    "preview_hint": "Bu, kartının Keşfet'te göründüğü hâli. Telegram kullanıcı adın eşleşene kadar gizli kalır.",
+    "preview_hint": "Kartın Keşfet’te böyle görünür. Telegram kullanıcı adın diğer üyelere asla gösterilmez.",
     "preview_incomplete": "Nasıl görüneceğini görmek için profilini tamamla.",
     "why_matched": "Neden eşleştiniz",
     "why_interests": "İkiniz de seviyorsunuz: {values}",
@@ -322,7 +322,18 @@
     "closure_hint": "Bu bağlantı ilerlemiyorsa temiz bir şekilde sonlandırabilirsin.",
     "starter_universal_1": "Son zamanlarda nelerden keyif alıyorsun?",
     "starter_universal_2": "Senin için gerçekten güzel bir hafta sonu nasıl görünür?",
-    "starter_universal_3": "Seni Bezy’ye ne getirdi?"
+    "starter_universal_3": "Seni Bezy’ye ne getirdi?",
+    "translated_from": "{lang} dilinden çevrildi",
+    "show_original": "Orijinali göster",
+    "original_label": "Orijinal · {lang}",
+    "show_translation": "Çeviriyi göster",
+    "age_status_title": "Yaş ve güven",
+    "age_self_declared": "18+ — kişisel beyan",
+    "premium_unavailable": "Premium şu anda geçici olarak kullanılamıyor. Tekrar dene.",
+    "interests_limit": "En fazla 12 ilgi alanı.",
+    "quota_likes_left": "Bugün {n} beğeni kaldı",
+    "quota_super_likes_left": "{n} Süper Beğeni kaldı",
+    "check_payment_status": "Ödeme durumunu kontrol et"
   },
   "profile": {
     "edit": "Profili düzenle",

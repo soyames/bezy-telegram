@@ -231,7 +231,7 @@
     "prompt_placeholder": "Deine Antwort",
     "preview_profile": "Profilvorschau",
     "preview_title": "Wie andere dich sehen",
-    "preview_hint": "Das ist deine Karte, wie sie in Entdecken erscheint. Dein Telegram-Benutzername bleibt bis zum Match verborgen.",
+    "preview_hint": "So erscheint deine Karte im Entdecken-Bereich. Dein Telegram-Benutzername wird anderen Mitgliedern nie gezeigt.",
     "preview_incomplete": "Vervollständige dein Profil, um zu sehen, wie es aussehen wird.",
     "why_matched": "Warum ihr ein Match seid",
     "why_interests": "Ihr mögt beide {values}",
@@ -322,7 +322,18 @@
     "language_ko": "Koreanisch",
     "starter_universal_1": "Was macht dir in letzter Zeit Spaß?",
     "starter_universal_2": "Wie sieht ein richtig gutes Wochenende für dich aus?",
-    "starter_universal_3": "Was hat dich zu Bezy gebracht?"
+    "starter_universal_3": "Was hat dich zu Bezy gebracht?",
+    "translated_from": "Übersetzt aus {lang}",
+    "show_original": "Original anzeigen",
+    "original_label": "Original · {lang}",
+    "show_translation": "Übersetzung anzeigen",
+    "age_status_title": "Alter und Vertrauen",
+    "age_self_declared": "18+ — Selbstauskunft",
+    "premium_unavailable": "Premium ist vorübergehend nicht verfügbar. Versuche es erneut.",
+    "interests_limit": "Höchstens 12 Interessen.",
+    "quota_likes_left": "Heute noch {n} Likes",
+    "quota_super_likes_left": "{n} Super Likes übrig",
+    "check_payment_status": "Zahlungsstatus prüfen"
   },
   "profile": {
     "edit": "Profil bearbeiten",

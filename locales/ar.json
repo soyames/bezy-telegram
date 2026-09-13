@@ -231,7 +231,7 @@
     "prompt_placeholder": "إجابتك",
     "preview_profile": "معاينة ملفي",
     "preview_title": "كيف يراك الآخرون",
-    "preview_hint": "هذه بطاقتك كما تظهر في اكتشف. يبقى اسم مستخدم تيليجرام الخاص بك مخفيًا حتى التطابق.",
+    "preview_hint": "هكذا تظهر بطاقتك في اكتشف. اسم المستخدم الخاص بك في تيليجرام لا يظهر أبدًا للأعضاء الآخرين.",
     "preview_incomplete": "أكمل ملفك لترى كيف سيبدو.",
     "why_matched": "لماذا تطابقتما",
     "why_interests": "كلاكما يحب: {values}",
@@ -322,7 +322,18 @@
     "closure_hint": "إذا كان هذا التواصل لا يتقدم، يمكنك إنهاؤه بشكل نظيف.",
     "starter_universal_1": "ما الشيء الذي تستمتع به مؤخرًا؟",
     "starter_universal_2": "كيف يبدو لك يوم راحة جيد حقًا؟",
-    "starter_universal_3": "ما الذي أتى بك إلى Bezy؟"
+    "starter_universal_3": "ما الذي أتى بك إلى Bezy؟",
+    "translated_from": "مترجم من {lang}",
+    "show_original": "عرض النص الأصلي",
+    "original_label": "الأصل · {lang}",
+    "show_translation": "عرض الترجمة",
+    "age_status_title": "العمر والثقة",
+    "age_self_declared": "18+ بإقرار ذاتي",
+    "premium_unavailable": "Premium غير متاح مؤقتًا. حاول مرة أخرى.",
+    "interests_limit": "بحد أقصى 12 اهتمامًا.",
+    "quota_likes_left": "متبقٍ اليوم {n} إعجابات",
+    "quota_super_likes_left": "متبقٍ {n} من إعجابات سوبر",
+    "check_payment_status": "تحقق من حالة الدفع"
   },
   "profile": {
     "edit": "تعديل الملف الشخصي",

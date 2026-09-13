@@ -231,7 +231,7 @@
     "prompt_placeholder": "내 답변",
     "preview_profile": "프로필 미리 보기",
     "preview_title": "다른 사람이 보는 나",
-    "preview_hint": "발견에 표시되는 내 카드 모습입니다. Telegram 사용자 이름은 매치 전까지 숨겨집니다.",
+    "preview_hint": "발견 화면에서 내 카드는 이렇게 보입니다. 내 Telegram 사용자 이름은 다른 회원에게 절대 표시되지 않습니다.",
     "preview_incomplete": "프로필을 완성하면 어떻게 보일지 확인할 수 있습니다.",
     "why_matched": "매치된 이유",
     "why_interests": "둘 다 좋아하는 것: {values}",
@@ -322,7 +322,18 @@
     "closure_hint": "이 연결이 나아가지 않는다면 깔끔하게 끝낼 수 있습니다.",
     "starter_universal_1": "요즘 즐기고 있는 것이 무엇인가요?",
     "starter_universal_2": "당신에게 정말 좋은 주말은 어떤 모습인가요?",
-    "starter_universal_3": "무엇이 당신을 Bezy로 이끌었나요?"
+    "starter_universal_3": "무엇이 당신을 Bezy로 이끌었나요?",
+    "translated_from": "{lang}에서 번역됨",
+    "show_original": "원문 보기",
+    "original_label": "원문 · {lang}",
+    "show_translation": "번역 보기",
+    "age_status_title": "연령 및 신뢰",
+    "age_self_declared": "18+ 자기 신고",
+    "premium_unavailable": "Premium을 일시적으로 이용할 수 없습니다. 다시 시도하세요.",
+    "interests_limit": "최대 12개의 관심사.",
+    "quota_likes_left": "오늘 좋아요 {n}개 남음",
+    "quota_super_likes_left": "슈퍼 좋아요 {n}개 남음",
+    "check_payment_status": "결제 상태 확인"
   },
   "profile": {
     "edit": "프로필 수정",
