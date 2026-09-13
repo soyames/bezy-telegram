@@ -319,7 +319,10 @@
     "match_state_new": "새 매치",
     "match_state_waiting": "답장을 기다리는 중",
     "match_state_quiet": "한동안 조용함",
-    "closure_hint": "이 연결이 나아가지 않는다면 깔끔하게 끝낼 수 있습니다."
+    "closure_hint": "이 연결이 나아가지 않는다면 깔끔하게 끝낼 수 있습니다.",
+    "starter_universal_1": "요즘 즐기고 있는 것이 무엇인가요?",
+    "starter_universal_2": "당신에게 정말 좋은 주말은 어떤 모습인가요?",
+    "starter_universal_3": "무엇이 당신을 Bezy로 이끌었나요?"
   },
   "profile": {
     "edit": "프로필 수정",

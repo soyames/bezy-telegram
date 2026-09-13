@@ -277,7 +277,7 @@ const AREAS = {
   prompts: ['prompts_title', 'prompts_hint', 'prompt_placeholder', 'prompt_none', 'prompts_select_label', 'prompts_answer_label'],
   'profile preview': ['preview_profile', 'preview_title', 'preview_hint', 'preview_incomplete'],
   'why you matched': ['why_matched', 'why_interests', 'why_city', 'why_age', 'why_languages', 'why_none'],
-  'conversation starters': ['starters_title', 'starters_hint', 'starter_interest', 'starter_city', 'starter_generic', 'starter_copy', 'starter_copied'],
+  'conversation starters': ['starters_title', 'starters_hint', 'starter_interest', 'starter_city', 'starter_languages', 'starter_generic', 'starter_copy', 'starter_copied', 'starter_universal_1', 'starter_universal_2', 'starter_universal_3'],
   'notification preferences': ['notifications_title', 'notifications_hint', 'notify_matches', 'notify_super_likes', 'notify_super_likes_note', 'notify_profile_reminders', 'notify_profile_reminders_note', 'notifications_saved'],
   languages: ['languages_label', 'languages_hint', 'filter_languages', 'filter_languages_hint'],
   'restriction of processing': ['restrict_title', 'restrict_explain', 'restrict_action', 'restrict_confirm', 'restricted_badge', 'restricted_notice', 'unrestrict_action', 'restrict_done', 'unrestrict_done', 'restrict_note', 'error_processing_restricted'],

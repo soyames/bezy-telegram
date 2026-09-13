@@ -319,7 +319,10 @@
     "match_state_new": "Yeni eşleşme",
     "match_state_waiting": "Cevabını bekliyor",
     "match_state_quiet": "Bir süredir sessiz",
-    "closure_hint": "Bu bağlantı ilerlemiyorsa temiz bir şekilde sonlandırabilirsin."
+    "closure_hint": "Bu bağlantı ilerlemiyorsa temiz bir şekilde sonlandırabilirsin.",
+    "starter_universal_1": "Son zamanlarda nelerden keyif alıyorsun?",
+    "starter_universal_2": "Senin için gerçekten güzel bir hafta sonu nasıl görünür?",
+    "starter_universal_3": "Seni Bezy’ye ne getirdi?"
   },
   "profile": {
     "edit": "Profili düzenle",

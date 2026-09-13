@@ -319,7 +319,10 @@
     "match_state_new": "Novo match",
     "match_state_waiting": "À espera da tua resposta",
     "match_state_quiet": "Sem novidades há algum tempo",
-    "closure_hint": "Se esta ligação não está a avançar, podes terminá-la de forma limpa."
+    "closure_hint": "Se esta ligação não está a avançar, podes terminá-la de forma limpa.",
+    "starter_universal_1": "O que tens gostado de fazer ultimamente?",
+    "starter_universal_2": "Como é um fim de semana mesmo bom para ti?",
+    "starter_universal_3": "O que te trouxe à Bezy?"
   },
   "profile": {
     "edit": "Editar perfil",

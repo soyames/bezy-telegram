@@ -319,7 +319,10 @@
     "language_id": "Indonesisch",
     "language_zh": "Chinesisch",
     "language_ja": "Japanisch",
-    "language_ko": "Koreanisch"
+    "language_ko": "Koreanisch",
+    "starter_universal_1": "Was macht dir in letzter Zeit Spaß?",
+    "starter_universal_2": "Wie sieht ein richtig gutes Wochenende für dich aus?",
+    "starter_universal_3": "Was hat dich zu Bezy gebracht?"
   },
   "profile": {
     "edit": "Profil bearbeiten",

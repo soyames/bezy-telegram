@@ -319,7 +319,10 @@
     "match_state_new": "新しいマッチ",
     "match_state_waiting": "返信待ち",
     "match_state_quiet": "しばらく静かです",
-    "closure_hint": "このつながりが進まないなら、きれいに終わらせることができます。"
+    "closure_hint": "このつながりが進まないなら、きれいに終わらせることができます。",
+    "starter_universal_1": "最近、楽しんでいることは何ですか？",
+    "starter_universal_2": "あなたにとって本当にいい週末ってどんな感じですか？",
+    "starter_universal_3": "Bezy を始めたきっかけは何ですか？"
   },
   "profile": {
     "edit": "プロフィールを編集",

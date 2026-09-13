@@ -319,7 +319,10 @@
     "match_state_new": "新配对",
     "match_state_waiting": "等待你的回复",
     "match_state_quiet": "安静了一段时间",
-    "closure_hint": "如果这段连接没有进展，你可以干净地结束它。"
+    "closure_hint": "如果这段连接没有进展，你可以干净地结束它。",
+    "starter_universal_1": "最近有什么让你乐在其中的事？",
+    "starter_universal_2": "对你来说，一个真正美好的周末是什么样的？",
+    "starter_universal_3": "是什么让你来到 Bezy？"
   },
   "profile": {
     "edit": "编辑资料",

@@ -319,7 +319,10 @@
     "match_state_new": "Nowe dopasowanie",
     "match_state_waiting": "Czeka na twoją odpowiedź",
     "match_state_quiet": "Cicho od jakiegoś czasu",
-    "closure_hint": "Jeśli ta więź nie posuwa się naprzód, możesz zakończyć ją czysto."
+    "closure_hint": "Jeśli ta więź nie posuwa się naprzód, możesz zakończyć ją czysto.",
+    "starter_universal_1": "Co ostatnio sprawia ci przyjemność?",
+    "starter_universal_2": "Jak wygląda dla ciebie naprawdę dobry weekend?",
+    "starter_universal_3": "Co sprowadziło cię do Bezy?"
   },
   "profile": {
     "edit": "Edytuj profil",

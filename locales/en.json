@@ -319,7 +319,10 @@
     "language_id": "Indonesian",
     "language_zh": "Chinese",
     "language_ja": "Japanese",
-    "language_ko": "Korean"
+    "language_ko": "Korean",
+    "starter_universal_1": "What’s something you’ve been enjoying lately?",
+    "starter_universal_2": "What does a really good weekend look like for you?",
+    "starter_universal_3": "What brought you to Bezy?"
   },
   "profile": {
     "edit": "Edit profile",

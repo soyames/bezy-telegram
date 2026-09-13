@@ -319,7 +319,10 @@
     "match_state_new": "Mechi mpya",
     "match_state_waiting": "Inasubiri jibu lako",
     "match_state_quiet": "Imekuwa kimya kwa muda",
-    "closure_hint": "Kama muunganisho huu hauendi mbele, unaweza kuukatisha vizuri."
+    "closure_hint": "Kama muunganisho huu hauendi mbele, unaweza kuukatisha vizuri.",
+    "starter_universal_1": "Ni nini umekuwa ukifurahia hivi karibuni?",
+    "starter_universal_2": "Wikendi nzuri kweli inaonekanaje kwako?",
+    "starter_universal_3": "Ni nini kilikuleta kwenye Bezy?"
   },
   "profile": {
     "edit": "Hariri wasifu",

@@ -319,7 +319,10 @@
     "language_id": "Indonésien",
     "language_zh": "Chinois",
     "language_ja": "Japonais",
-    "language_ko": "Coréen"
+    "language_ko": "Coréen",
+    "starter_universal_1": "Qu’est-ce qui vous plaît en ce moment ?",
+    "starter_universal_2": "À quoi ressemble un très bon week-end pour vous ?",
+    "starter_universal_3": "Qu’est-ce qui vous a amené sur Bezy ?"
   },
   "profile": {
     "edit": "Modifier le profil",

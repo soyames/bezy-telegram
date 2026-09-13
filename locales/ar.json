@@ -319,7 +319,10 @@
     "match_state_new": "مطابقة جديدة",
     "match_state_waiting": "بانتظار ردك",
     "match_state_quiet": "هادئة منذ فترة",
-    "closure_hint": "إذا كان هذا التواصل لا يتقدم، يمكنك إنهاؤه بشكل نظيف."
+    "closure_hint": "إذا كان هذا التواصل لا يتقدم، يمكنك إنهاؤه بشكل نظيف.",
+    "starter_universal_1": "ما الشيء الذي تستمتع به مؤخرًا؟",
+    "starter_universal_2": "كيف يبدو لك يوم راحة جيد حقًا؟",
+    "starter_universal_3": "ما الذي أتى بك إلى Bezy؟"
   },
   "profile": {
     "edit": "تعديل الملف الشخصي",

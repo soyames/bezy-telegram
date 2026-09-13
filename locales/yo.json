@@ -319,7 +319,10 @@
     "match_state_new": "Mátìsì tuntun",
     "match_state_waiting": "Ń dúró de ìdáhùn rẹ",
     "match_state_quiet": "Ó ti dákẹ́ fún ìgbà díẹ̀",
-    "closure_hint": "Tí ìsopọ̀ yìí kò bá ń tẹ̀síwájú, o lè fi òpin sí i lọ́nà tó mọ́."
+    "closure_hint": "Tí ìsopọ̀ yìí kò bá ń tẹ̀síwájú, o lè fi òpin sí i lọ́nà tó mọ́.",
+    "starter_universal_1": "Kí ni ohun tí o ti ń gbádùn láìpẹ́ yìí?",
+    "starter_universal_2": "Báwo ni òpin ọ̀sẹ̀ tó dára gan-an ṣe ń rí fún ẹ?",
+    "starter_universal_3": "Kí ló mú ọ wá sí Bezy?"
   },
   "profile": {
     "edit": "Ṣàtúnṣe àkọọ́lẹ̀",

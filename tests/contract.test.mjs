@@ -140,11 +140,14 @@ section('Bezy conversations (ADR 0009)');
   check('"Use this message" fills the composer and never sends',
     appSource.includes("t('app.msg_use_this_message')") && appSource.includes('function useStarter'),
     'use-this-message wiring missing');
-  // The starters sheet must always yield at least one usable opener, so an empty state can
-  // never render silently blank.
-  check('the starters sheet always yields at least one opener',
-    appSource.includes("suggestions.push(t('app.starter_generic'))"),
-    'starter_generic fallback missing from starterSuggestions');
+  // The starters sheet must always yield usable openers: contextual starters from factual
+  // shared signals, topped up with neutral universal questions that claim no shared fact.
+  check('the starters sheet always yields at least three usable openers',
+    appSource.includes("'app.starter_universal_1'") && appSource.includes("'app.starter_universal_2'")
+      && appSource.includes("'app.starter_universal_3'"),
+    'universal starter fallback missing from starterSuggestions');
+  check('starter suggestions never invent a shared signal',
+    !/suggestions\.push\(t\('app\.why_/.test(appSource), 'a fabricated why-claim entered the starter list');
   // The deck card carries the numeric target id by documented design (the client must be
   // able to name who it is swiping on); the @username is never released at all anymore —
   // conversations are Bezy-native (ADR 0009) and the handle is not a contact vector

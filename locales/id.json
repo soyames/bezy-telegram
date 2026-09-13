@@ -319,7 +319,10 @@
     "match_state_new": "Kecocokan baru",
     "match_state_waiting": "Menunggu balasanmu",
     "match_state_quiet": "Sepi untuk sementara",
-    "closure_hint": "Jika koneksi ini tidak bergerak maju, kamu bisa mengakhirinya dengan bersih."
+    "closure_hint": "Jika koneksi ini tidak bergerak maju, kamu bisa mengakhirinya dengan bersih.",
+    "starter_universal_1": "Apa yang akhir-akhir ini kamu nikmati?",
+    "starter_universal_2": "Seperti apa akhir pekan yang benar-benar menyenangkan bagimu?",
+    "starter_universal_3": "Apa yang membawamu ke Bezy?"
   },
   "profile": {
     "edit": "Ubah profil",
