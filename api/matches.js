@@ -1,4 +1,5 @@
-import { db } from './_firebase.js';
+import { readUser, readUsers } from './_users.js';
+import { query, ApiError } from './_db.js';
 import { requirePost, requireTelegramUser, normalizeLanguageTag, resolveUserLanguage } from './_telegram.js';
 import { processingPaused } from './_privacy.js';
 import { localizeProfileTexts } from './_profileText.js';
@@ -58,7 +59,7 @@ export function sharedSignals(mine = {}, theirs = {}) {
 
   const myAge = Number(mine.age);
   const theirAge = Number(theirs.age);
-  if (Number.isFinite(myAge) && Number.isFinite(theirAge) && Math.abs(myAge - theirAge) <= 5) {
+  if (myAge >= 18 && theirAge >= 18 && Number.isFinite(myAge) && Number.isFinite(theirAge) && Math.abs(myAge - theirAge) <= 5) {
     signals.push({ type: 'age', values: [] });
   }
 
@@ -73,14 +74,15 @@ export default async function handler(req, res) {
   try {
     return await handleMatches(req, res, user);
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     console.error('Matches request failed:', error);
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }
 }
 
 async function handleMatches(req, res, user) {
-  const selfSnap = await db().collection('users').doc(String(user.id)).get();
-  const selfData = selfSnap.data() || {};
+  const userId = String(user.id);
+  const selfData = await readUser(userId);
   const myProfile = selfData.profile || {};
   // A paused account keeps access to its OWN stored data — restriction is not a trap that
   // locks someone out of their own match list (the export works for the same reason). What
@@ -90,67 +92,56 @@ async function handleMatches(req, res, user) {
   // SUPPORTED_LOCALES), the stored explicit/Telegram values cover older clients.
   const viewerLocale = normalizeLanguageTag(req.body?.lang) || resolveUserLanguage(selfData);
 
-  const snapshot = await db().collection('matches')
-    .where('participants', 'array-contains', String(user.id))
-    .get();
-
-  const isLike = (action) => action === 'like' || action === 'super';
+  const snapshot = await query(`SELECT m.*, row_to_json(c) AS conversation_data, cr.last_read_at,
+      CASE WHEN m.participant_a=$1 THEN m.participant_b ELSE m.participant_a END AS other_id
+    FROM matches m
+    JOIN actions a ON a.actor_id=m.participant_a AND a.target_id=m.participant_b AND a.action IN ('like','super')
+    JOIN actions b ON b.actor_id=m.participant_b AND b.target_id=m.participant_a AND b.action IN ('like','super')
+    LEFT JOIN conversations c ON c.conversation_id=m.match_id
+    LEFT JOIN conversation_reads cr ON cr.conversation_id=m.match_id AND cr.user_id=$1
+    WHERE (m.participant_a=$1 OR m.participant_b=$1) AND m.active=TRUE
+      AND NOT EXISTS (SELECT 1 FROM blocks bl WHERE
+        (bl.blocker_id=m.participant_a AND bl.blocked_id=m.participant_b) OR
+        (bl.blocker_id=m.participant_b AND bl.blocked_id=m.participant_a))
+    ORDER BY m.created_at DESC, m.match_id`, [userId]);
+  const accounts = await readUsers(snapshot.rows.map(r => String(r.other_id)));
 
   const matches = [];
-  await Promise.all(snapshot.docs.map(async (matchDoc) => {
-    const matchData = matchDoc.data() || {};
+  await Promise.all(snapshot.rows.map(async (matchRow) => {
+    const matchData = {
+      participants: [String(matchRow.participant_a), String(matchRow.participant_b)],
+      active: matchRow.active,
+      createdAt: matchRow.created_at
+    };
     if (matchData.active === false) return;
-    const participants = matchData.participants || [];
-    const otherId = participants.find((id) => String(id) !== String(user.id));
+    const participants = matchData.participants;
+    const otherId = participants.find((id) => id !== userId);
     if (!otherId) return;
 
-    // The reciprocal-like invariant is verified against the live action documents rather
-    // than assumed from the match document itself: a match only ever displays while both
-    // sides still hold a like for each other. Deliberately non-mutating — a stale document
-    // is skipped here, never rewritten on read.
-    const [otherSnap, myActionSnap, otherActionSnap, conversationSnap] = await Promise.all([
-      db().collection('users').doc(String(otherId)).get(),
-      db().collection('users').doc(String(user.id)).collection('actions').doc(String(otherId)).get(),
-      db().collection('users').doc(String(otherId)).collection('actions').doc(String(user.id)).get(),
-      db().collection('conversations').doc(matchDoc.id).get()
-    ]);
-    if (!otherSnap.exists) return;
-    // A counterpart whose account is paused has withdrawn from processing: their profile
-    // and preview are not served to the viewer's match list either.
-    if (processingPaused(otherSnap.data() || {})) return;
-    const myAction = myActionSnap.exists ? myActionSnap.data()?.action : '';
-    const otherAction = otherActionSnap.exists ? otherActionSnap.data()?.action : '';
-    if (!isLike(myAction) || !isLike(otherAction)) return;
-
-    const otherData = otherSnap.data() || {};
-    // The conversation preview for the Messages tab: last message, when, and whether it is
-    // unread for this reader. No message content beyond the single-line preview is returned
-    // here — the full history lives behind the authorized /api/messages endpoint.
-    const conversationData = conversationSnap.exists ? conversationSnap.data() : null;
-    const lastMessageAt = conversationData?.lastMessageAt?.toMillis?.() ?? 0;
-    const lastRead = conversationData?.lastRead?.[String(user.id)];
-    const lastReadAt = lastRead?.toMillis?.() ?? 0;
-    const conversation = conversationData ? {
-      lastMessagePreview: String(conversationData.lastMessagePreview || ''),
+    const otherData = accounts.get(otherId);
+    if (!otherData || processingPaused(otherData)) return;
+    const conv = matchRow.conversation_data;
+    const lastMessageAt = conv?.last_message_at ? new Date(conv.last_message_at).getTime() : 0;
+    const lastReadAt = matchRow.last_read_at ? new Date(matchRow.last_read_at).getTime() : 0;
+    const conversation = {
+      lastMessagePreview: String(conv?.last_message_preview || ''),
       lastMessageAt: lastMessageAt > 0 ? new Date(lastMessageAt).toISOString() : null,
-      lastMessageSenderId: String(conversationData.lastMessageSenderId || ''),
-      unread: String(conversationData.lastMessageSenderId || '') !== String(user.id) && lastMessageAt > 0 && lastReadAt < lastMessageAt
-    } : { lastMessagePreview: '', lastMessageAt: null, lastMessageSenderId: '', unread: false };
-    // Firestore Timestamps do not survive JSON serialization in a usable shape,
-    // so the API returns milliseconds and an ISO string the Mini App can render.
-    const matchedAtMs = matchData.createdAt?.toMillis?.() ?? new Date(matchData.createdAt || 0).getTime();
+      lastMessageSenderId: String(conv?.last_message_sender_id || ''),
+      unread: String(conv?.last_message_sender_id || '') !== userId && lastMessageAt > 0 && lastReadAt < lastMessageAt
+    };
+    const matchedAtMs = matchRow.created_at ? new Date(matchRow.created_at).getTime() : 0;
     const card = {
       ...publicMatch(otherId, otherData),
       // Why you matched, and the starter suggestions derived from it, are computed from the
       // same shared signals so the two can never disagree.
       sharedSignals: sharedSignals(myProfile, otherData.profile || {}),
-      matchId: matchDoc.id,
+      matchId: matchRow.match_id,
       matchedAtMs: Number.isFinite(matchedAtMs) ? matchedAtMs : 0,
       matchedAt: Number.isFinite(matchedAtMs) && matchedAtMs > 0 ? new Date(matchedAtMs).toISOString() : null,
       conversation
     };
     // Same viewer-locale treatment as Discover: translations attached, originals preserved.
-    card.translations = await localizeProfileTexts(db(), otherId, card, viewerLocale);
+    card.translations = await localizeProfileTexts(null, otherId, card, viewerLocale);
     matches.push(card);
   }));
 

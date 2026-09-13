@@ -2,7 +2,7 @@
 //
 // Answers one question after a deploy: is the live service actually serving the current
 // build and refusing unauthenticated access? Read-only, unauthenticated, and it never
-// touches Firestore or production data — it cannot create, mutate or delete anything.
+// touches PostgreSQL or production data — it cannot create, mutate or delete anything.
 //
 //   node tests/smoke.test.mjs                                   # production
 //   BEZY_SMOKE_URL=http://localhost:3310 node tests/smoke.test.mjs
@@ -124,7 +124,7 @@ const unauth = await post('/api/discover', {});
 check('errors are machine codes, not prose or stack traces',
   /^[A-Z_]+$/.test(String(unauth.data.error || '')), JSON.stringify(unauth.data));
 check('no internal detail leaks in an error body',
-  !/firestore|firebase|at |Error:|node_modules/i.test(JSON.stringify(unauth.data)), JSON.stringify(unauth.data));
+  !/database_url|postgresql://|at |Error:|node_modules/i.test(JSON.stringify(unauth.data)), JSON.stringify(unauth.data));
 
 section('The webhook is reachable and guarded');
 const webhookGet = await get('/api/telegram/webhook');

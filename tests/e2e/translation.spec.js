@@ -1,6 +1,5 @@
+import { getRow, listRows, seedRow, deleteRow, resetTestData, sql } from '../fixtures.mjs';
 import { test, expect } from '@playwright/test';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -13,15 +12,8 @@ import path from 'node:path';
 // the original is one tap away and labelled, and a same-language viewer sees no
 // translation chrome at all.
 
-if (!getApps().length) {
-  if (process.env.BEZY_SERVICE_ACCOUNT) {
-    const sa = JSON.parse(fs.readFileSync(process.env.BEZY_SERVICE_ACCOUNT, 'utf8'));
-    initializeApp({ credential: cert({ projectId: sa.project_id, clientEmail: sa.client_email, privateKey: sa.private_key }) });
-  } else {
-    initializeApp({ credential: cert({ projectId: process.env.FIREBASE_PROJECT_ID, clientEmail: process.env.FIREBASE_CLIENT_EMAIL, privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n') }) });
-  }
-}
-const db = getFirestore();
+
+const storage = null;
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.slice(1)), '../..');
 const en = JSON.parse(fs.readFileSync(path.join(root, 'locales/en.json'), 'utf8')).app;
 const ar = JSON.parse(fs.readFileSync(path.join(root, 'locales/ar.json'), 'utf8')).app;
@@ -32,17 +24,7 @@ const isTest = (v) => /^9000000\d\d$/.test(String(v));
 const FR_BIO = 'Je ne perds mon temps pour une cause sans vision';
 const FR_PROMPT = 'Je ne perds pas mon temps pour une cause sans vision';
 
-async function cleanup() {
-  for (const doc of (await db.collection('users').get()).docs) {
-    if (isTest(doc.id)) await db.recursiveDelete(doc.ref);
-  }
-  for (const doc of (await db.collection('rateLimits').get()).docs) {
-    if (isTest(doc.id)) await doc.ref.delete();
-  }
-  for (const doc of (await db.collection('matches').get()).docs) {
-    if ((doc.data().participants || []).some(isTest)) await doc.ref.delete();
-  }
-}
+async function cleanup() { await resetTestData(); }
 
 // Ada writes her profile in French too: for the French viewer the card is same-language and
 // must show the original with no translation chrome.
@@ -100,7 +82,7 @@ test('an English viewer sees a French profile translated, with the original one 
   await expect(prompt.locator('.tr-target')).toHaveText(FR_PROMPT);
 
   // The original text the author saved is untouched in the database.
-  const bo = (await db.collection('users').doc(BO).get()).data().profile;
+  const bo = (await getRow('users', BO)).profile;
   expect(bo.bio).toBe(FR_BIO);
   expect(bo.prompts[0].answer).toBe(FR_PROMPT);
 });
@@ -133,6 +115,7 @@ test('switching the Bezy language refetches the deck for the new locale', async 
   await expect(page.locator('.profile-copy .tr-target')).toContainText(`[en] ${FR_BIO}`);
 
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   await page.locator('.language-list button[data-language="de"]').click();
   await page.locator('.nav button[data-view="discover"]').click();
   await expect(page.locator('.profile-copy .tr-target')).toContainText(`[de] ${FR_BIO}`);

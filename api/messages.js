@@ -1,4 +1,5 @@
-import { db } from './_firebase.js';
+import { readUsers } from './_users.js';
+import { query, tx, ApiError } from './_db.js';
 import { requirePost, requireTelegramUser, miniAppUrl, normalizedLanguage, localized } from './_telegram.js';
 import { isPremiumActive } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
@@ -8,11 +9,11 @@ import { processingPaused } from './_privacy.js';
 // Bezy-native conversations between matched users (ADR 0009). Telegram keeps identity and
 // notifications; Bezy stores and delivers the messages inside the Mini App.
 //
-// Conversation documents are keyed by the canonical match id — the sorted pair of Telegram
-// numeric ids — so there is exactly one conversation per pair and the client can never
-// choose or guess an id that belongs to someone else. Messages live under
-// conversations/{conversationId}/messages/{clientId}, where the client-generated id makes a
-// retried send idempotent: the same id always writes the same document.
+// Conversation ids are the canonical match id — the sorted pair of Telegram numeric ids —
+// so there is exactly one conversation per pair and the client can never choose or guess an
+// id that belongs to someone else. Messages live in the `messages` table keyed by
+// (conversation_id, client_id), where the client-generated id makes a retried send
+// idempotent: the same id always writes the same row.
 //
 // The sender is always derived from the authenticated initData. `senderId` is never
 // accepted from the request, and the counterpart is always derived from the conversation
@@ -22,13 +23,13 @@ const MAX_LENGTH = 500;
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
 function matchId(a, b) {
-  return [String(a), String(b)].sort().join('_');
+  return [String(a), String(b)].sort((x, y) => BigInt(x) < BigInt(y) ? -1 : 1).join('_');
 }
 
 // One conversation per pair, derived from the ids inside the conversationId: it must
 // contain the caller's own id and its canonical matchId form must equal what was sent.
 // The shape is pinned to two numeric ids so a malformed id answers 404 instead of
-// surfacing an Admin SDK document-path error as a 500.
+// surfacing a database error as a 500.
 function counterpart(userId, conversationId) {
   const value = String(conversationId || '');
   if (!/^\d+_\d+$/.test(value)) return null;
@@ -43,66 +44,61 @@ const isLike = (action) => action === 'like' || action === 'super';
 /**
  * The authorization chain for every action. Everything is derived server-side: the caller
  * from initData, the counterpart from the conversation id, the match and blocks from
- * Firestore. Throws the same typed errors the Mini App already maps to locale copy.
+ * PostgreSQL. Throws the same typed errors the Mini App already maps to locale copy.
  */
-async function authorize(firestore, user, conversationId) {
+async function authorize(user, conversationId, query) {
   const me = String(user.id);
   const otherId = counterpart(me, conversationId);
   if (!otherId) throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
 
-  const [meSnap, otherSnap, matchSnap] = await Promise.all([
-    firestore.collection('users').doc(me).get(),
-    firestore.collection('users').doc(otherId).get(),
-    firestore.collection('matches').doc(String(conversationId)).get()
-  ]);
-  const meData = meSnap.exists ? meSnap.data() : {};
+  // Sequential on the single transaction client: pg serializes these anyway.
+  const accounts = await readUsers([me, otherId], query);
+  const matchRows = await query('SELECT * FROM matches WHERE match_id = $1', [String(conversationId)]);
+  const meData = accounts.get(me) || {};
   // An ineligible or paused caller is refused before anything about the counterpart is
   // considered, exactly like the swipe gate.
   if (processingPaused(meData)) throw Object.assign(new Error('PROCESSING_RESTRICTED'), { status: 403 });
   if (meData.ageEligibilityConfirmed !== true) throw Object.assign(new Error('AGE_CONFIRMATION_REQUIRED'), { status: 403 });
 
-  const matchData = matchSnap.exists ? matchSnap.data() : null;
+  const matchData = matchRows.rows[0] || null;
   // Anti-enumeration: a missing, ended or wrong match and a block in either direction all
   // answer with the identical error, so the endpoint cannot probe who has a Bezy account.
-  const participants = (matchData?.participants || []).map(String);
+  const participants = matchData ? [String(matchData.participant_a), String(matchData.participant_b)] : [];
   if (!matchData || matchData.active === false || !participants.includes(me) || !participants.includes(otherId)) {
     throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
   }
   // A counterpart whose account is paused (restriction or objection) has withdrawn from
   // processing: their messages must not be read or written, exactly like their profile
   // leaves Discover.
-  if (processingPaused(otherSnap.exists ? otherSnap.data() || {} : {})) {
+  const otherData = accounts.get(otherId) || {};
+  if (processingPaused(otherData)) {
     throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
   }
-  // Blocks are read in both directions from the caller's own mirror documents: a block
+  // Blocks are read in both directions from the caller's own perspective: a block
   // either way ends the conversation for both sides.
-  const [blockedMine, blockedTheirs] = await Promise.all([
-    firestore.collection('users').doc(me).collection('blocks').doc(otherId).get(),
-    firestore.collection('users').doc(me).collection('blockedBy').doc(otherId).get()
-  ]);
-  if (blockedMine.exists || blockedTheirs.exists) throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
+  const blockedMine = await query('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [me, otherId]);
+  const blockedTheirs = await query('SELECT 1 FROM blocked_by WHERE blocked_id = $1 AND blocker_id = $2', [me, otherId]);
+  if (blockedMine.rows.length || blockedTheirs.rows.length) throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
 
   // The reciprocal-like invariant is re-verified here too: a conversation can only exist
   // while both sides still hold their like.
-  const [myAction, otherAction] = await Promise.all([
-    firestore.collection('users').doc(me).collection('actions').doc(otherId).get(),
-    firestore.collection('users').doc(otherId).collection('actions').doc(me).get()
-  ]);
-  const myActionValue = myAction.exists ? myAction.data()?.action : '';
-  const otherActionValue = otherAction.exists ? otherAction.data()?.action : '';
+  const myAction = await query('SELECT action FROM actions WHERE actor_id = $1 AND target_id = $2', [me, otherId]);
+  const otherAction = await query('SELECT action FROM actions WHERE actor_id = $1 AND target_id = $2', [otherId, me]);
+  const myActionValue = myAction.rows[0]?.action || '';
+  const otherActionValue = otherAction.rows[0]?.action || '';
   if (!isLike(myActionValue) || !isLike(otherActionValue)) throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
 
   // Messaging is Premium-gated (roadmap §14): a matched user without an active membership
   // can see the conversation is there but cannot open or send.
   if (!isPremiumActive(meData)) throw Object.assign(new Error('PREMIUM_REQUIRED'), { status: 403 });
 
-  return { me, otherId, meData, otherData: otherSnap.exists ? otherSnap.data() : null };
+  return { me, otherId, meData, otherData };
 }
 
 const OPEN_BEZY_BTN = { en: '💜 Open Bezy', fr: '💜 Ouvrir Bezy', de: '💜 Bezy öffnen', es: '💜 Abrir Bezy', it: '💜 Apri Bezy', pt: '💜 Abrir o Bezy', ru: '💜 Открыть Bezy', pl: '💜 Otwórz Bezy', ar: '💜 افتح Bezy', tr: '💜 Bezy\'yi aç', sw: '💜 Fungua Bezy', yo: '💜 Ṣí Bezy', hi: '💜 Bezy खोलें', id: '💜 Buka Bezy', zh: '💜 打开 Bezy', ja: '💜 Bezy を開く', ko: '💜 Bezy 열기' };
 const YOUR_MATCH = { en: 'your match', fr: 'votre match', de: 'dein Match', es: 'tu match', it: 'il tuo match', pt: 'o teu match', ru: 'твой мэтч', pl: 'twoje dopasowanie', ar: 'مطابقتك', tr: 'eşleşmen', sw: 'mechi yako', yo: 'mátìsì rẹ', hi: 'आपका मैच', id: 'kecocokanmu', zh: '你的配对', ja: 'あなたのマッチ', ko: '내 매치' };
 
-function messageNotification(language, senderName) {
+function messageNotification(language, senderName, conversationId) {
   const text = localized(language, {
     en: `💬 New message on Bezy\n\n${senderName} sent you a message. Open Bezy to reply.`,
     fr: `💬 Nouveau message sur Bezy\n\n${senderName} vous a écrit. Ouvrez Bezy pour répondre.`,
@@ -125,7 +121,7 @@ function messageNotification(language, senderName) {
   const openBezyText = localized(language, OPEN_BEZY_BTN);
   return {
     text,
-    reply_markup: { inline_keyboard: [[{ text: openBezyText, web_app: { url: miniAppUrl('messages') } }]] }
+    reply_markup: { inline_keyboard: [[{ text: openBezyText, web_app: { url: miniAppUrl('messages', conversationId) } }]] }
   };
 }
 
@@ -139,117 +135,77 @@ export function publicMessage(docId, data) {
   };
 }
 
+// Serialize against closure on the match row; account and entitlement row locks
+// ensure a pause, deletion, or refund cannot commit between authorization and use.
+async function inConversation(user, conversationId, callback) {
+  const otherId = counterpart(String(user.id), conversationId);
+  if (!otherId) throw new ApiError('CONVERSATION_UNAVAILABLE', 404);
+  return tx(async q => {
+    await q('SELECT match_id FROM matches WHERE match_id=$1 FOR UPDATE', [conversationId]);
+    await q('SELECT telegram_id FROM users WHERE telegram_id=ANY($1::bigint[]) ORDER BY telegram_id FOR SHARE', [[String(user.id),otherId]]);
+    await q('SELECT telegram_id FROM premium_memberships WHERE telegram_id=$1 FOR SHARE', [String(user.id)]);
+    const context = await authorize(user, conversationId, q);
+    return callback(q, context);
+  });
+}
+
 async function listMessages(req, res, user) {
-  const firestore = db();
-  const context = await authorize(firestore, user, req.body?.conversationId);
-  // Descending + reverse keeps the NEWEST 200 messages: the cap truncates old history,
-  // never the recent end of the conversation (the previous ascending query returned the
-  // oldest 200, which silently froze every conversation at message 200).
-  const messagesSnap = await firestore.collection('conversations')
-    .doc(String(req.body.conversationId)).collection('messages')
-    .orderBy('createdAt', 'desc').limit(200).get();
-  const messages = messagesSnap.docs.map((doc) => publicMessage(doc.id, doc.data())).reverse();
-  return res.status(200).json({ ok: true, conversationId: String(req.body.conversationId), messages });
+  const conversationId = String(req.body?.conversationId || '');
+  const messages = await inConversation(user, conversationId, async q => {
+    const result = await q(`SELECT client_id, sender_id, text, created_at FROM messages
+      WHERE conversation_id=$1 ORDER BY created_at DESC, client_id DESC LIMIT 200`, [conversationId]);
+    return result.rows.map(messageView).reverse();
+  });
+  return res.status(200).json({ ok: true, conversationId, messages });
+}
+
+function messageView(row) {
+  return { id: String(row.client_id), senderId: String(row.sender_id), text: row.text, createdAt: row.created_at.toISOString() };
 }
 
 async function markRead(req, res, user) {
-  const firestore = db();
-  const context = await authorize(firestore, user, req.body?.conversationId);
-  const ref = firestore.collection('conversations').doc(String(req.body.conversationId));
-  const now = new Date();
-  // The watermark is the newest message actually listed (the client sends its timestamp)
-  // capped at now, and it never moves backwards — a message that lands during the list
-  // round trip must not be silently marked read before it is ever rendered. The client
-  // value is only a read watermark: it cannot grant or hide anything.
-  const claimed = new Date(req.body?.lastMessageAt || 0).getTime();
-  const snapshot = await ref.get();
-  const existing = snapshot.exists ? snapshot.data() || {} : {};
-  const previous = existing.lastRead?.[context.me]?.toMillis?.() ?? 0;
-  const watermark = new Date(Math.max(previous, Math.min(now.getTime(), Number.isFinite(claimed) ? claimed : 0)));
-  // The conversation document carries participants on every write, so the erasure query
-  // (participants array-contains) can always see it — a read-only conversation is never
-  // orphaned after account deletion.
-  await ref.set({
-    participants: [context.me, context.otherId].sort(),
-    matchId: String(req.body.conversationId),
-    lastRead: { [context.me]: watermark },
-    updatedAt: now
-  }, { merge: true });
+  const conversationId = String(req.body?.conversationId || '');
+  await inConversation(user, conversationId, async (q, context) => {
+    const claimed = new Date(req.body?.lastMessageAt || 0).getTime();
+    const watermark = new Date(Math.max(0, Math.min(Date.now(), Number.isFinite(claimed) ? claimed : 0)));
+    await q(`INSERT INTO conversations(conversation_id,participant_a,participant_b,match_id,status,created_at,updated_at)
+      VALUES ($1,$2,$3,$1,'open',now(),now()) ON CONFLICT(conversation_id) DO NOTHING`,
+      [conversationId,...conversationId.split('_')]);
+    await q(`INSERT INTO conversation_reads(conversation_id,user_id,last_read_at) VALUES($1,$2,$3)
+      ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_read_at=GREATEST(conversation_reads.last_read_at,EXCLUDED.last_read_at)`,
+      [conversationId,context.me,watermark]);
+  });
   return res.status(200).json({ ok: true });
 }
 
 async function sendMessage(req, res, user) {
-  const firestore = db();
   const text = String(req.body?.text || '').trim();
-  if (!text) return res.status(400).json({ error: 'INVALID_ACTION' });
-  if (text.length > MAX_LENGTH) return res.status(400).json({ error: 'INVALID_ACTION' });
   const clientId = String(req.body?.clientId || '');
-  if (!CLIENT_ID_PATTERN.test(clientId)) return res.status(400).json({ error: 'INVALID_ACTION' });
-
+  if (!text || text.length > MAX_LENGTH || !CLIENT_ID_PATTERN.test(clientId)) return res.status(400).json({error:'INVALID_ACTION'});
   const conversationId = String(req.body?.conversationId || '');
-  const context = await authorize(firestore, user, conversationId);
-
-  const conversationRef = firestore.collection('conversations').doc(conversationId);
-  const messageRef = conversationRef.collection('messages').doc(clientId);
-  const now = new Date();
-
-  // Idempotent: a retried send carries the same clientId and lands on the same document.
-  // The existing document is returned as-is, never overwritten — but only when it is the
-  // caller's own message. A clientId collision with the counterpart's message is answered
-  // generically, never by leaking the other side's text.
-  const existing = await messageRef.get();
-  if (existing.exists) {
-    if (existing.data()?.senderId !== context.me) {
-      return res.status(409).json({ error: 'INVALID_ACTION' });
+  const result = await inConversation(user, conversationId, async (q, context) => {
+    const existing = await q('SELECT client_id,sender_id,text,created_at FROM messages WHERE conversation_id=$1 AND client_id=$2', [conversationId,clientId]);
+    if (existing.rows.length) {
+      if (String(existing.rows[0].sender_id) !== context.me) throw new ApiError('INVALID_ACTION',409);
+      return { message: messageView(existing.rows[0]), duplicate: true, context };
     }
-    return res.status(200).json({ ok: true, message: publicMessage(clientId, existing.data()), duplicate: true });
-  }
-
-  // The write is transactional with a re-read of the match and both block mirrors, so a
-  // send that passed authorization before a block, unmatch or deletion commit lands
-  // afterwards cannot persist message content or resurrect a closed conversation.
-  await firestore.runTransaction(async (tx) => {
-    const [matchDoc, blockedMine, blockedTheirs, conversationDoc] = await Promise.all([
-      tx.get(firestore.collection('matches').doc(conversationId)),
-      tx.get(firestore.collection('users').doc(context.me).collection('blocks').doc(context.otherId)),
-      tx.get(firestore.collection('users').doc(context.me).collection('blockedBy').doc(context.otherId)),
-      tx.get(conversationRef)
-    ]);
-    const liveMatch = matchDoc.exists ? matchDoc.data() : null;
-    const participants = (liveMatch?.participants || []).map(String);
-    const stillValid = liveMatch && liveMatch.active !== false
-      && participants.includes(context.me) && participants.includes(context.otherId)
-      && !blockedMine.exists && !blockedTheirs.exists;
-    if (!stillValid) throw Object.assign(new Error('CONVERSATION_UNAVAILABLE'), { status: 404 });
-
-    const existingInTx = await tx.get(messageRef);
-    if (existingInTx.exists) return; // duplicate landed while this transaction started
-
-    const conversation = conversationDoc.exists ? conversationDoc.data() || {} : {};
-    tx.set(messageRef, { senderId: context.me, text, createdAt: now });
-    tx.set(conversationRef, {
-      ...conversation,
-      participants: [context.me, context.otherId].sort(),
-      matchId: conversationId,
-      status: 'open',
-      createdAt: conversation.createdAt || now,
-      updatedAt: now,
-      lastMessageAt: now,
-      lastMessagePreview: text.slice(0, 80),
-      lastMessageSenderId: context.me
-    });
+    await q(`INSERT INTO conversations(conversation_id,participant_a,participant_b,match_id,status,created_at,updated_at)
+      VALUES($1,$2,$3,$1,'open',now(),now()) ON CONFLICT(conversation_id) DO NOTHING`, [conversationId,...conversationId.split('_')]);
+    const inserted = await q(`INSERT INTO messages(conversation_id,client_id,sender_id,text,created_at)
+      SELECT $1,$2,$3,$4,GREATEST(clock_timestamp(),COALESCE(last_message_at + interval '1 millisecond',clock_timestamp()))
+      FROM conversations WHERE conversation_id=$1 RETURNING client_id,sender_id,text,created_at`, [conversationId,clientId,context.me,text]);
+    await q(`UPDATE conversations SET updated_at=clock_timestamp(), last_message_at=m.created_at,
+      last_message_preview=left(m.text,80), last_message_sender_id=m.sender_id
+      FROM messages m WHERE conversations.conversation_id=$1 AND m.conversation_id=$1 AND m.client_id=$2`, [conversationId,clientId]);
+    return { message: messageView(inserted.rows[0]), duplicate: false, context };
   });
-
-  // Telegram stays the notification channel; the message content never leaves Bezy. The
-  // recipient's preferences and the per-day cap apply (api/_notify.js).
-  const other = context.otherData || { telegramId: context.otherId };
-  // The recipient's explicit Bezy choice wins over their Telegram language.
-  const otherLanguage = normalizedLanguage(other.locale || other.languageCode);
-  await deliverNotification(firestore, other, 'messages', messageNotification(
-    otherLanguage, context.meData?.profile?.displayName || context.meData?.firstName || localized(otherLanguage, YOUR_MATCH)
-  ));
-
-  return res.status(200).json({ ok: true, message: publicMessage(clientId, { senderId: context.me, text, createdAt: now }) });
+  if (!result.duplicate) {
+    const { context } = result;
+    await deliverNotification(null, context.otherData, 'messages', messageNotification(
+      normalizedLanguage(context.otherData.locale || context.otherData.languageCode),
+      context.meData.profile?.displayName || context.meData.firstName || localized('en',YOUR_MATCH), conversationId));
+  }
+  return res.status(200).json({ok:true,message:result.message,duplicate:result.duplicate});
 }
 
 export default async function handler(req, res) {
@@ -262,13 +218,14 @@ export default async function handler(req, res) {
 
   // Sends and reads share the conversation quota surface; sends are additionally capped by
   // the tighter messages bucket inside the same limiter.
-  if (!(await rateLimit(db(), res, user.id, action === 'send' ? 'messages' : 'messages_read'))) return;
+  if (!(await rateLimit(null, res, user.id, action === 'send' ? 'messages' : 'messages_read'))) return;
 
   try {
     if (action === 'list') return await listMessages(req, res, user);
     if (action === 'read') return await markRead(req, res, user);
     return await sendMessage(req, res, user);
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     if (error.status) return res.status(error.status).json({ error: error.message });
     console.error('Messages request failed:', error);
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });

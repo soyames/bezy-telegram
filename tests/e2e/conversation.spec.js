@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// The Bezy conversation flow, Firestore-free: API responses are stubbed, so the suite runs
+// The Bezy conversation flow, PostgreSQL-free: API responses are stubbed, so the suite runs
 // on every engine without credentials or quota. It pins the chat screen behaviour end to
 // end — opening a conversation, composing, sending (with retry), the Premium gate, the
 // unavailable state, "Use this message" and the unread preview on the Messages list.

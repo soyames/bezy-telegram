@@ -1,6 +1,5 @@
+import { getRow, listRows, seedRow, deleteRow, resetTestData, sql } from '../fixtures.mjs';
 import { test, expect } from '@playwright/test';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -11,15 +10,8 @@ import path from 'node:path';
 // request, forged or not, can mark a user as age-verified (ADR 0010: Telegram age
 // verification is not available to Bezy, so no verification surface exists).
 
-if (!getApps().length) {
-  if (process.env.BEZY_SERVICE_ACCOUNT) {
-    const sa = JSON.parse(fs.readFileSync(process.env.BEZY_SERVICE_ACCOUNT, 'utf8'));
-    initializeApp({ credential: cert({ projectId: sa.project_id, clientEmail: sa.client_email, privateKey: sa.private_key }) });
-  } else {
-    initializeApp({ credential: cert({ projectId: process.env.FIREBASE_PROJECT_ID, clientEmail: process.env.FIREBASE_CLIENT_EMAIL, privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n') }) });
-  }
-}
-const db = getFirestore();
+
+const storage = null;
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.slice(1)), '../..');
 const en = JSON.parse(fs.readFileSync(path.join(root, 'locales/en.json'), 'utf8')).app;
 const ar = JSON.parse(fs.readFileSync(path.join(root, 'locales/ar.json'), 'utf8')).app;
@@ -29,14 +21,7 @@ const isTest = (v) => /^9000000\d\d$/.test(String(v));
 
 const PROFILE = { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman', seeking: 'men', interests: ['music'], languages: [], bio: 'E2E.', prompts: [], discoverable: true };
 
-async function cleanup() {
-  for (const doc of (await db.collection('users').get()).docs) {
-    if (isTest(doc.id)) await db.recursiveDelete(doc.ref);
-  }
-  for (const doc of (await db.collection('rateLimits').get()).docs) {
-    if (isTest(doc.id)) await doc.ref.delete();
-  }
-}
+async function cleanup() { await resetTestData(); }
 
 async function seedDeclared(page) {
   const users = await (await page.request.get('/__test-users')).json();
@@ -88,7 +73,7 @@ test('no client request, forged or not, can mark a user as Telegram-age-verified
   expect(forged.ageStatus).toBe('selfDeclared18Plus');
 
   // Nothing verification-shaped is persisted — not on the profile, not on the document.
-  const stored = (await db.collection('users').doc(ADA).get()).data();
+  const stored = (await getRow('users', ADA));
   expect(stored.profile.ageStatus).toBeUndefined();
   expect(stored.profile.ageVerified).toBeUndefined();
   expect(stored.ageStatus).toBeUndefined();

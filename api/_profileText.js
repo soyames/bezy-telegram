@@ -12,9 +12,9 @@
 //     URL-only, very short, names);
 //   - detection is deterministic (script blocks for CJK/Cyrillic/Arabic/Devanagari,
 //     function-word fingerprints for the Latin-script locales) — no large ML system;
-//   - translations are cached server-side in `users/{id}/profileTranslations/{hash}|{target}`
-//     — a subcollection of the author's own document, deleted with the account. The cache
-//     key is the content hash, so an edited profile can never reuse a stale translation.
+//   - translations are cached server-side in `profile_translations` (author, content hash,
+//     target locale) — deleted with the account via the users foreign key. The cache key is
+//     the content hash, so an edited profile can never reuse a stale translation.
 //   - the provider is a free, keyless web endpoint, overridable via BEZY_TRANSLATE_ENDPOINT;
 //     every failure degrades to "show the original" — a broken provider must never hide or
 //     alter user content. Full text is never logged.
@@ -134,7 +134,7 @@ export async function translateText(text, source, target) {
 // Attaches translations for a profile's free-text fields when (and only when) the
 // detected source language differs from the viewer's locale. Returns only the translated
 // entries; an absent entry means "show the original". Never mutates the profile.
-export async function localizeProfileTexts(firestore, authorId, profile, viewerLocale) {
+export async function localizeProfileTexts(storage, authorId, profile, viewerLocale) {
   if (!TRANSLATABLE_LOCALES.includes(viewerLocale)) return {};
   const result = {};
   const fields = [];
@@ -147,7 +147,7 @@ export async function localizeProfileTexts(firestore, authorId, profile, viewerL
     const source = detectLanguage(text);
     if (!source || source === viewerLocale) continue;
     try {
-      const translated = await translateCached(firestore, authorId, text, source, viewerLocale);
+      const translated = await translateCached(storage, authorId, text, source, viewerLocale);
       if (translated && translated !== text) result[key] = { text: translated, sourceLang: source };
     } catch (error) {
       console.warn(`[bezy-profiletext] translation failed for ${key}:`, error.message);
@@ -156,22 +156,28 @@ export async function localizeProfileTexts(firestore, authorId, profile, viewerL
   return result;
 }
 
-// Cache: one document per (content hash, target) under the author's own user document, so
-// account deletion erases it with everything else and no new top-level collection exists.
-// An edited profile produces a new hash, so stale entries can never be served; the write
-// path additionally prunes the subcollection on profile saves.
-async function translateCached(firestore, authorId, text, source, target) {
-  const docId = `${hashFor(text)}|${target}`;
-  const ref = firestore.collection('users').doc(String(authorId)).collection('profileTranslations').doc(docId);
+// Cache: one row per (author, content hash, target), deleted with the account via the
+// users foreign key. An edited profile produces a new hash, so stale entries can never be
+// served; the write path additionally prunes the author's cache on profile saves.
+async function translateCached(storage, authorId, text, source, target) {
+  const { query } = await import('./_db.js');
+  const contentHash = hashFor(text);
   try {
-    const snap = await ref.get();
-    if (snap.exists && snap.data()?.sourceLang === source) return snap.data().text;
+    const cached = await query(
+      'SELECT text FROM profile_translations WHERE author_id = $1 AND content_hash = $2 AND locale = $3 AND source_lang = $4',
+      [String(authorId), contentHash, target, source]
+    );
+    if (cached.rows.length) return cached.rows[0].text;
   } catch (error) {
     console.warn('[bezy-profiletext] cache read failed:', error.message);
   }
   const translated = await translateText(text, source, target);
   try {
-    await ref.set({ text: translated, sourceLang: source, target, createdAt: new Date() });
+    await query(
+      `INSERT INTO profile_translations (author_id, content_hash, locale, text, source_lang, target, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (author_id, content_hash, locale) DO NOTHING`,
+      [String(authorId), contentHash, target, translated, source, target]
+    );
   } catch (error) {
     console.warn('[bezy-profiletext] cache write failed:', error.message);
   }

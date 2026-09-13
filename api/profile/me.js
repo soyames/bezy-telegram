@@ -1,4 +1,5 @@
-import { db } from '../_firebase.js';
+import { readUser } from '../_users.js';
+import { query, tx, advisoryLock, ApiError } from '../_db.js';
 import { requirePost, requireTelegramUser, SUPPORTED_LOCALES } from '../_telegram.js';
 import { rateLimit } from '../_ratelimit.js';
 import { normalizeNotificationSettings, notificationSettings } from '../_notify.js';
@@ -121,25 +122,24 @@ export default async function handler(req, res) {
   try {
     // Reads are cheap; only writes are rate limited, so opening the app is never blocked.
     const isWrite = Boolean(req.body?.profile || req.body?.preferences || req.body?.notifications || req.body?.ageEligibilityConfirmed || req.body?.locale);
-    if (isWrite && !(await rateLimit(db(), res, user.id, 'profile_write'))) return;
+    if (isWrite && !(await rateLimit(null, res, user.id, 'profile_write'))) return;
     return await handleProfile(req, res, user);
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     console.error('Profile request failed:', error);
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }
 }
 
 async function handleProfile(req, res, user) {
-  const ref = db().collection('users').doc(String(user.id));
-  const snap = await ref.get();
-  const current = snap.exists ? snap.data() : {};
+  const userId = String(user.id);
   const now = new Date();
 
   // Data minimisation: Telegram also supplies last_name and is_premium, but Bezy displays
   // neither and uses neither in any logic, so they are deliberately not collected.
   // `is_premium` in particular is Telegram Premium, which must never grant Bezy Premium.
   const baseData = {
-    telegramId: user.id,
+    telegramId: userId,
     firstName: user.first_name || '',
     username: user.username || '',
     languageCode: user.language_code || '',
@@ -154,6 +154,12 @@ async function handleProfile(req, res, user) {
   if (typeof req.body?.locale === 'string' && SUPPORTED_LOCALES.includes(req.body.locale)) {
     baseData.locale = req.body.locale;
   }
+
+  let data;
+  await tx(async (q) => {
+  await advisoryLock(q, `user:${userId}`);
+  await q('SELECT telegram_id FROM users WHERE telegram_id = $1 FOR UPDATE', [userId]);
+  const current = await readUser(userId, q);
 
   // Bezy is 18+ only. Eligibility is an explicit self-declaration by the user — it is NOT
   // identity or age verification, and Telegram supplies no verified age. The declaration is
@@ -174,19 +180,6 @@ async function handleProfile(req, res, user) {
   let nextProfile = current.profile || {};
   if (req.body?.profile && typeof req.body.profile === 'object') {
     nextProfile = normalizeProfile(req.body.profile);
-    // The bio/prompt content is the cache key's source; an edited profile must never be
-    // served a stale translation, so the cache subcollection is pruned on every profile
-    // write. It regenerates lazily on the next view.
-    try {
-      const translationsSnap = await ref.collection('profileTranslations').get();
-      if (!translationsSnap.empty) {
-        const batch = db().batch();
-        for (const doc of translationsSnap.docs) batch.delete(doc.ref);
-        await batch.commit();
-      }
-    } catch (error) {
-      console.warn('[bezy-profiletext] cache prune failed:', error.message);
-    }
     // Server-side enforcement: without the declaration a profile can never become complete
     // or discoverable, so a client that skips the age gate still cannot enter Discover.
     if (!ageConfirmed) {
@@ -197,48 +190,91 @@ async function handleProfile(req, res, user) {
     if (processingPausedAccount) {
       nextProfile = { ...nextProfile, discoverable: false };
     }
-    baseData.profile = nextProfile;
-    baseData.profileComplete = nextProfile.profileComplete;
-    baseData.discoverable = nextProfile.discoverable;
   }
 
   let nextPreferences = current.preferences || normalizePreferences();
   if (req.body?.preferences && typeof req.body.preferences === 'object') {
     nextPreferences = normalizePreferences(req.body.preferences);
-    baseData.preferences = nextPreferences;
   }
 
   // Notification choices are opt-out: an account that has never touched them has everything
   // on. Only the categories the user is allowed to control are stored — transactional
-  // messages are not represented here at all, so no payload can switch them off.
+  // messages are not represented here at all, so no payload can switch them off. A partial
+  // payload is merged OVER the stored settings, so it never resets an unnamed category.
   let nextNotifications = notificationSettings(current);
   if (req.body?.notifications && typeof req.body.notifications === 'object') {
-    // The payload is merged OVER the stored settings: a partial map (e.g. only
-    // `account: false`) changes what it names and preserves every other deliberate choice,
-    // instead of resetting the unnamed categories to their defaults.
     nextNotifications = normalizeNotificationSettings({ ...nextNotifications, ...req.body.notifications });
-    baseData.notifications = nextNotifications;
   }
 
-  if (!snap.exists) {
-    await ref.set({
-      ...baseData,
-      profile: nextProfile,
-      preferences: nextPreferences,
-      notifications: nextNotifications,
-      profileComplete: Boolean(nextProfile.profileComplete),
-      discoverable: Boolean(nextProfile.discoverable),
-      createdAt: now
-    });
-  } else {
-    await ref.update(baseData);
-  }
+    // The users row is the source of identity truth; everything else hangs off its FK.
+    await q(
+      `INSERT INTO users (telegram_id, first_name, username, language_code, locale, photo_url, updated_at, created_at,
+                          age_eligibility_confirmed, age_eligibility_confirmed_at, age_eligibility_method,
+                          profile_complete, discoverable)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (telegram_id) DO UPDATE SET
+         first_name = EXCLUDED.first_name,
+         username = EXCLUDED.username,
+         language_code = EXCLUDED.language_code,
+         locale = COALESCE(EXCLUDED.locale, users.locale),
+         photo_url = EXCLUDED.photo_url,
+         updated_at = EXCLUDED.updated_at,
+         age_eligibility_confirmed = users.age_eligibility_confirmed OR EXCLUDED.age_eligibility_confirmed,
+         age_eligibility_confirmed_at = COALESCE(users.age_eligibility_confirmed_at, EXCLUDED.age_eligibility_confirmed_at),
+         age_eligibility_method = COALESCE(users.age_eligibility_method, EXCLUDED.age_eligibility_method),
+         profile_complete = EXCLUDED.profile_complete,
+         discoverable = EXCLUDED.discoverable`,
+      [
+        userId, baseData.firstName, baseData.username, baseData.languageCode, baseData.locale ?? null, baseData.photoUrl, now,
+        baseData.ageEligibilityConfirmed === true, baseData.ageEligibilityConfirmedAt ?? null, baseData.ageEligibilityMethod ?? null,
+        Boolean(nextProfile.profileComplete), Boolean(nextProfile.discoverable)
+      ]
+    );
 
-  const latest = await ref.get();
-  const data = latest.data() || {};
+    if (req.body?.profile && typeof req.body.profile === 'object') {
+      await q(
+        `INSERT INTO profiles (telegram_id, display_name, age, gender, seeking, city, bio, interests, languages, discoverable, profile_complete)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (telegram_id) DO UPDATE SET
+           display_name = EXCLUDED.display_name, age = EXCLUDED.age, gender = EXCLUDED.gender, seeking = EXCLUDED.seeking,
+           city = EXCLUDED.city, bio = EXCLUDED.bio, interests = EXCLUDED.interests, languages = EXCLUDED.languages,
+           discoverable = EXCLUDED.discoverable, profile_complete = EXCLUDED.profile_complete`,
+        [
+          userId, nextProfile.displayName || null, nextProfile.age, nextProfile.gender || null, nextProfile.seeking,
+          nextProfile.city || null, nextProfile.bio || null, nextProfile.interests, nextProfile.languages,
+          nextProfile.discoverable, nextProfile.profileComplete
+        ]
+      );
+      await q('DELETE FROM prompt_answers WHERE telegram_id = $1', [userId]);
+      for (const [position, prompt] of (nextProfile.prompts || []).entries()) {
+        await q('INSERT INTO prompt_answers (telegram_id, id, answer, position) VALUES ($1, $2, $3, $4)', [userId, prompt.id, prompt.answer, position]);
+      }
+      // The bio/prompt content is the cache key's source; an edited profile must never be
+      // served a stale translation, so the author's translation cache is pruned on every
+      // profile write. It regenerates lazily on the next view.
+      await q('DELETE FROM profile_translations WHERE author_id = $1', [userId]);
+    }
+
+    await q(
+      `INSERT INTO preferences (telegram_id, min_age, max_age, city, same_city_only, languages)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (telegram_id) DO UPDATE SET min_age = EXCLUDED.min_age, max_age = EXCLUDED.max_age,
+         city = EXCLUDED.city, same_city_only = EXCLUDED.same_city_only, languages = EXCLUDED.languages`,
+      [userId, nextPreferences.minAge, nextPreferences.maxAge, nextPreferences.city, nextPreferences.sameCityOnly, nextPreferences.languages]
+    );
+
+    await q(
+      `INSERT INTO notification_settings (telegram_id, matches, super_likes, profile_reminders, messages)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (telegram_id) DO UPDATE SET matches = EXCLUDED.matches, super_likes = EXCLUDED.super_likes,
+         profile_reminders = EXCLUDED.profile_reminders, messages = EXCLUDED.messages`,
+      [userId, nextNotifications.matches, nextNotifications.super_likes, nextNotifications.profile_reminders, nextNotifications.messages]
+    );
+  data = await readUser(userId, q);
+  });
   return res.status(200).json({
     ok: true,
-    userId: String(user.id),
+    userId,
     // Existing accounts that predate the age gate are reported as needing the declaration
     // rather than being silently treated as confirmed.
     needsAgeConfirmation: data.ageEligibilityConfirmed !== true,
@@ -259,3 +295,4 @@ async function handleProfile(req, res, user) {
     needsProfile: !data.profileComplete
   });
 }
+

@@ -2,8 +2,8 @@
 // Mini App can be exercised end to end without deploying.
 //
 // Credentials are read from the environment only:
-//   BEZY_SERVICE_ACCOUNT  path to a Firebase service-account JSON (local only, never committed)
-//   or FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY
+// Tests accept only the dedicated TEST_DATABASE_URL.
+// Tests accept only the dedicated TEST_DATABASE_URL.
 //
 // The bot token defaults to a local test value; initData issued here is signed with that
 // same value, so validateInitData() runs for real without needing the production secret.
@@ -12,19 +12,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { testDatabaseUrl } from './database.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-if (process.env.BEZY_SERVICE_ACCOUNT) {
-  const sa = JSON.parse(fs.readFileSync(process.env.BEZY_SERVICE_ACCOUNT, 'utf8'));
-  process.env.FIREBASE_PROJECT_ID = sa.project_id;
-  process.env.FIREBASE_CLIENT_EMAIL = sa.client_email;
-  process.env.FIREBASE_PRIVATE_KEY = sa.private_key;
-}
-process.env.TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '111111:LOCAL-TEST-BOT-TOKEN';
+if (process.env.TEST_DATABASE_URL || process.env.NEON_ENV_FILE) testDatabaseUrl();
+else delete process.env.DATABASE_URL;
+process.env.TELEGRAM_BOT_TOKEN = '111111:LOCAL-TEST-BOT-TOKEN';
 // The webhook now fails closed without a secret (api/telegram/webhook.js): the local
 // harness runs with a local test secret, and the test suites' webhook() helpers send it.
-process.env.TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '111111:LOCAL-TEST-WEBHOOK-SECRET';
+process.env.TELEGRAM_WEBHOOK_SECRET = '111111:LOCAL-TEST-WEBHOOK-SECRET';
 
 export const TEST_USERS = {
   a: { id: 900000001, first_name: 'Ada', last_name: 'Test', username: 'ada_bezy_test', language_code: 'en' },
@@ -69,7 +66,13 @@ function tgStub(initData, user, port) {
   },
   HapticFeedback:{impactOccurred(){},notificationOccurred(){},selectionChanged(){}},
   MainButton:{show(){},hide(){},setText(){},onClick(){},offClick(){}},
-  BackButton:{show(){},hide(){},onClick(){},offClick(){}}
+  BackButton:{show(){},hide(){},onClick(){},offClick(){}},
+  // Home-screen installation (official Telegram Mini Apps capability). The stub mirrors the
+  // real API: checkHomeScreenStatus(callback) with 'unsupported' | 'unknown' | 'added' |
+  // 'missed', and addToHomeScreen() returning a Promise. Tests preset the status via
+  // window.__homeScreenStatus before the app boots.
+  checkHomeScreenStatus(cb){ cb(window.__homeScreenStatus || 'unknown'); },
+  addToHomeScreen(){ window.__homeScreenAdded = true; window.__homeScreenStatus = 'added'; return Promise.resolve(); }
 } };`;
 }
 
@@ -189,8 +192,9 @@ export function startHarness({ port = 3310 } = {}) {
 
     if (pathname === '/') pathname = '/index.html';
     if (pathname === '/privacy' || pathname === '/terms') pathname += '/index.html';
-    const file = path.join(ROOT, pathname);
-    if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end('forbidden'); }
+    const file = path.resolve(ROOT, '.' + pathname);
+    const relative = path.relative(ROOT, file).replaceAll('\\', '/');
+    if (relative.startsWith('..') || !/^(index\.html|app\.js|styles\.css|assets\/[^/]+|locales\/[a-z]{2}\.json|(?:privacy|terms)\/index\.html)$/.test(relative)) { res.writeHead(403); return res.end('forbidden'); }
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('Not found'); }
 
     const ext = path.extname(file).toLowerCase();
@@ -214,7 +218,7 @@ export function startHarness({ port = 3310 } = {}) {
   });
 
   return new Promise((resolve) => {
-    server.listen(port, () => resolve({
+    server.listen(port, '127.0.0.1', () => resolve({
       port,
       telegramCalls,
       translateCalls,

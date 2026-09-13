@@ -333,7 +333,11 @@
     "interests_limit": "En fazla 12 ilgi alanı.",
     "quota_likes_left": "Bugün {n} beğeni kaldı",
     "quota_super_likes_left": "{n} Süper Beğeni kaldı",
-    "check_payment_status": "Ödeme durumunu kontrol et"
+    "check_payment_status": "Ödeme durumunu kontrol et",
+    "home_screen_title": "Bezy’yi ana ekrana ekle",
+    "home_screen_body": "Bezy bir dokunuş uzakta olsun — telefonunun ana ekranına ekle.",
+    "home_screen_add": "Bezy’yi ana ekrana ekle",
+    "home_screen_added": "Bezy ana ekranında ✓"
   },
   "profile": {
     "edit": "Profili düzenle",

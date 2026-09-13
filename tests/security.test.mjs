@@ -1,14 +1,14 @@
+import { getRow, listRows, seedRow, deleteRow, resetTestData, sql } from './fixtures.mjs';
 // Bezy adversarial security suite: rate limiting, user enumeration, identity spoofing,
 // relationship abuse, payment forgery, webhook robustness and initData handling.
 //
-// Runs the real handlers against the real Firestore using synthetic Telegram ids 9000000xx,
+// Runs the real handlers against the real PostgreSQL using synthetic Telegram ids 9000000xx,
 // which are removed before and after the run. Real production records are never touched.
 //
-//   BEZY_SERVICE_ACCOUNT=<path to service-account.json> node tests/security.test.mjs
+// Run through tests/run.mjs with TEST_DATABASE_URL or NEON_ENV_FILE.
 import { startHarness, makeInitData, TEST_USERS } from './harness.mjs';
 import { RATE_LIMITS, enforceRateLimit, RateLimitError } from '../api/_ratelimit.js';
 import { premiumPlans, parseInvoicePayload } from '../api/_premium.js';
-import { db } from '../api/_firebase.js';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -39,27 +39,10 @@ async function webhook(update, headers = {}) {
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
 
-const firestore = db();
+const storage = null;
 const isTestId = (id) => /^9000000\d\d$/.test(String(id));
-async function clearRateLimits() {
-  for (const doc of (await firestore.collection('rateLimits').get()).docs) {
-    if (isTestId(doc.id)) await doc.ref.delete();
-  }
-}
-async function cleanup() {
-  for (const doc of (await firestore.collection('users').get()).docs) {
-    if (isTestId(doc.id)) await firestore.recursiveDelete(doc.ref);
-  }
-  for (const col of ['matches', 'bezyPayments', 'bezyInvoices', 'reports']) {
-    for (const doc of (await firestore.collection(col).get()).docs) {
-      const d = doc.data();
-      if ((d.participants || []).some(isTestId) || isTestId(d.telegramUserId) || isTestId(d.reporterId) || isTestId(d.targetId)) {
-        await doc.ref.delete();
-      }
-    }
-  }
-  await clearRateLimits();
-}
+async function clearRateLimits() { await sql('DELETE FROM rate_limits'); }
+async function cleanup() { await resetTestData(); }
 const PROFILES = {
   a: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman', seeking: 'men', interests: ['music'], bio: 'Sec.', discoverable: true },
   b: { displayName: 'Bo', age: 31, city: 'Paris', gender: 'man', seeking: 'women', interests: ['music'], bio: 'Sec.', discoverable: true },
@@ -81,11 +64,11 @@ try {
   // ---------------------------------------------------------------- rate limiting
   section('Rate limiting: unit behaviour');
   const rlUser = '900000090';
-  await firestore.collection('rateLimits').doc(rlUser).delete().catch(() => {});
+  await deleteRow('rate_limits', rlUser).catch(() => {});
   const burst = RATE_LIMITS.report[0];
-  for (let i = 0; i < burst.limit; i++) await enforceRateLimit(firestore, rlUser, 'report');
+  for (let i = 0; i < burst.limit; i++) await enforceRateLimit(storage, rlUser, 'report');
   let threw = null;
-  try { await enforceRateLimit(firestore, rlUser, 'report'); } catch (error) { threw = error; }
+  try { await enforceRateLimit(storage, rlUser, 'report'); } catch (error) { threw = error; }
   check('limit is enforced once the window is full', threw instanceof RateLimitError, String(threw));
   check('retryAfter is a positive number of seconds', threw?.retryAfter > 0 && threw.retryAfter <= burst.windowSeconds, String(threw?.retryAfter));
   check('error exposes no limit or count', threw?.limit === undefined && threw?.count === undefined);
@@ -93,17 +76,17 @@ try {
   // A new window releases the limit without any scheduled cleanup.
   const later = Date.now() + (burst.windowSeconds * 1000) + 1000;
   let recovered = true;
-  try { await enforceRateLimit(firestore, rlUser, 'report', later); } catch { recovered = false; }
+  try { await enforceRateLimit(storage, rlUser, 'report', later); } catch { recovered = false; }
   check('a fresh window allows requests again', recovered);
 
   // Buckets are independent: exhausting one must not block another.
   let otherBucketOk = true;
-  try { await enforceRateLimit(firestore, rlUser, 'block'); } catch { otherBucketOk = false; }
+  try { await enforceRateLimit(storage, rlUser, 'block'); } catch { otherBucketOk = false; }
   check('buckets are independent', otherBucketOk);
   check('every bucket has at least one window', Object.values(RATE_LIMITS).every((w) => Array.isArray(w) && w.length >= 1));
   check('unknown bucket is a programming error, not a silent allow',
-    await enforceRateLimit(firestore, rlUser, 'nope').then(() => false, (e) => !e.rateLimited));
-  await firestore.collection('rateLimits').doc(rlUser).delete().catch(() => {});
+    await enforceRateLimit(storage, rlUser, 'nope').then(() => false, (e) => !e.rateLimited));
+  await deleteRow('rate_limits', rlUser).catch(() => {});
 
   section('Rate limiting: HTTP behaviour');
   await cleanup();
@@ -146,26 +129,26 @@ try {
   await seedAll();
   await call('/api/account', 'a', { action: 'export' });
   check('rate-limit counters exist while the account does',
-    (await firestore.collection('rateLimits').doc('900000001').get()).exists);
+    Boolean(await getRow('rate_limits', '900000001')));
   await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
   check('rate-limit counters are erased with the account',
-    (await firestore.collection('rateLimits').doc('900000001').get()).exists === false);
+    Boolean(await getRow('rate_limits', '900000001')) === false);
 
   // ---------------------------------------------------------------- enumeration
   section('User enumeration: swipe');
   await cleanup();
   await seedAll();
   // Four target classes that must be indistinguishable to the caller.
-  await firestore.collection('users').doc('900000091').set({
+  await seedRow('users', ['900000091'], {
     telegramId: 900000091, ageEligibilityConfirmed: true, profileComplete: true, discoverable: false,
     profile: { ...PROFILES.b, displayName: 'Hidden', discoverable: false }, createdAt: new Date()
   });
-  await firestore.collection('users').doc('900000092').set({
+  await seedRow('users', ['900000092'], {
     telegramId: 900000092, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false, createdAt: new Date()
   });
   // A paused account (here: objection) must be indistinguishable from the other unreachable
   // classes — a caller must not be able to tell "exists but has objected" from "does not exist".
-  await firestore.collection('users').doc('900000093').set({
+  await seedRow('users', ['900000093'], {
     telegramId: 900000093, ageEligibilityConfirmed: true, profileComplete: true, discoverable: true,
     processingObjection: true, processingObjectedAt: new Date(),
     profile: { ...PROFILES.b, displayName: 'Objecting', discoverable: true }, createdAt: new Date()
@@ -192,28 +175,28 @@ try {
     blockKnown.status === blockUnknown.status && JSON.stringify(blockKnown.data) === JSON.stringify(blockUnknown.data),
     `${JSON.stringify(blockKnown.data)} vs ${JSON.stringify(blockUnknown.data)}`);
   check('no mirror document is created under a non-existent account',
-    (await firestore.collection('users').doc('900000098').collection('blockedBy').doc('900000001').get()).exists === false);
+    Boolean(await getRow('blocked_by', '900000098', '900000001')) === false);
 
   const reportKnown = await call('/api/relationship', 'a', { action: 'report', targetId: '900000002', reason: 'spam' });
   const reportUnknown = await call('/api/relationship', 'a', { action: 'report', targetId: '900000097', reason: 'spam' });
   check('report on a stranger returns the same shape',
     reportKnown.status === reportUnknown.status && reportUnknown.data.reported === true && reportKnown.data.reported === true);
   check('no report is stored for a non-existent account',
-    (await firestore.collection('reports').where('targetId', '==', '900000097').get()).size === 0);
+    (await listRows('reports', [], ['targetId', '==', '900000097'])).length === 0);
   await clearRateLimits();
 
   section('User enumeration: other endpoints expose only the caller');
   let r = await call('/api/profile/me', 'a');
-  check('profile endpoint takes no target parameter', r.data.profile?.telegramId === 900000001);
+  check('profile endpoint takes no target parameter', r.data.profile?.telegramId === '900000001');
   r = await call('/api/profile/me', 'a', { telegramUserId: '900000002', profile: PROFILES.b });
   check('a client-supplied user id is ignored by the profile endpoint',
-    (await firestore.collection('users').doc('900000002').get()).data()?.profile?.displayName === 'Bo');
+    (await getRow('users', '900000002'))?.profile?.displayName === 'Bo');
   r = await call('/api/matches', 'a', { targetId: '900000002' });
   check('matches ignores any target parameter', Array.isArray(r.data.matches));
   r = await call('/api/premium', 'a', { action: 'status', telegramUserId: '900000002' });
   check('premium status is always the caller\'s own', r.status === 200 && r.data.premium !== undefined);
   r = await call('/api/account', 'a', { action: 'export', telegramUserId: '900000002' });
-  check('export always returns the caller\'s own account', r.data.data?.account?.telegramId === 900000001, String(r.data.data?.account?.telegramId));
+  check('export always returns the caller\'s own account', r.data.data?.account?.telegramId === '900000001', String(r.data.data?.account?.telegramId));
   await clearRateLimits();
 
   // ---------------------------------------------------------------- identity
@@ -268,12 +251,12 @@ try {
 
   // A reporter cannot forge who filed the report.
   r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000003', reason: 'spam', reporterId: '900000002' });
-  const forged = await firestore.collection('reports').where('targetId', '==', '900000003').get();
-  check('reporter id cannot be spoofed', forged.docs.every((d) => d.data().reporterId === '900000001'),
-    forged.docs.map((d) => d.data().reporterId).join(','));
+  const forged = await listRows('reports', [], ['targetId', '==', '900000003']);
+  check('reporter id cannot be spoofed', forged.every((d) => d.reporterId === '900000001'),
+    forged.map((d) => d.reporterId).join(','));
   check('reports cannot be listed through the API',
     (await call('/api/relationship', 'a', { action: 'list_reports', targetId: '900000002' })).status === 400);
-  check('report status cannot be set by the client', forged.docs.every((d) => d.data().status === 'open'));
+  check('report status cannot be set by the client', forged.every((d) => d.status === 'open'));
   await clearRateLimits();
 
   // ---------------------------------------------------------------- premium
@@ -302,7 +285,7 @@ try {
     }
   });
   check('a payment whose payload belongs to another user is refused',
-    (await firestore.collection('bezyPayments').doc('sec_forged_1').get()).exists === false);
+    Boolean(await getRow('bezy_payments', 'sec_forged_1')) === false);
   check('neither account gained Premium', (await call('/api/premium', 'b')).data.premium.active === false);
 
   // ---------------------------------------------------------------- webhook
@@ -327,7 +310,7 @@ try {
   }
   check('every malformed or unexpected update returns 200 without crashing', allHandled);
   check('no payment was created by any malformed update',
-    (await firestore.collection('bezyPayments').get()).docs.filter((d) => isTestId(d.data().telegramUserId)).length === 0);
+    (await listRows('bezy_payments', [])).filter((d) => isTestId(d.telegramUserId)).length === 0);
   check('webhook rejects a wrong secret when one is configured', await (async () => {
     const previous = process.env.TELEGRAM_WEBHOOK_SECRET;
     process.env.TELEGRAM_WEBHOOK_SECRET = 'sec-test-secret';
@@ -375,14 +358,14 @@ try {
 
   r = await call('/api/swipe', 'a', { targetId: '900000099', action: 'like' });
   check('errors never contain a stack trace or database text',
-    !/at |Error:|FIRESTORE|firestore/i.test(JSON.stringify(r.data)), JSON.stringify(r.data));
+    !/at |Error:|POSTGRESQL|storage/i.test(JSON.stringify(r.data)), JSON.stringify(r.data));
   // A malformed target id is treated like any unknown account: indistinguishable success,
   // nothing written. That is the anti-enumeration contract, not an error path.
   r = await call('/api/relationship', 'a', { action: 'block', targetId: 'not-a-number' });
   check('a malformed target id is indistinguishable from an unknown one',
     r.status === 200 && r.data.blocked === true, JSON.stringify(r.data));
   check('nothing is written for a malformed target id',
-    (await firestore.collection('users').doc('900000001').collection('blocks').doc('not-a-number').get()).exists === false);
+    (await sql('SELECT 1 FROM blocks WHERE blocker_id=900000001 AND blocked_id::text=$1', ['not-a-number'])).rows.length === 0);
 
   // Genuine input errors return a stable code with no internal detail.
   for (const [label, body] of [
@@ -441,27 +424,27 @@ try {
     await cleanup();
     const OLD = Date.now() - 400 * 86400000;
     // An abandoned signup: never declared 18+, never completed a profile, long dormant.
-    await firestore.collection('users').doc('900000080').set({
+    await seedRow('users', ['900000080'], {
       telegramId: 900000080, createdAt: new Date(OLD)
     });
     // A complete, eligible account of the same age must never be selected.
-    await firestore.collection('users').doc('900000081').set({
+    await seedRow('users', ['900000081'], {
       telegramId: 900000081, createdAt: new Date(OLD), ageEligibilityConfirmed: true,
       profileComplete: true, discoverable: true, profile: PROFILES.b
     });
     // An abandoned signup that nonetheless paid must be protected by its payment history.
-    await firestore.collection('users').doc('900000082').set({
+    await seedRow('users', ['900000082'], {
       telegramId: 900000082, createdAt: new Date(OLD)
     });
-    await firestore.collection('bezyPayments').doc('ret_charge_1').set({
+    await seedRow('bezy_payments', ['ret_charge_1'], {
       telegramUserId: '900000082', planId: 'monthly', stars: 250, currency: 'XTR',
       status: 'processed', processedAt: new Date(OLD)
     });
-    await firestore.collection('matches').doc('900000080_900000081').set({
+    await seedRow('matches', ['900000080_900000081'], {
       participants: ['900000080', '900000081'], active: false, endedAt: new Date(OLD), createdAt: new Date(OLD)
     });
 
-    let plan = await planRetention(firestore, {});
+    let plan = await planRetention(storage, {});
     check('abandoned signup is selected', plan.users.includes('900000080'), plan.users.join(','));
     check('complete account is NOT selected', !plan.users.includes('900000081'));
     check('abandoned signup with a payment is NOT selected', !plan.users.includes('900000082'), plan.users.join(','));
@@ -472,17 +455,17 @@ try {
       plan.skipped.some((s) => s.category === 'payments' && /LEGAL REVIEW/.test(s.reason)));
 
     // Protecting an id must override selection entirely.
-    plan = await planRetention(firestore, { protectedIds: ['900000080'] });
+    plan = await planRetention(storage, { protectedIds: ['900000080'] });
     check('a protected id is never selected', !plan.users.includes('900000080'), plan.users.join(','));
 
     // Planning is pure: nothing was deleted by the calls above.
-    check('planning deletes nothing', (await firestore.collection('users').doc('900000080').get()).exists);
+    check('planning deletes nothing', Boolean(await getRow('users', '900000080')));
 
-    const applied = await applyRetention(firestore, await planRetention(firestore, {}));
-    check('apply removes the abandoned signup', (await firestore.collection('users').doc('900000080').get()).exists === false);
-    check('apply keeps the complete account', (await firestore.collection('users').doc('900000081').get()).exists);
-    check('apply keeps the paying account', (await firestore.collection('users').doc('900000082').get()).exists);
-    check('apply keeps the payment record', (await firestore.collection('bezyPayments').doc('ret_charge_1').get()).exists);
+    const applied = await applyRetention(storage, await planRetention(storage, {}));
+    check('apply removes the abandoned signup', Boolean(await getRow('users', '900000080')) === false);
+    check('apply keeps the complete account', Boolean(await getRow('users', '900000081')));
+    check('apply keeps the paying account', Boolean(await getRow('users', '900000082')));
+    check('apply keeps the payment record', Boolean(await getRow('bezy_payments', 'ret_charge_1')));
     check('apply reports what it removed', applied.users === 1 && applied.matches === 1, JSON.stringify(applied));
   }
 
@@ -490,7 +473,7 @@ try {
   await cleanup();
   await call('/api/profile/me', 'a', { ageEligibilityConfirmed: true });
   await call('/api/profile/me', 'a', { profile: PROFILES.a });
-  const stored = (await firestore.collection('users').doc('900000001').get()).data() || {};
+  const stored = (await getRow('users', '900000001')) || {};
   check('lastName is no longer collected', stored.lastName === undefined, JSON.stringify(Object.keys(stored)));
   check('isPremiumTelegram is no longer collected', stored.isPremiumTelegram === undefined);
   check('fields still needed are collected', Boolean(stored.telegramId && stored.username !== undefined && stored.languageCode !== undefined));

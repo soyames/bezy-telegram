@@ -4,10 +4,9 @@ node_modules/
 .env.*
 !.env.example
 
-# Never commit Firebase service-account credentials.
+# Never commit service-account credentials.
 *serviceAccount*.json
 *service-account*.json
-*firebase-adminsdk*.json
 *-adminsdk-*.json
 
 test-results/

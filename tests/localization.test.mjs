@@ -2,7 +2,7 @@
 //
 // Two jobs, and the second matters as much as the first:
 //   1. every user-visible string exists in English, French, German, Spanish AND Italian;
-//   2. localization can never reach a machine identifier — API routes, JSON keys, Firestore
+//   2. localization can never reach a machine identifier — API routes, JSON keys, PostgreSQL
 //      collection names, error codes, environment variables or Telegram links.
 //
 // English is the reference locale: the four other catalogues must cover exactly the
@@ -11,7 +11,7 @@
 // in api/ and follow the same five-language rule through `localized()`.
 //
 // Static analysis of the source plus unit tests of the shared language-resolution functions
-// (imported from api/_telegram.js). No network, no Firestore, no credentials.
+// (imported from api/_telegram.js). No network, no PostgreSQL, no credentials.
 //
 //   node tests/localization.test.mjs
 import fs from 'node:fs';
@@ -225,8 +225,11 @@ const botIdentityDrift = [];
 })('.');
 check('no file references a bare @BezyBot — the canonical username is @BezyDatingBot',
   botIdentityDrift.length === 0, botIdentityDrift.join(','));
-check('the roadmap records the permanent bot-username decision',
-  /`@BezyDatingBot`\*\* — must not be changed/.test(read('docs/BEZY_MASTER_ROADMAP.md')), 'decision line not found in roadmap §1');
+// The roadmap is a private, gitignored document (owner decision: docs/ is never published).
+// When it exists locally it must record the decision; a fresh clone without it must still pass.
+const roadmap = (() => { try { return read('docs/BEZY_MASTER_ROADMAP.md'); } catch { return ''; } })();
+check('the roadmap records the permanent bot-username decision when present',
+  !roadmap || /`@BezyDatingBot`\*\* — must not be changed/.test(roadmap), 'decision line not found in roadmap §1');
 
 check('every notification category has a label in every language',
   apiOptionalCategories.every((id) => Object.values(LOCALES).every((cat) => cat[`notify_${id}`])),
@@ -267,6 +270,7 @@ for (const [key, token] of [['why_interests', '{values}'], ['why_city', '{values
 section('Feature areas are covered in every language');
 const AREAS = {
   'age gate': ['age_gate_title', 'age_gate_body', 'age_confirm', 'age_deny', 'age_note', 'age_blocked_title', 'age_blocked_body', 'age_status_title', 'age_self_declared'],
+  'home screen': ['home_screen_title', 'home_screen_body', 'home_screen_add', 'home_screen_added'],
   premium: ['premium_intro', 'choose_plan', 'subscribe_with_stars', 'active_until', 'days_remaining', 'premium_active', 'stars_note', 'stars_needed', 'not_telegram_premium', 'premium_expired', 'premium_revoked', 'premium_lapsed_hint'],
   payment: ['preparing_checkout', 'payment_cancelled', 'payment_failed', 'payment_received', 'payment_pending', 'payment_processing'],
   deletion: ['delete_account', 'delete_explain', 'delete_retained', 'delete_type', 'delete_done_title', 'delete_done_body'],
@@ -354,7 +358,7 @@ const FORBIDDEN_IN_VALUES = [
   // `objection_explain` names the GDPR / RGPD and its article on purpose — a legal reference
   // the user is entitled to see, not a machine token.
   [/\b[A-Z][A-Z_]{3,}\b/, 'a machine error code', ['delete_type', 'objection_explain']],
-  [/\bTELEGRAM_BOT_TOKEN|FIREBASE_[A-Z_]+|BEZY_MINI_APP_URL\b/, 'an environment variable']
+  [/\bTELEGRAM_BOT_TOKEN|DATABASE_URL|BEZY_MINI_APP_URL\b/, 'an environment variable']
 ];
 for (const [lang, cat] of Object.entries(LOCALES)) {
   for (const [pattern, what, exempt = []] of FORBIDDEN_IN_VALUES) {
@@ -389,7 +393,7 @@ check('the outside-Telegram gate links the canonical bot',
 // The built-in fallback catalogue renders when the locale fetch fails (the degraded-state
 // e2e spec drives that path). It is generated from locales/en.json by
 // scripts/sync-fallback-locale.mjs; this check pins that it cannot drift.
-const fallbackBlock = /BEGIN fallback catalogue[\s\S]*?\n {6}app: (\{.*\}),\n {6}\/\/ END fallback catalogue/.exec(app);
+const fallbackBlock = /BEGIN fallback catalogue[\s\S]*?\r?\n {6}app: (\{.*\}),\r?\n {6}\/\/ END fallback catalogue/.exec(app);
 check('the built-in fallback catalogue is present in app.js', Boolean(fallbackBlock), 'marker block not found');
 if (fallbackBlock) {
   let fallbackKeys = [];
@@ -421,9 +425,9 @@ const apiSource = apiFiles.map((f) => read(f)).join('\n');
 for (const field of CONTRACT_FIELDS) {
   check(`contract field ${field} is present and unlocalized`, apiSource.includes(field), '');
 }
-const FIRESTORE_COLLECTIONS = ['users', 'matches', 'actions', 'likesReceived', 'bezyPremium', 'usage', 'bezyInvoices', 'bezyPayments', 'reports', 'blocks', 'rateLimits'];
-for (const col of FIRESTORE_COLLECTIONS) {
-  check(`Firestore identifier "${col}" still used verbatim`, apiSource.includes(col), '');
+const DOMAIN_RECORDS = ['users', 'matches', 'actions', 'likesReceived', 'bezyPremium', 'usage', 'bezyInvoices', 'bezyPayments', 'reports', 'blocks', 'rateLimits'];
+for (const col of DOMAIN_RECORDS) {
+  check(`PostgreSQL identifier "${col}" still used verbatim`, apiSource.includes(col), '');
 }
 
 // Telegram links are built from the stored handle, never from a translated string.
@@ -776,7 +780,7 @@ section('Formal legal documents are deliberately not translated by this work');
 // ---------------------------------------------------------------- photo architecture
 section('Telegram is the only photo source');
 const PHOTO_FORBIDDEN = [
-  [/firebase-admin\/storage|getStorage\(/, 'Firebase Storage'],
+  [/getStorage\(/, 'direct storage access'],
   [/cloudinary/i, 'Cloudinary'],
   [/aws-sdk|s3\.upload|S3Client/i, 'S3'],
   [/@vercel\/blob|vercel\/blob/i, 'Vercel Blob'],
@@ -790,7 +794,7 @@ for (const [pattern, what] of PHOTO_FORBIDDEN) {
 check('the only stored photo reference is the Telegram-provided URL',
   /photoUrl: user\.photo_url \|\| ''/.test(read('api/profile/me.js')),
   'profile endpoint no longer stores photo_url verbatim');
-check('no image bytes are ever written to Firestore',
+check('no image bytes are ever written to PostgreSQL',
   !/photoData|photoBytes|imageBuffer|photoBase64/.test(allSource));
 check('package.json declares no image or storage dependency',
   !/cloudinary|aws-sdk|@vercel\/blob|sharp|multer|jimp/.test(read('package.json')),

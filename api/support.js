@@ -1,4 +1,4 @@
-import { db } from './_firebase.js';
+import { ApiError } from './_db.js';
 import { requirePost, requireTelegramUser } from './_telegram.js';
 import { rateLimit } from './_ratelimit.js';
 import { normalizeSupportRequest, createSupportRequest, listSupportRequests } from './_support.js';
@@ -17,14 +17,13 @@ export default async function handler(req, res) {
 
   const action = String(req.body?.action || '');
   try {
-    const firestore = db();
     if (action === 'create') {
-      if (!(await rateLimit(firestore, res, user.id, 'support_create'))) return;
+      if (!(await rateLimit(null, res, user.id, 'support_create'))) return;
       const request = normalizeSupportRequest(req.body);
       if (!request.category || !request.details) {
         return res.status(400).json({ error: 'INVALID_ACTION' });
       }
-      const reference = await createSupportRequest(firestore, {
+      const reference = await createSupportRequest(null, {
         telegramUserId: user.id,
         category: request.category,
         details: request.details,
@@ -33,10 +32,11 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, reference });
     }
     if (action === 'list') {
-      return res.status(200).json({ ok: true, requests: await listSupportRequests(firestore, user.id) });
+      return res.status(200).json({ ok: true, requests: await listSupportRequests(null, user.id) });
     }
     return res.status(400).json({ error: 'INVALID_ACTION' });
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     console.error('Support request failed:', error);
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }

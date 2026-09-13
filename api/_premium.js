@@ -114,66 +114,77 @@ export const REFUND_STATUS = { NONE: 'none', PENDING: 'pending', REFUNDED: 'refu
  * purchase data (plan, amount, purchase date, charge id, original expiry) is preserved;
  * only entitlement is withdrawn.
  *
- * `firestore` is injected so this module stays free of the Admin SDK singleton and can be
+ * `storage` is injected so this module stays free of the Admin SDK singleton and can be
  * driven from a local script as easily as from a serverless function.
  *
  * @returns {Promise<{outcome: 'refunded'|'already_refunded'|'unknown_payment', ...}>}
  */
-export async function applyRefund(firestore, chargeId, { source = 'telegram_webhook', now = new Date() } = {}) {
+export async function applyRefund(storage, chargeId, { source = 'telegram_webhook', now = new Date() } = {}) {
   const id = String(chargeId || '');
   if (!id) return { outcome: 'unknown_payment', chargeId: id };
 
-  const paymentRef = firestore.collection('bezyPayments').doc(id);
-
-  return firestore.runTransaction(async (tx) => {
-    const paymentSnap = await tx.get(paymentRef);
+  const { tx, advisoryLock } = await import('./_db.js');
+  return tx(async (q) => {
+    await advisoryLock(q, `charge:${id}`);
+    const paymentRows = await q('SELECT * FROM bezy_payments WHERE telegram_payment_charge_id = $1 FOR UPDATE', [id]);
     // A refund for a charge Bezy never recorded is not something we can act on. It is
     // reported rather than silently written, so it shows up in the logs.
-    if (!paymentSnap.exists) return { outcome: 'unknown_payment', chargeId: id };
+    const payment = paymentRows.rows[0] || null;
+    if (!payment) return { outcome: 'unknown_payment', chargeId: id };
 
-    const payment = paymentSnap.data() || {};
-    const telegramUserId = String(payment.telegramUserId || '');
+    const telegramUserId = String(payment.telegram_user_id || '');
+    await advisoryLock(q, `premium:${telegramUserId}`);
 
-    if (payment.refundStatus === REFUND_STATUS.REFUNDED) {
-      return { outcome: 'already_refunded', chargeId: id, telegramUserId, planId: payment.planId || null };
+    if (payment.refund_status === REFUND_STATUS.REFUNDED) {
+      return { outcome: 'already_refunded', chargeId: id, telegramUserId, planId: payment.plan_id || null };
     }
 
-    const userRef = telegramUserId ? firestore.collection('users').doc(telegramUserId) : null;
-    const userSnap = userRef ? await tx.get(userRef) : null;
-    const userData = userSnap?.exists ? userSnap.data() : {};
-    const before = premiumState(userData, now);
+    const membershipRows = telegramUserId
+      ? await q('SELECT * FROM premium_memberships WHERE telegram_id = $1 FOR UPDATE', [telegramUserId])
+      : { rows: [] };
+    const membership = membershipRows.rows[0] || null;
+    const before = premiumState(
+      membership ? {
+        bezyPremium: {
+          active: membership.active === true,
+          planId: membership.plan_id,
+          expiresAt: membership.expires_at ? new Date(membership.expires_at) : null,
+          revokedAt: membership.revoked_at ? new Date(membership.revoked_at) : null,
+          revocationReason: membership.revocation_reason
+        }
+      } : {},
+      now
+    );
 
-    tx.set(paymentRef, {
-      refundStatus: REFUND_STATUS.REFUNDED,
-      refundedAt: now,
-      refundSource: source,
-      status: 'refunded'
-    }, { merge: true });
+    await q(
+      `UPDATE bezy_payments SET refund_status = $1, refunded_at = $2, refund_source = $3, status = 'refunded'
+       WHERE telegram_payment_charge_id = $4`,
+      [REFUND_STATUS.REFUNDED, now, source, id]
+    );
 
     // The membership keeps its full history and simply stops granting access. Setting
-    // active:false plus revokedAt is what premiumState() reads, so every Premium-gated
+    // active=false plus revoked_at is what premiumState() reads, so every Premium-gated
     // endpoint sees the user as Free on its very next call.
-    const membership = userData.bezyPremium || {};
     const revoked = before.active;
-    if (userRef && revoked) {
-      tx.set(userRef, {
-        bezyPremium: {
-          ...membership,
-          active: false,
-          revokedAt: now,
-          revocationReason: 'refund',
-          refundedChargeId: id,
-          updatedAt: now
-        }
-      }, { merge: true });
+    if (telegramUserId && revoked) {
+      await q(
+        `INSERT INTO premium_memberships (telegram_id, active, plan_id, expires_at, purchased_at, updated_at, source,
+                                          telegram_payment_charge_id, revoked_at, revocation_reason)
+         SELECT telegram_id, FALSE, plan_id, expires_at, purchased_at, $1, source, telegram_payment_charge_id, $1, 'refund'
+         FROM premium_memberships WHERE telegram_id = $2
+         ON CONFLICT (telegram_id) DO UPDATE SET active = FALSE, revoked_at = EXCLUDED.revoked_at,
+           revocation_reason = EXCLUDED.revocation_reason, updated_at = EXCLUDED.updated_at`,
+        [now, telegramUserId]
+      );
+      await q('UPDATE premium_memberships SET refunded_charge_id=$1 WHERE telegram_id=$2', [id, telegramUserId]);
     }
 
     return {
       outcome: 'refunded',
       chargeId: id,
       telegramUserId,
-      planId: payment.planId || null,
-      stars: payment.stars ?? null,
+      planId: payment.plan_id || null,
+      stars: payment.stars != null ? String(payment.stars) : null,
       revoked,
       previousState: before.active ? 'active' : 'inactive',
       newState: 'inactive'

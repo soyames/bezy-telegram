@@ -1,6 +1,5 @@
+import { getRow, listRows, seedRow, deleteRow, resetTestData, sql } from '../fixtures.mjs';
 import { test, expect } from '@playwright/test';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -11,15 +10,8 @@ import path from 'node:path';
 // than a fifth copy of every screen. URLs, API paths and stored enum values are deliberately
 // NOT translated.
 
-if (!getApps().length) {
-  if (process.env.BEZY_SERVICE_ACCOUNT) {
-    const sa = JSON.parse(fs.readFileSync(process.env.BEZY_SERVICE_ACCOUNT, 'utf8'));
-    initializeApp({ credential: cert({ projectId: sa.project_id, clientEmail: sa.client_email, privateKey: sa.private_key }) });
-  } else {
-    initializeApp({ credential: cert({ projectId: process.env.FIREBASE_PROJECT_ID, clientEmail: process.env.FIREBASE_CLIENT_EMAIL, privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n') }) });
-  }
-}
-const db = getFirestore();
+
+const storage = null;
 const ADA = '900000001';
 const root = path.resolve('.');
 const en = JSON.parse(fs.readFileSync(path.join(root, 'locales/en.json'), 'utf8')).app;
@@ -32,20 +24,7 @@ const PROFILES = {
   a: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman', seeking: 'men', interests: ['music'], bio: 'Bonjour.', discoverable: true },
   b: { displayName: 'Bo', age: 31, city: 'Paris', gender: 'man', seeking: 'women', interests: ['music'], bio: 'Salut.', discoverable: true }
 };
-async function cleanup() {
-  for (const doc of (await db.collection('users').get()).docs) {
-    if (/^9000000\d\d$/.test(doc.id)) await db.recursiveDelete(doc.ref);
-  }
-  for (const doc of (await db.collection('rateLimits').get()).docs) {
-    if (/^9000000\d\d$/.test(doc.id)) await doc.ref.delete();
-  }
-  for (const col of ['matches', 'bezyPayments', 'bezyInvoices', 'reports']) {
-    for (const doc of (await db.collection(col).get()).docs) {
-      const d = doc.data();
-      if ((d.participants || []).some((p) => /^9000000\d\d$/.test(p)) || /^9000000\d\d$/.test(String(d.telegramUserId)) || /^9000000\d\d$/.test(String(d.reporterId)) || /^9000000\d\d$/.test(String(d.targetId))) await doc.ref.delete();
-    }
-  }
-}
+async function cleanup() { await resetTestData(); }
 async function seed(page) {
   const users = await (await page.request.get('/__test-users')).json();
   for (const key of ['a', 'b']) {
@@ -140,7 +119,7 @@ test('French Premium screen and filter sheet are fully translated', async ({ pag
 });
 
 test('French error messages come from the catalogue, not the API', async ({ page }) => {
-  await db.collection('users').doc(ADA).set({
+  await seedRow('users', [ADA], {
     usage: { day: new Date().toISOString().slice(0, 10), discoveryActions: 30, superLikes: 1 }
   }, { merge: true });
 
@@ -157,8 +136,11 @@ test('German UI shows no raw keys and no English across every view', async ({ pa
   expect(await page.getAttribute('html', 'lang')).toBe('de');
 
   // English strings that would be unmistakable regressions if they surfaced in German.
+  // ("Profile" and "Matches" are deliberately absent: both are also legitimate German
+  // nouns — "Profile zu entdecken", "Deine Matches"; the nav labels are asserted exactly
+  // below.)
   const englishLeaks = [
-    'Discover', 'Matches', 'Profile', 'Save profile', 'Display name', 'Looking for',
+    'Discover', 'Save profile', 'Display name', 'Looking for',
     'Filters', 'Apply filters', 'Choose your plan', 'Subscribe with Telegram Stars',
     'See who liked you', 'Active until', 'Days remaining', 'Loading', 'people to discover'
   ];
@@ -207,7 +189,7 @@ test('German Premium screen and filter sheet are fully translated', async ({ pag
 });
 
 test('German error messages come from the catalogue, not the API', async ({ page }) => {
-  await db.collection('users').doc(ADA).set({
+  await seedRow('users', [ADA], {
     usage: { day: new Date().toISOString().slice(0, 10), discoveryActions: 30, superLikes: 1 }
   }, { merge: true });
 
@@ -240,7 +222,8 @@ test('Spanish UI is translated across the representative screens', async ({ page
   expect(await page.locator('#seeking option').evaluateAll((o) => o.map((x) => x.value)))
     .toEqual(['women', 'men', 'everyone']);
 
-  // Premium screen.
+  // Premium screen (the hero CTA lives in the Discover view).
+  await page.locator('.nav button[data-view="discover"]').click();
   await page.locator('#premiumBtn').click();
   const premium = await page.locator('#premium-view').innerText();
   expect(premium).not.toMatch(/\bapp\.[a-z_]+/);
@@ -260,7 +243,7 @@ test('Spanish UI is translated across the representative screens', async ({ page
 
 // Focused Italian coverage: nav, profile, Premium and the catalogue-driven error mapping.
 test('Italian UI is translated and errors come from the catalogue', async ({ page }) => {
-  await db.collection('users').doc(ADA).set({
+  await seedRow('users', [ADA], {
     usage: { day: new Date().toISOString().slice(0, 10), discoveryActions: 30, superLikes: 1 }
   }, { merge: true });
 
@@ -280,7 +263,8 @@ test('Italian UI is translated and errors come from the catalogue', async ({ pag
   await expect(page.locator('#gender option[value="man"]')).toHaveText(it.man);
   await expect(page.locator('#seeking option[value="everyone"]')).toHaveText(it.everyone);
 
-  // Premium screen.
+  // Premium screen (the hero CTA lives in the Discover view).
+  await page.locator('.nav button[data-view="discover"]').click();
   await page.locator('#premiumBtn').click();
   const premium = await page.locator('#premium-view').innerText();
   expect(premium).not.toMatch(/\bapp\.[a-z_]+/);
@@ -300,6 +284,7 @@ test('language switch updates the whole UI, the brand tagline and legal links', 
   await page.goto('/?as=a');
   await expect(page.locator('html')).toHaveAttribute('data-bezy-ready', 'true');
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   // The brand tagline follows the resolved locale like every other surface.
   await expect(page.locator('#tagline')).toHaveText(en.tagline);
 
@@ -342,6 +327,7 @@ test('a manual language choice overrides Telegram and persists across reloads', 
   expect(await page.getAttribute('html', 'lang')).toBe('fr');
 
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   await page.locator('[data-language="de"]').click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
   await expect(page.locator('#tagline')).toHaveText(de.tagline);
@@ -371,9 +357,10 @@ test('profile form option values stay canonical while labels translate', async (
   // Labels are French...
   await expect(page.locator('#gender option[value="woman"]')).toHaveText(fr.woman);
   await expect(page.locator('#seeking option[value="everyone"]')).toHaveText(fr.everyone);
-  // ...but the stored values remain the canonical English enums the API expects.
+  // ...but the stored values remain the canonical English enums the API expects. The empty
+  // first option is the "Choose…" placeholder, not a value that can be stored.
   expect(await page.locator('#gender option').evaluateAll((o) => o.map((x) => x.value)))
-    .toEqual(['woman', 'man', 'non_binary', 'prefer_not_to_say']);
+    .toEqual(['', 'woman', 'man', 'non_binary', 'prefer_not_to_say']);
   expect(await page.locator('#seeking option').evaluateAll((o) => o.map((x) => x.value)))
     .toEqual(['women', 'men', 'everyone']);
 });
@@ -384,9 +371,10 @@ test('profile form option values stay canonical while German labels translate', 
   // Labels are German...
   await expect(page.locator('#gender option[value="woman"]')).toHaveText(de.woman);
   await expect(page.locator('#seeking option[value="everyone"]')).toHaveText(de.everyone);
-  // ...but the stored values remain the canonical English enums the API expects.
+  // ...but the stored values remain the canonical English enums the API expects. The empty
+  // first option is the "Choose…" placeholder, not a value that can be stored.
   expect(await page.locator('#gender option').evaluateAll((o) => o.map((x) => x.value)))
-    .toEqual(['woman', 'man', 'non_binary', 'prefer_not_to_say']);
+    .toEqual(['', 'woman', 'man', 'non_binary', 'prefer_not_to_say']);
   expect(await page.locator('#seeking option').evaluateAll((o) => o.map((x) => x.value)))
     .toEqual(['women', 'men', 'everyone']);
 });

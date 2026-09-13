@@ -1,4 +1,4 @@
-// Bezy API contract suite. Pure — no Firestore, no network, no credentials: it pins the
+// Bezy API contract suite. Pure — no PostgreSQL, no network, no credentials: it pins the
 // documented response shapes (docs/API_CONTRACT.md, version 1) against the builders that
 // actually produce them, so a shape change must be a deliberate contract change, not an
 // accident. A changed key set, an added field, or a field leaking past its disclosure
@@ -165,17 +165,17 @@ section('NO RECIPROCAL LIKE = NO MATCH');
   const matchesSource = read('api/matches.js');
   const discoverSource = read('api/discover.js');
   check('match creation requires a reciprocal like',
-    /const matched = isLike && isReciprocalLike;/.test(swipeSource) && /if \(matched && !existingMatch\.exists\)/.test(swipeSource),
+    /const matched = isLike && isReciprocalLike;/.test(swipeSource) && /if \(matched && !existingMatch\)/.test(swipeSource),
     'mutual-like condition missing from api/swipe.js');
   check('a pass ends the match document it overwrites',
-    /endedReason: 'pass'/.test(swipeSource), 'post-match pass does not deactivate the match');
+    /ended_reason = 'pass'/.test(swipeSource), 'post-match pass does not deactivate the match');
   check('the matches read path verifies reciprocal actions and never writes',
-    matchesSource.includes("collection('actions')") && !matchesSource.includes('.set('),
+    matchesSource.includes('JOIN actions') && !/INSERT INTO|UPDATE matches/.test(matchesSource),
     'api/matches.js must read both action documents and stay read-only');
   check('compatibility code has no write access to matches',
-    !discoverSource.includes("collection('matches')"), 'api/discover.js references the matches collection');
+    !/INSERT INTO matches|UPDATE matches/.test(discoverSource), 'api/discover.js references the matches collection');
   check('exactly one match-creation site exists and it is the mutual-like path',
-    (swipeSource.match(/source: 'mutual_like'/g) || []).length === 1,
+    (swipeSource.match(/'mutual_like'/g) || []).length === 1,
     'the mutual-like creation marker appears more than once or not at all');
 }
 
@@ -226,10 +226,10 @@ section('Messaging API contract');
     messagesSource.includes('isPremiumActive') && messagesSource.includes("'PREMIUM_REQUIRED'"),
     'premium gate missing from api/messages.js');
   check('the conversation is gated by an active mutual match',
-    messagesSource.includes("collection('matches')") && messagesSource.includes('active === false'),
+    messagesSource.includes('FROM matches') && messagesSource.includes('active === false'),
     'match gate missing from api/messages.js');
   check('blocks end the conversation in both directions',
-    messagesSource.includes("collection('blocks')") && messagesSource.includes("collection('blockedBy')"),
+    messagesSource.includes('FROM blocks') && messagesSource.includes('FROM blocked_by'),
     'block checks missing from api/messages.js');
   check('sends are idempotent and length-limited',
     messagesSource.includes('CLIENT_ID_PATTERN') && messagesSource.includes('MAX_LENGTH'),
@@ -241,10 +241,10 @@ section('Messaging API contract');
     read('api/matches.js').includes('lastMessagePreview') && read('api/matches.js').includes('unread:'),
     'conversation metadata missing from api/matches.js');
   check('account deletion erases conversations',
-    read('api/account.js').includes("collection('conversations')"),
+    read('api/account.js').includes('DELETE FROM conversations'),
     'conversation erasure missing from api/account.js');
   check('block and unmatch close the conversation',
-    (read('api/relationship.js').match(/status: 'blocked'|status: 'closed'/g) || []).length === 2,
+    (read('api/relationship.js').match(/status = 'blocked'|status = 'closed'/g) || []).length === 2,
     'conversation lifecycle missing from api/relationship.js');
   check('the message notification never carries the message content',
     !/deliverNotification\([^)]*message\.text|text: message\.text/.test(messagesSource) && messagesSource.includes("'messages'"),
@@ -431,11 +431,9 @@ section('Support flow (contract version 1.2)');
   check('discovery never windows candidates in the query',
     !/\.limit\(100\)/.test(read('api/discover.js')), 'limit(100) found in api/discover.js');
   check('discovery orders newest-first in memory',
-    /createdAt\?\.toMillis/.test(read('api/discover.js')), 'in-memory newest-first sort missing');
-  const indexFile = JSON.parse(read('firestore.indexes.json'));
-  check('no users composite index is declared for discovery',
-    !(indexFile.indexes || []).some((i) => i.collectionGroup === 'users'),
-    'a users composite index is still declared; the query no longer needs one');
+    /createdAt\?\.getTime/.test(read('api/discover.js')), 'in-memory newest-first sort missing');
+  check('database connections enforce TLS and bounded pooling',
+    read('api/_db.js').includes('rejectUnauthorized: true') && read('api/_db.js').includes('max: 4'));
   check('support categories are a closed machine-token list',
     SUPPORT_CATEGORIES.length > 0 && SUPPORT_CATEGORIES.every((id) => /^[a-z_]+$/.test(id)));
   check('support statuses are the documented four-state lifecycle',
@@ -532,15 +530,22 @@ section('Architecture decision records (version 1)');
     '0007-localization-presentation-only.md',
     '0008-billing-disabled-free-tier.md',
     '0009-bezy-native-messaging.md',
-    '0010-age-assurance-no-identity-verification.md'
+    '0010-age-assurance-no-identity-verification.md',
+    '0011-datastore-neon-postgresql.md'
   ];
-  check('the ADR directory holds exactly the documented ADRs',
-    fs.readdirSync(path.join(root, 'docs/adr')).filter((f) => f.endsWith('.md')).sort().join(',') === ADRS.slice().sort().join(','),
-    fs.readdirSync(path.join(root, 'docs/adr')).filter((f) => f.endsWith('.md')).sort().join(','));
+  // The ADRs are private, gitignored documents (owner decision: docs/ is never published).
+  // When present locally they must match exactly; a fresh clone without them must still pass.
+  const adrFiles = (() => {
+    try { return fs.readdirSync(path.join(root, 'docs/adr')).filter((f) => f.endsWith('.md')).sort(); }
+    catch { return null; }
+  })();
+  check('the ADR directory holds exactly the documented ADRs when present',
+    !adrFiles || adrFiles.join(',') === ADRS.slice().sort().join(','),
+    adrFiles ? adrFiles.join(',') : 'docs/adr absent');
   for (const file of ADRS) {
-    const body = read(`docs/adr/${file}`);
+    const body = (() => { try { return read(`docs/adr/${file}`); } catch { return ''; } })();
     check(`${file} records status and decision`,
-      /- \*\*Status:\*\*/.test(body) && /## Decision/.test(body) && /## Consequences/.test(body));
+      !body || (/- \*\*Status:\*\*/.test(body) && /## Decision/.test(body) && /## Consequences/.test(body)));
   }
 }
 

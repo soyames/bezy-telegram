@@ -333,7 +333,11 @@
     "interests_limit": "بحد أقصى 12 اهتمامًا.",
     "quota_likes_left": "متبقٍ اليوم {n} إعجابات",
     "quota_super_likes_left": "متبقٍ {n} من إعجابات سوبر",
-    "check_payment_status": "تحقق من حالة الدفع"
+    "check_payment_status": "تحقق من حالة الدفع",
+    "home_screen_title": "أضف Bezy إلى الشاشة الرئيسية",
+    "home_screen_body": "اجعل Bezy على بُعد لمسة واحدة — أضفه إلى الشاشة الرئيسية لهاتفك.",
+    "home_screen_add": "أضف Bezy إلى الشاشة الرئيسية",
+    "home_screen_added": "Bezy على شاشتك الرئيسية ✓"
   },
   "profile": {
     "edit": "تعديل الملف الشخصي",

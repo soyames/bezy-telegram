@@ -16,7 +16,6 @@
 
 import { normalizedLanguage, localized, miniAppUrl } from './_telegram.js';
 import { deliverNotification } from './_notify.js';
-import { processingPaused } from './_privacy.js';
 
 export const REMINDER_CATEGORY = 'profile_reminders';
 
@@ -110,27 +109,36 @@ export function reminderMessage(languageCode) {
  *
  * `limit` bounds the blast radius of one run; the operator raises it deliberately.
  */
-export async function planProfileReminders(firestore, { limit = 200, protectedIds = [] } = {}) {
+export async function planProfileReminders(storage, { limit = 200, protectedIds = [] } = {}) {
   const guard = new Set(protectedIds.map(String));
   const plan = { users: [], skipped: 0 };
-  // No orderBy in the query: where + orderBy on different fields would need a composite
-  // index. The eligible set is tiny next to the full collection scan, so sorting happens
-  // here instead.
-  const candidates = await firestore.collection('users')
-    .where('ageEligibilityConfirmed', '==', true)
-    .get();
-
-  const docs = candidates.docs.slice().sort((a, b) => {
-    const millis = (d) => d.data()?.createdAt?.toMillis?.() ?? new Date(d.data()?.createdAt || 0).getTime();
-    return millis(a) - millis(b);
-  });
-  for (const doc of docs) {
+  const { query } = await import('./_db.js');
+  // Oldest first — those are the accounts most at risk of leaving forever. The WHERE
+  // clause is indexed by the partial users_discoverable-style shape; sorting is in SQL.
+  const result = await query(
+    `SELECT u.telegram_id, u.created_at, u.profile_complete, u.processing_restricted, u.processing_objection,
+            u.language_code, u.locale,
+            ns.profile_reminders AS reminders_enabled
+     FROM users u
+     LEFT JOIN notification_settings ns ON ns.telegram_id = u.telegram_id
+     WHERE u.age_eligibility_confirmed = TRUE
+     ORDER BY u.created_at ASC`
+  );
+  for (const row of result.rows) {
     if (plan.users.length >= limit) { plan.skipped++; continue; }
-    if (guard.has(doc.id)) continue;
-    const data = doc.data() || {};
-    if (data.profileComplete === true) continue;
-    if (processingPaused(data)) continue;
-    plan.users.push({ id: doc.id, data });
+    if (guard.has(String(row.telegram_id))) continue;
+    if (row.profile_complete === true) continue;
+    if (row.processing_restricted === true || row.processing_objection === true) continue;
+    plan.users.push({
+      id: String(row.telegram_id),
+      data: {
+        telegramId: String(row.telegram_id),
+        languageCode: row.language_code,
+        locale: row.locale,
+        createdAt: row.created_at,
+        notifications: { profile_reminders: row.reminders_enabled !== false }
+      }
+    });
   }
 
   return plan;
@@ -141,12 +149,12 @@ export async function planProfileReminders(firestore, { limit = 200, protectedId
  * cap are all applied in one place. Never throws per user: one failed delivery must not stop
  * the rest of the run, and a notification must never become an error for an operator task.
  */
-export async function sendProfileReminders(firestore, plan) {
+export async function sendProfileReminders(storage, plan) {
   const summary = { sent: 0, disabled: 0, capped: 0, failed: 0, noRecipient: 0 };
   for (const user of plan.users) {
     // The user's explicit Bezy choice wins over their Telegram language.
     const message = reminderMessage(user.data?.locale || user.data?.languageCode);
-    const result = await deliverNotification(firestore, user.data, REMINDER_CATEGORY, {
+    const result = await deliverNotification(storage, user.data, REMINDER_CATEGORY, {
       text: message.text,
       reply_markup: { inline_keyboard: [[{ text: message.button, web_app: { url: miniAppUrl('profile') } }]] }
     });

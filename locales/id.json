@@ -333,7 +333,11 @@
     "interests_limit": "Maksimal 12 minat.",
     "quota_likes_left": "Tersisa {n} suka hari ini",
     "quota_super_likes_left": "Tersisa {n} Super Like",
-    "check_payment_status": "Periksa status pembayaran"
+    "check_payment_status": "Periksa status pembayaran",
+    "home_screen_title": "Tambahkan Bezy ke layar utama",
+    "home_screen_body": "Jaga Bezy tetap satu ketukan lagi — tambahkan ke layar utama ponselmu.",
+    "home_screen_add": "Tambahkan Bezy ke layar utama",
+    "home_screen_added": "Bezy ada di layar utamamu ✓"
   },
   "profile": {
     "edit": "Ubah profil",

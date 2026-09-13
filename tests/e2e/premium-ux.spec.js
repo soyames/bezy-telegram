@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Premium UX consistency, Firestore-free. The single entitlement source is the backend
+// Premium UX consistency, PostgreSQL-free. The single entitlement source is the backend
 // /api/premium verdict, stubbed here. Pinned behaviour:
 //   - an active member never sees an "Unlock Premium" pitch anywhere — the promo cards show
 //     membership status and their buttons read "View membership";

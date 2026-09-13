@@ -1,4 +1,4 @@
-// Pure discovery-pipeline suite — no Firestore, no credentials, no synthetic accounts.
+// Pure discovery-pipeline suite — no PostgreSQL, no credentials, no synthetic accounts.
 //
 // Pins the invariants behind a live production discovery failure, where an eligible,
 // discoverable user never reached another user's deck:
@@ -13,7 +13,7 @@
 //      serialization (cleared age input -> 0 -> clamped maxAge 18) must never empty a
 //      deck, and an omitted filter must never shrink it.
 //
-// The Firestore-backed end of the same regression (the real handler, the candidate
+// The PostgreSQL-backed end of the same regression (the real handler, the candidate
 // query, >100-pool windows, pagination) lives in tests/backend.test.mjs.
 import {
   genderMatches,

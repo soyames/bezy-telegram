@@ -1,20 +1,12 @@
+import { getRow, listRows, seedRow, deleteRow, resetTestData, sql } from '../fixtures.mjs';
 import { test, expect } from '@playwright/test';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'node:fs';
 
 // Bezy-specific safety and privacy controls in the real Mini App: block, report, unmatch,
 // data export and account deletion. Telegram's own safety stack is out of scope by design.
 
-if (!getApps().length) {
-  if (process.env.BEZY_SERVICE_ACCOUNT) {
-    const sa = JSON.parse(fs.readFileSync(process.env.BEZY_SERVICE_ACCOUNT, 'utf8'));
-    initializeApp({ credential: cert({ projectId: sa.project_id, clientEmail: sa.client_email, privateKey: sa.private_key }) });
-  } else {
-    initializeApp({ credential: cert({ projectId: process.env.FIREBASE_PROJECT_ID, clientEmail: process.env.FIREBASE_CLIENT_EMAIL, privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n') }) });
-  }
-}
-const db = getFirestore();
+
+const storage = null;
 const ADA = '900000001';
 const BO = '900000002';
 const isTest = (v) => /^9000000\d\d$/.test(String(v));
@@ -24,20 +16,7 @@ const PROFILES = {
   b: { displayName: 'Bo', age: 31, city: 'Paris', gender: 'man', seeking: 'women', interests: ['music'], bio: 'E2E.', discoverable: true }
 };
 
-async function cleanup() {
-  for (const doc of (await db.collection('users').get()).docs) {
-    if (isTest(doc.id)) await db.recursiveDelete(doc.ref);
-  }
-  for (const doc of (await db.collection('rateLimits').get()).docs) {
-    if (/^9000000\d\d$/.test(doc.id)) await doc.ref.delete();
-  }
-  for (const col of ['matches', 'bezyPayments', 'bezyInvoices', 'reports']) {
-    for (const doc of (await db.collection(col).get()).docs) {
-      const d = doc.data();
-      if ((d.participants || []).some(isTest) || isTest(d.telegramUserId) || isTest(d.reporterId) || isTest(d.targetId)) await doc.ref.delete();
-    }
-  }
-}
+async function cleanup() { await resetTestData(); }
 
 async function seedMatched(page) {
   const users = await (await page.request.get('/__test-users')).json();
@@ -62,9 +41,9 @@ test('a match can be blocked from the Mini App and disappears for both users', a
   const users = await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="matches"]').click();
-  await expect(page.locator('.match-info b')).toContainText('Bo');
+  await expect(page.locator('#match-grid .match-info b')).toContainText('Bo');
 
-  await page.locator('[data-actions]').click();
+  await page.locator('#match-grid [data-actions]').click();
   await page.locator('[data-act="block"]').click();
   await page.locator('[data-act="confirm"]').click();
   await expect(page.locator('#toast')).toContainText('Blocked');
@@ -75,14 +54,14 @@ test('a match can be blocked from the Mini App and disappears for both users', a
   expect(bosMatches.matches).toHaveLength(0);
   const swipe = await page.request.post('/api/swipe', { data: { initData: users.b.initData, targetId: ADA, action: 'like' } });
   expect(swipe.status()).toBe(404);
-  expect((await db.collection('users').doc(ADA).collection('blocks').doc(BO).get()).exists).toBe(true);
+  expect(Boolean(await getRow('blocks', ADA, BO))).toBe(true);
 });
 
 test('reporting a match stores the report and blocks the person', async ({ page }) => {
   await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="matches"]').click();
-  await page.locator('[data-actions]').click();
+  await page.locator('#match-grid [data-actions]').click();
   await page.locator('[data-act="report"]').click();
 
   await page.locator('#report-reason').selectOption('harassment');
@@ -90,21 +69,21 @@ test('reporting a match stores the report and blocks the person', async ({ page 
   await page.locator('#report-send').click();
   await expect(page.locator('#toast')).toContainText('Report sent');
 
-  const reports = await db.collection('reports').where('reporterId', '==', ADA).get();
-  expect(reports.size).toBe(1);
-  const report = reports.docs[0].data();
+  const reports = await listRows('reports', [], ['reporterId', '==', ADA]);
+  expect(reports.length).toBe(1);
+  const report = reports[0];
   expect(report.targetId).toBe(BO);
   expect(report.reason).toBe('harassment');
   expect(report.status).toBe('open');
   // Reporting blocks too, so the reporter stops seeing the person.
-  expect((await db.collection('users').doc(ADA).collection('blocks').doc(BO).get()).exists).toBe(true);
+  expect(Boolean(await getRow('blocks', ADA, BO))).toBe(true);
 });
 
 test('unmatch ends the match for both sides', async ({ page }) => {
   const users = await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="matches"]').click();
-  await page.locator('[data-actions]').click();
+  await page.locator('#match-grid [data-actions]').click();
   await page.locator('[data-act="unmatch"]').click();
   await page.locator('[data-act="confirm"]').click();
   await expect(page.locator('#toast')).toContainText('Unmatched');
@@ -126,7 +105,7 @@ test('blocked people can be listed and unblocked', async ({ page }) => {
 
   await page.locator('[data-unblock]').click();
   await expect(page.locator('#toast')).toContainText('unblocked');
-  expect((await db.collection('users').doc(ADA).collection('blocks').doc(BO).get()).exists).toBe(false);
+  expect(Boolean(await getRow('blocks', ADA, BO))).toBe(false);
 });
 
 test('a user can download their own data', async ({ page }) => {
@@ -141,7 +120,8 @@ test('a user can download their own data', async ({ page }) => {
   expect(file.suggestedFilename()).toContain('bezy-my-data');
 
   const exported = JSON.parse(fs.readFileSync(await file.path(), 'utf8'));
-  expect(exported.account.telegramId).toBe(Number(ADA));
+  // Telegram numeric ids cross the JS boundary as strings end to end (BIGINT precision).
+  expect(exported.account.telegramId).toBe(String(ADA));
   expect(exported.profile.displayName).toBe('Ada');
   expect(exported.ageEligibility.method).toBe('self_declaration');
   expect(exported.matches).toHaveLength(1);
@@ -164,13 +144,13 @@ test('account deletion requires typed confirmation and removes the account', asy
   // Nothing happens without the typed word.
   await page.locator('#delete-go').click();
   await expect(page.locator('#toast')).toContainText('DELETE');
-  expect((await db.collection('users').doc(ADA).get()).exists).toBe(true);
+  expect(Boolean(await getRow('users', ADA))).toBe(true);
 
   await page.locator('#delete-confirm').fill('DELETE');
   await page.locator('#delete-go').click();
 
   await expect(page.locator('body')).toContainText('deleted');
-  await expect.poll(async () => (await db.collection('users').doc(ADA).get()).exists).toBe(false);
+  await expect.poll(async () => Boolean(await getRow('users', ADA))).toBe(false);
 
   // The counterpart no longer has a live match to a deleted account.
   const bosMatches = await (await page.request.post('/api/matches', { data: { initData: users.b.initData } })).json();
@@ -205,25 +185,27 @@ test('safety and privacy controls are localized in French', async ({ page }) => 
   const profile = await page.locator('#profile-view').innerText();
   expect(profile).not.toMatch(/\bapp\.[a-z_]+/);
   expect(profile).toContain('Paramètres et confidentialité');
-  // The settings side of the profile sits behind the Settings & Privacy tab.
+  // The settings side of the profile sits behind the Settings & Privacy tab. The headings
+  // are styled uppercase, so the assertions match the rendered text case-insensitively.
   await page.locator('#tab-settings').click();
-  expect(await page.locator('#profile-view').innerText()).toContain('Sécurité');
-  expect(await page.locator('#profile-view').innerText()).toContain('Confidentialité et vos données');
-  expect(await page.locator('#profile-view').innerText()).toContain('pas votre GPS');
-  expect(await page.locator('#profile-view').innerText()).toContain('Télécharger mes données');
-  expect(await page.locator('#profile-view').innerText()).toContain('Supprimer mon compte');
-  expect(await page.locator('#profile-view').innerText()).toContain('Aide juridique');
-  expect(await page.locator('#profile-view').innerText()).toContain('Aide et assistance');
-  expect(await page.locator('#profile-view').innerText()).toContain('3 jours ouvrés');
+  await expect(page.locator('#profile-view')).toContainText(/sécurité/i);
+  await expect(page.locator('#profile-view')).toContainText('Confidentialité et vos données');
+  await expect(page.locator('#profile-view')).toContainText('pas votre GPS');
+  await expect(page.locator('#profile-view')).toContainText('Télécharger mes données');
+  await expect(page.locator('#profile-view')).toContainText('Supprimer mon compte');
+  await expect(page.locator('#profile-view')).toContainText('Aide juridique');
+  await expect(page.locator('#profile-view')).toContainText(/aide et assistance/i);
+  await expect(page.locator('#profile-view')).toContainText('3 jours ouvrés');
   // The support entry point is a machine token: it always links the canonical address.
   await expect(page.locator('#support-email-btn')).toHaveAttribute('href', 'mailto:contacts@digitalconcordia.com');
   // The two legal states sit behind one human-readable entry point.
   await page.locator('#data-controls-btn').click();
   await expect(page.locator('#sheet-host')).toContainText('Contrôles des données');
   await expect(page.locator('#controls-restrict')).toHaveText('Suspendre le traitement');
+  await page.locator('.sheet-close').click();
 
   await page.locator('.nav button[data-view="matches"]').click();
-  await page.locator('[data-actions]').click();
+  await page.locator('#match-grid [data-actions]').click();
   const sheet = await page.locator('#sheet-host').innerText();
   expect(sheet).not.toMatch(/\bapp\.[a-z_]+/);
   expect(sheet).toContain('Bloquer');

@@ -9,13 +9,13 @@
   "scripts": {
     "dev": "vercel dev",
     "harness": "node tests/harness.mjs",
-    "test": "node tests/contract.test.mjs && node tests/profileText.test.mjs && node tests/localization.test.mjs && node tests/discovery.test.mjs && node tests/backend.test.mjs && node tests/security.test.mjs",
+    "test": "node tests/run.mjs all --project=chromium",
     "test:contract": "node tests/contract.test.mjs",
-    "test:e2e": "playwright test --project=chromium",
+    "test:e2e": "node tests/run.mjs e2e --project=chromium",
     "test:e2e:browsers": "playwright test tests/e2e/browsers.spec.js",
     "test:e2e:degraded": "playwright test tests/e2e/degraded.spec.js --project=chromium",
-    "test:all": "npm test && npm run test:e2e",
-    "test:security": "node tests/security.test.mjs",
+    "test:all": "node tests/run.mjs all",
+    "test:security": "node tests/run.mjs security",
     "test:localization": "node tests/localization.test.mjs",
     "test:smoke": "node tests/smoke.test.mjs",
     "retention": "node scripts/retention.mjs",
@@ -24,10 +24,15 @@
     "outcomes": "node scripts/outcome-eval.mjs",
     "reports": "node scripts/report-stats.mjs",
     "rate-limits": "node scripts/rate-limit-status.mjs",
-    "sync:fallback": "node scripts/sync-fallback-locale.mjs"
+    "sync:fallback": "node scripts/sync-fallback-locale.mjs",
+    "test:backend": "node tests/run.mjs backend",
+    "test:translation": "node tests/run.mjs profileText",
+    "test:db": "node tests/run.mjs db",
+    "db:health": "node scripts/db-health.mjs",
+    "funnel": "node scripts/funnel.mjs"
   },
   "dependencies": {
-    "firebase-admin": "^13.5.0"
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0"

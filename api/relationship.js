@@ -1,5 +1,5 @@
-import { db } from './_firebase.js';
-import { requirePost, requireTelegramUser, normalizedLanguage, localized } from './_telegram.js';
+import { query, tx, ApiError } from './_db.js';
+import { requirePost, requireTelegramUser, validUserId, normalizedLanguage, localized } from './_telegram.js';
 import { rateLimit } from './_ratelimit.js';
 import { deliverNotification } from './_notify.js';
 
@@ -13,7 +13,7 @@ const REPORT_REASONS = new Set(['harassment', 'spam', 'scam', 'fake_profile', 'i
 const DETAILS_MAX = 1000;
 
 function matchId(a, b) {
-  return [String(a), String(b)].sort().join('_');
+  return [String(a), String(b)].sort((x, y) => BigInt(x) < BigInt(y) ? -1 : 1).join('_');
 }
 
 /**
@@ -51,41 +51,52 @@ function reportAcknowledgment(language) {
  * filter both directions with a single subcollection read instead of a query per candidate.
  * The blocked user is never told that they were blocked.
  */
-async function block(firestore, userId, targetId) {
-  const now = new Date();
-  const batch = firestore.batch();
-  batch.set(firestore.collection('users').doc(userId).collection('blocks').doc(targetId), { targetId, createdAt: now });
-  batch.set(firestore.collection('users').doc(targetId).collection('blockedBy').doc(userId), { actorId: userId, createdAt: now });
+async function block(storage, userId, targetId) {
+  await tx(async (q) => {
+    await q(
+      'INSERT INTO blocks (blocker_id, blocked_id, created_at) VALUES ($1, $2, now()) ON CONFLICT (blocker_id, blocked_id) DO NOTHING',
+      [userId, targetId]
+    );
+    await q(
+      'INSERT INTO blocked_by (blocked_id, blocker_id, created_at) VALUES ($1, $2, now()) ON CONFLICT (blocked_id, blocker_id) DO NOTHING',
+      [targetId, userId]
+    );
 
-  // An existing match is ended so it can no longer appear for either side.
-  const matchRef = firestore.collection('matches').doc(matchId(userId, targetId));
-  if ((await matchRef.get()).exists) {
-    batch.set(matchRef, { active: false, endedAt: now, endedBy: userId, endedReason: 'block' }, { merge: true });
-  }
+    // An existing match is ended so it can no longer appear for either side.
+    await q(
+      `UPDATE matches SET active = FALSE, ended_at = now(), ended_by = $1, ended_reason = 'block'
+       WHERE match_id = $2 AND active = TRUE`,
+      [userId, matchId(userId, targetId)]
+    );
 
-  // The Bezy conversation is closed too: messaging stops immediately for both sides, and
-  // the conversation screen reports the conversation as unavailable.
-  const conversationRef = firestore.collection('conversations').doc(matchId(userId, targetId));
-  if ((await conversationRef.get()).exists) {
-    batch.set(conversationRef, { status: 'blocked', updatedAt: now }, { merge: true });
-  }
+    // The Bezy conversation is closed too: messaging stops immediately for both sides, and
+    // the conversation screen reports the conversation as unavailable.
+    await q(
+      `UPDATE conversations SET status = 'blocked', updated_at = now() WHERE conversation_id = $1`,
+      [matchId(userId, targetId)]
+    );
 
-  // A block also records a decision, so the pair never resurfaces in discovery.
-  batch.set(firestore.collection('users').doc(userId).collection('actions').doc(targetId), { action: 'pass', createdAt: now }, { merge: true });
-  batch.set(firestore.collection('users').doc(targetId).collection('actions').doc(userId), { action: 'pass', createdAt: now }, { merge: true });
-  // Any pending like between the two is withdrawn from "who liked you".
-  batch.delete(firestore.collection('users').doc(userId).collection('likesReceived').doc(targetId));
-  batch.delete(firestore.collection('users').doc(targetId).collection('likesReceived').doc(userId));
-
-  await batch.commit();
+    // A block also records a decision, so the pair never resurfaces in discovery.
+    await q(
+      'INSERT INTO actions (actor_id, target_id, action, created_at) VALUES ($1, $2, $3, now()) ON CONFLICT (actor_id, target_id) DO UPDATE SET action = EXCLUDED.action, created_at = EXCLUDED.created_at',
+      [userId, targetId, 'pass']
+    );
+    await q(
+      'INSERT INTO actions (actor_id, target_id, action, created_at) VALUES ($1, $2, $3, now()) ON CONFLICT (actor_id, target_id) DO UPDATE SET action = EXCLUDED.action, created_at = EXCLUDED.created_at',
+      [targetId, userId, 'pass']
+    );
+    // Any pending like between the two is withdrawn from "who liked you".
+    await q('DELETE FROM likes_received WHERE target_id = $1 AND from_id = $2', [userId, targetId]);
+    await q('DELETE FROM likes_received WHERE target_id = $1 AND from_id = $2', [targetId, userId]);
+  });
   return { blocked: true };
 }
 
-async function unblock(firestore, userId, targetId) {
-  const batch = firestore.batch();
-  batch.delete(firestore.collection('users').doc(userId).collection('blocks').doc(targetId));
-  batch.delete(firestore.collection('users').doc(targetId).collection('blockedBy').doc(userId));
-  await batch.commit();
+async function unblock(storage, userId, targetId) {
+  await tx(async (q) => {
+    await q('DELETE FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [userId, targetId]);
+    await q('DELETE FROM blocked_by WHERE blocked_id = $1 AND blocker_id = $2', [targetId, userId]);
+  });
   // The recorded pass is intentionally left in place: unblocking restores contactability,
   // it does not re-inject someone into the deck who was already decided on.
   return { blocked: false };
@@ -97,28 +108,23 @@ async function unblock(firestore, userId, targetId) {
  * No profile snapshot is copied, so a later erasure request does not leave stale personal
  * data behind inside the report.
  */
-async function report(firestore, userId, targetId, body) {
+async function report(storage, userId, targetId, body) {
   const reason = REPORT_REASONS.has(body?.reason) ? body.reason : 'other';
   const details = String(body?.details ?? '').trim().slice(0, DETAILS_MAX);
-  const now = new Date();
 
   // Reporting always blocks as well: a user who reports someone should not keep seeing them.
   // The block is written first — the safety action is the one that must survive — so a
   // report-write failure can never silently drop the block. If the report fails afterwards,
   // the caller still learns both facts.
-  await block(firestore, userId, targetId);
+  await block(storage, userId, targetId);
   let reported = true;
   let reportId = null;
   try {
-    const ref = await firestore.collection('reports').add({
-      reporterId: userId,
-      targetId,
-      reason,
-      details,
-      status: 'open',
-      createdAt: now
-    });
-    reportId = ref.id;
+    const result = await query(
+      'INSERT INTO reports (reporter_id, target_id, reason, details, status, created_at) VALUES ($1, $2, $3, $4, $5, now()) RETURNING id',
+      [userId, targetId, reason, details, 'open']
+    );
+    reportId = String(result.rows[0].id);
   } catch (error) {
     reported = false;
     console.warn('[bezy-safety] report write failed after block:', error.message);
@@ -129,29 +135,33 @@ async function report(firestore, userId, targetId, body) {
 /**
  * Unmatching ends the match for both sides and records a pass in both directions, so the
  * pair cannot reappear in discovery and no stale match can be used to re-establish contact.
- * Telegram conversations already exchanged are outside Bezy's control and are not touched.
+ * The Bezy conversation history is kept — it records what the two users exchanged — but
+ * nothing new can be sent.
  */
-async function unmatch(firestore, userId, targetId) {
-  const now = new Date();
-  const ref = firestore.collection('matches').doc(matchId(userId, targetId));
-  const snap = await ref.get();
-  if (!snap.exists || !(snap.data()?.participants || []).includes(userId)) {
+async function unmatch(storage, userId, targetId) {
+  const mId = matchId(userId, targetId);
+  const result = await query('SELECT * FROM matches WHERE match_id = $1', [mId]);
+  const matchRow = result.rows[0] || null;
+  const participants = matchRow ? [String(matchRow.participant_a), String(matchRow.participant_b)] : [];
+  if (!matchRow || !participants.includes(userId)) {
     return { unmatched: false, reason: 'NO_SUCH_MATCH' };
   }
 
-  const batch = firestore.batch();
-  batch.set(ref, { active: false, endedAt: now, endedBy: userId, endedReason: 'unmatch' }, { merge: true });
-  batch.set(firestore.collection('users').doc(userId).collection('actions').doc(targetId), { action: 'pass', createdAt: now }, { merge: true });
-  batch.set(firestore.collection('users').doc(targetId).collection('actions').doc(userId), { action: 'pass', createdAt: now }, { merge: true });
-  batch.delete(firestore.collection('users').doc(userId).collection('likesReceived').doc(targetId));
-  batch.delete(firestore.collection('users').doc(targetId).collection('likesReceived').doc(userId));
-  // The conversation closes with the match: no further messaging either way. The message
-  // history is kept — it records what the two users exchanged — but nothing new can be sent.
-  const conversationRef = firestore.collection('conversations').doc(matchId(userId, targetId));
-  if ((await conversationRef.get()).exists) {
-    batch.set(conversationRef, { status: 'closed', updatedAt: now }, { merge: true });
-  }
-  await batch.commit();
+  await tx(async (q) => {
+    await q(
+      `UPDATE matches SET active = FALSE, ended_at = now(), ended_by = $1, ended_reason = 'unmatch' WHERE match_id = $2`,
+      [userId, mId]
+    );
+    for (const [actor, target] of [[userId, targetId], [targetId, userId]]) {
+      await q(
+        'INSERT INTO actions (actor_id, target_id, action, created_at) VALUES ($1, $2, $3, now()) ON CONFLICT (actor_id, target_id) DO UPDATE SET action = EXCLUDED.action, created_at = EXCLUDED.created_at',
+        [actor, target, 'pass']
+      );
+      await q('DELETE FROM likes_received WHERE target_id = $1 AND from_id = $2', [actor, target]);
+    }
+    // The conversation closes with the match: no further messaging either way.
+    await q(`UPDATE conversations SET status = 'closed', updated_at = now() WHERE conversation_id = $1`, [mId]);
+  });
   return { unmatched: true };
 }
 
@@ -170,46 +180,52 @@ export default async function handler(req, res) {
   }
 
   try {
-    const firestore = db();
-
     // The acting account must itself be eligible to use Bezy.
-    const selfSnap = await firestore.collection('users').doc(userId).get();
-    if (selfSnap.data()?.ageEligibilityConfirmed !== true) {
+    const selfResult = await query(
+      `SELECT u.telegram_id, u.first_name, u.language_code, u.locale, u.age_eligibility_confirmed,
+              p.display_name
+       FROM users u LEFT JOIN profiles p ON p.telegram_id = u.telegram_id
+       WHERE u.telegram_id = $1`,
+      [userId]
+    );
+    const selfRow = selfResult.rows[0] || {};
+    if (selfRow.age_eligibility_confirmed !== true) {
       return res.status(403).json({ error: 'AGE_CONFIRMATION_REQUIRED' });
     }
 
     // Rate limited per action class. Report has the tightest budget because report spam is
     // itself a harassment vector. list_blocks and unmatch ride the block budget.
     const bucket = action === 'report' ? 'report' : 'block';
-    if (!(await rateLimit(firestore, res, userId, bucket))) return;
+    if (!(await rateLimit(null, res, userId, bucket))) return;
 
     // Anti-enumeration: acting on a Telegram id that has no Bezy account must look exactly
     // like acting on one that does. The response below is identical either way; the only
-    // difference is that nothing is written for a stranger, so no mirror document or report
+    // difference is that nothing is written for a stranger, so no mirror row or report
     // is created under an account that does not exist.
     const targetExists = action === 'list_blocks'
       ? true
-      : (await firestore.collection('users').doc(targetId).get()).exists;
+      : validUserId(targetId) && (await query('SELECT 1 FROM users WHERE telegram_id = $1', [targetId])).rows.length > 0;
 
     if (action === 'list_blocks') {
-      const blocks = await firestore.collection('users').doc(userId).collection('blocks').limit(100).get();
-      const blocked = [];
-      for (const doc of blocks.docs) {
-        const other = await firestore.collection('users').doc(doc.id).get();
-        blocked.push({
-          id: doc.id,
-          displayName: other.data()?.profile?.displayName || '',
-          blockedAt: doc.data()?.createdAt?.toMillis?.() ? new Date(doc.data().createdAt.toMillis()).toISOString() : null
-        });
-      }
+      const blocks = await query(
+        `SELECT b.blocked_id, b.created_at, p.display_name
+         FROM blocks b LEFT JOIN profiles p ON p.telegram_id = b.blocked_id
+         WHERE b.blocker_id = $1 ORDER BY b.created_at DESC LIMIT 100`,
+        [userId]
+      );
+      const blocked = blocks.rows.map((r) => ({
+        id: String(r.blocked_id),
+        displayName: r.display_name || '',
+        blockedAt: r.created_at ? new Date(r.created_at).toISOString() : null
+      }));
       return res.status(200).json({ ok: true, blocked });
     }
 
     if (action === 'block') {
       if (!targetExists) return res.status(200).json({ ok: true, blocked: true });
-      return res.status(200).json({ ok: true, ...(await block(firestore, userId, targetId)) });
+      return res.status(200).json({ ok: true, ...(await block(null, userId, targetId)) });
     }
-    if (action === 'unblock') return res.status(200).json({ ok: true, ...(await unblock(firestore, userId, targetId)) });
+    if (action === 'unblock') return res.status(200).json({ ok: true, ...(validUserId(targetId) ? await unblock(null, userId, targetId) : { blocked: false }) });
     if (action === 'report') {
       // A report about a non-existent account is accepted in appearance but not stored:
       // there is nothing to moderate, and storing it would let anyone fill the moderation
@@ -217,13 +233,20 @@ export default async function handler(req, res) {
       // both cases and is identical, so it cannot be used to tell the two apart. It is
       // awaited: the reporter's record of receipt must not be lost to a frozen serverless
       // instance on the discarded-report path.
-      const ack = reportAcknowledgment(normalizedLanguage(selfSnap.data()?.languageCode));
-      await deliverNotification(firestore, selfSnap.data() || {}, 'account', { text: ack });
+      const selfData = {
+        telegramId: userId,
+        firstName: selfRow.first_name ?? null,
+        languageCode: selfRow.language_code ?? null,
+        locale: selfRow.locale ?? null
+      };
+      const ack = reportAcknowledgment(normalizedLanguage(selfData.languageCode));
+      await deliverNotification(null, selfData, 'account', { text: ack });
       if (!targetExists) return res.status(200).json({ ok: true, reported: true, reason: REPORT_REASONS.has(req.body?.reason) ? req.body.reason : 'other' });
-      return res.status(200).json({ ok: true, ...(await report(firestore, userId, targetId, req.body)) });
+      return res.status(200).json({ ok: true, ...(await report(null, userId, targetId, req.body)) });
     }
-    return res.status(200).json({ ok: true, ...(await unmatch(firestore, userId, targetId)) });
+    return res.status(200).json({ ok: true, ...(validUserId(targetId) ? await unmatch(null, userId, targetId) : {unmatched:false,reason:'NO_SUCH_MATCH'}) });
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     console.error('Relationship request failed:', error);
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }

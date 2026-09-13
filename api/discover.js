@@ -1,4 +1,4 @@
-import { db } from './_firebase.js';
+import { query, toIso, ApiError } from './_db.js';
 import { requirePost, requireTelegramUser, normalizeLanguageTag, resolveUserLanguage } from './_telegram.js';
 import { isPremiumActive, limitsFor, currentUsage } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
@@ -273,20 +273,141 @@ export default async function handler(req, res) {
   if (!user) return;
 
   try {
-    if (!(await rateLimit(db(), res, user.id, 'discover'))) return;
+    if (!(await rateLimit(null, res, user.id, 'discover'))) return;
     return await handleDiscover(req, res, user);
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     console.error('Discover request failed:', error);
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }
 }
 
-async function handleDiscover(req, res, user) {
-  const currentRef = db().collection('users').doc(String(user.id));
-  const currentSnap = await currentRef.get();
-  if (!currentSnap.exists) return res.status(404).json({ error: 'PROFILE_NOT_FOUND' });
+// A candidate row becomes the same PostgreSQL-shaped object every pure scoring function
+// already consumes, so the eligibility/ranking logic is byte-for-byte the same.
+function rowToCandidate(row) {
+  return {
+    id: String(row.telegram_id),
+    firstName: row.first_name ?? '',
+    photoUrl: row.photo_url ?? '',
+    profile: {
+      displayName: row.display_name ?? '',
+      age: row.age ?? null,
+      gender: row.gender ?? '',
+      seeking: row.seeking ?? 'everyone',
+      city: row.city ?? '',
+      bio: row.bio ?? '',
+      interests: row.interests ?? [],
+      prompts: row.prompts || [],
+      languages: row.languages ?? [],
+      discoverable: row.discoverable === true,
+      profileComplete: row.profile_complete === true
+    },
+    preferences: {
+      minAge: row.pref_min_age ?? 18,
+      maxAge: row.pref_max_age ?? 100,
+      city: row.pref_city ?? '',
+      sameCityOnly: row.pref_same_city_only === true,
+      languages: row.pref_languages ?? []
+    },
+    ageEligibilityConfirmed: row.age_eligibility_confirmed === true,
+    profileComplete: row.profile_complete === true,
+    discoverable: row.discoverable === true,
+    processingRestricted: row.processing_restricted === true,
+    processingObjection: row.processing_objection === true,
+    createdAt: row.created_at ? new Date(row.created_at) : null,
+    updatedAt: row.updated_at ? new Date(row.updated_at) : null,
+    bezyPremium: {
+      active: row.premium_active === true,
+      planId: row.premium_plan_id ?? null,
+      expiresAt: row.premium_expires_at ? new Date(row.premium_expires_at) : null,
+      revokedAt: row.premium_revoked_at || null,
+      revocationReason: row.premium_revocation_reason ?? null
+    },
+    usage: {
+      day: row.usage_day ?? null,
+      discoveryActions: Number(row.usage_discovery_actions) || 0,
+      superLikes: Number(row.usage_super_likes) || 0
+    }
+  };
+}
 
-  const currentData = currentSnap.data() || {};
+const CANDIDATE_SELECT = `
+  SELECT u.telegram_id, u.first_name, u.photo_url, u.age_eligibility_confirmed, u.profile_complete, u.discoverable,
+         u.processing_restricted, u.processing_objection, u.created_at, u.updated_at,
+         COALESCE((SELECT json_agg(json_build_object('id',pa.id,'answer',pa.answer) ORDER BY pa.position, pa.id) FROM prompt_answers pa WHERE pa.telegram_id=u.telegram_id),'[]'::json) AS prompts,
+         p.display_name, p.age, p.gender, p.seeking, p.city, p.bio, p.interests, p.languages,
+         pr.min_age AS pref_min_age, pr.max_age AS pref_max_age, pr.city AS pref_city,
+         pr.same_city_only AS pref_same_city_only, pr.languages AS pref_languages,
+         pm.active AS premium_active, pm.plan_id AS premium_plan_id, pm.expires_at AS premium_expires_at,
+         pm.revoked_at AS premium_revoked_at, pm.revocation_reason AS premium_revocation_reason,
+         us.day AS usage_day, us.discovery_actions AS usage_discovery_actions, us.super_likes AS usage_super_likes
+  FROM users u
+  LEFT JOIN profiles p ON p.telegram_id = u.telegram_id
+  LEFT JOIN preferences pr ON pr.telegram_id = u.telegram_id
+  LEFT JOIN premium_memberships pm ON pm.telegram_id = u.telegram_id
+  LEFT JOIN usage us ON us.telegram_id = u.telegram_id
+  WHERE u.discoverable = TRUE AND u.profile_complete = TRUE AND u.age_eligibility_confirmed = TRUE`;
+
+async function handleDiscover(req, res, user) {
+  const userId = String(user.id);
+
+  // The caller's own account, and everything already decided or blocked — the same
+  // exclusions the deck has always applied, in both directions.
+  const [currentResult, excludedResult] = await Promise.all([
+    query(
+      `SELECT u.*, us.day AS usage_day, us.discovery_actions AS usage_discovery_actions, us.super_likes AS usage_super_likes
+       FROM users u LEFT JOIN usage us ON us.telegram_id = u.telegram_id
+       WHERE u.telegram_id = $1`,
+      [userId]
+    ),
+    query(
+      `SELECT target_id AS id FROM actions WHERE actor_id = $1
+       UNION SELECT blocked_id FROM blocks WHERE blocker_id = $1
+       UNION SELECT blocker_id FROM blocked_by WHERE blocked_id = $1`,
+      [userId]
+    )
+  ]);
+
+  const u = currentResult.rows[0];
+  if (!u) return res.status(404).json({ error: 'PROFILE_NOT_FOUND' });
+
+  const profileResult = await query('SELECT * FROM profiles WHERE telegram_id = $1', [userId]);
+  const prefsResult = await query('SELECT * FROM preferences WHERE telegram_id = $1', [userId]);
+  const p = profileResult.rows[0] || {};
+  const pr = prefsResult.rows[0] || {};
+
+  const currentData = {
+    telegramId: userId,
+    profile: {
+      displayName: p.display_name ?? '', age: p.age ?? null, gender: p.gender ?? '',
+      seeking: p.seeking ?? 'everyone', city: p.city ?? '', bio: p.bio ?? '',
+      interests: p.interests ?? [], prompts: [], languages: p.languages ?? [],
+      discoverable: u.discoverable === true, profileComplete: u.profile_complete === true
+    },
+    preferences: { minAge: pr.min_age ?? 18, maxAge: pr.max_age ?? 100, city: pr.city ?? '', sameCityOnly: pr.same_city_only === true, languages: pr.languages ?? [] },
+    ageEligibilityConfirmed: u.age_eligibility_confirmed === true,
+    profileComplete: u.profile_complete === true,
+    discoverable: u.discoverable === true,
+    processingRestricted: u.processing_restricted === true,
+    processingObjection: u.processing_objection === true,
+    createdAt: u.created_at ? new Date(u.created_at) : null,
+    updatedAt: u.updated_at ? new Date(u.updated_at) : null,
+    locale: u.locale ?? null,
+    languageCode: u.language_code ?? null,
+    bezyPremium: null,
+    usage: { day: u.usage_day ?? null, discoveryActions: Number(u.usage_discovery_actions) || 0, superLikes: Number(u.usage_super_likes) || 0 }
+  };
+  const premiumResult = await query('SELECT * FROM premium_memberships WHERE telegram_id = $1', [userId]);
+  if (premiumResult.rows[0]) {
+    const m = premiumResult.rows[0];
+    currentData.bezyPremium = {
+      active: m.active === true, planId: m.plan_id, expiresAt: m.expires_at ? new Date(m.expires_at) : null,
+      purchasedAt: m.purchased_at ? new Date(m.purchased_at) : null, revokedAt: m.revoked_at ? new Date(m.revoked_at) : null,
+      revocationReason: m.revocation_reason
+    };
+  }
+  const excluded = new Set(excludedResult.rows.map((r) => String(r.id)));
+
   // A paused account (GDPR Art. 18 restriction or Art. 21 objection) is checked before
   // anything else: while it is in force Bezy must not process the account for discovery at
   // all, so no deck is assembled and no other user's data is read on this account's behalf.
@@ -308,34 +429,16 @@ async function handleDiscover(req, res, user) {
     return res.status(200).json({ ok: true, profiles: [], needsProfile: true });
   }
 
-  // Excluded: everyone already decided on, everyone this user blocked, and everyone who
-  // blocked this user. Blocks are filtered in both directions so neither party can reach
-  // the other through discovery.
-  const [actionSnap, blocksSnap, blockedBySnap] = await Promise.all([
-    currentRef.collection('actions').get(),
-    currentRef.collection('blocks').get(),
-    currentRef.collection('blockedBy').get()
-  ]);
-  const excluded = new Set([
-    ...actionSnap.docs.map((doc) => doc.id),
-    ...blocksSnap.docs.map((doc) => doc.id),
-    ...blockedBySnap.docs.map((doc) => doc.id)
-  ]);
-  // The candidate set is EVERY discoverable user, and eligibility is computed over the whole
-  // set before any ordering. The previous SC-3 query window (`limit(100)` + `orderBy`) is
-  // rejected outright: it silently excluded eligible users beyond the newest 100, `orderBy`
-  // drops documents missing `createdAt`, and `where` + `orderBy` requires a composite index
-  // whose absence turns every deck load into a 500 (see docs/FAILURE_MODES.md — observed live
-  // on the support module). The query is therefore a plain equality over the automatic
-  // single-field index; newest-first ordering is applied in memory below, deterministic at
-  // any pool size, with missing timestamps treated as oldest so no discoverable account is
-  // ever dropped by the query itself. The response page remains 20.
-  const candidatesSnap = await db().collection('users')
-    .where('discoverable', '==', true)
-    .get();
-  const candidates = candidatesSnap.docs.slice().sort((a, b) => {
-    const aCreated = a.data()?.createdAt?.toMillis?.() ?? 0;
-    const bCreated = b.data()?.createdAt?.toMillis?.() ?? 0;
+  // The candidate set is EVERY discoverable, complete, 18+ declared user, and eligibility is
+  // computed over the whole set before any ordering — the same no-window guarantee the
+  // PostgreSQL implementation pinned. The SQL query is indexed by the partial
+  // users_discoverable_idx; newest-first ordering is deterministic in memory below, with
+  // missing timestamps treated as oldest, so no discoverable account is ever dropped by the
+  // query itself. The response page remains 20.
+  const candidatesResult = await query(CANDIDATE_SELECT);
+  const candidates = candidatesResult.rows.map(rowToCandidate).sort((a, b) => {
+    const aCreated = a.createdAt?.getTime?.() ?? 0;
+    const bCreated = b.createdAt?.getTime?.() ?? 0;
     return bCreated - aCreated || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   });
 
@@ -351,9 +454,9 @@ async function handleDiscover(req, res, user) {
   let hardMisses = 0;    // incomplete profile, or gender/seeking mismatch (never for Everyone callers)
   let decidedMisses = 0; // previously acted on or blocked in either direction
   let preferenceMisses = 0; // excluded by the caller's own filters
-  for (const doc of candidates) {
-    if (doc.id === String(user.id) || excluded.has(doc.id)) { decidedMisses++; continue; }
-    const data = doc.data() || {};
+  for (const candidate of candidates) {
+    if (candidate.id === String(user.id) || excluded.has(candidate.id)) { decidedMisses++; continue; }
+    const data = candidate;
     // A paused account is already undiscoverable, but it is excluded explicitly as well:
     // the legal state, not a derived visibility flag, is what must govern here.
     if (processingPaused(data)) { decidedMisses++; continue; }
@@ -362,7 +465,7 @@ async function handleDiscover(req, res, user) {
     if (data.ageEligibilityConfirmed !== true) { hardMisses++; continue; }
     if (!data.profileComplete || !genderMatches(currentProfile, data.profile)) { hardMisses++; continue; }
     if (!matchesPreferences(preferences, currentProfile, data.profile, isPremium)) { preferenceMisses++; continue; }
-    const createdAt = data.createdAt?.toMillis?.() ?? new Date(data.createdAt || 0).getTime();
+    const createdAt = data.createdAt?.getTime?.() ?? 0;
     const candidateIsPremium = isPremiumActive(data);
     const score = compatibility(currentProfile, data.profile);
     // Stage 2: ordering is the reciprocal pair, not the one-sided score. The card keeps
@@ -376,7 +479,7 @@ async function handleDiscover(req, res, user) {
       + freshnessTerm(data.updatedAt ?? data.createdAt)
       + (candidateIsPremium ? PREMIUM_VISIBILITY_BOOST : 0);
     eligible.push({
-      ...publicProfile(doc.id, data),
+      ...publicProfile(candidate.id, data),
       compatibility: candidateIsPremium ? Math.min(99, score + PREMIUM_VISIBILITY_BOOST) : score,
       isNew: Number.isFinite(createdAt) && createdAt >= dayAgo,
       orderKey,
@@ -391,7 +494,7 @@ async function handleDiscover(req, res, user) {
   // looking for) explains it; 'pool' — everyone left has already been decided on.
   function emptyReasonFor() {
     if (eligible.length) return null;
-    if (candidates.length === 0) return 'no_supply';
+    if (!candidates.some(candidate => candidate.id !== userId)) return 'no_supply';
     if (preferenceMisses >= hardMisses && preferenceMisses >= decidedMisses) return 'filters';
     if (hardMisses >= decidedMisses) return 'eligibility';
     return 'pool';
@@ -421,7 +524,7 @@ async function handleDiscover(req, res, user) {
   // authoritative — no second locale system — and the stored values cover older clients.
   const viewerLocale = normalizeLanguageTag(req.body?.lang) || resolveUserLanguage(currentData);
   await Promise.all(page.map(async (profile) => {
-    profile.translations = await localizeProfileTexts(db(), profile.id, profile, viewerLocale);
+    profile.translations = await localizeProfileTexts(null, profile.id, profile, viewerLocale);
   }));
 
   return res.status(200).json({

@@ -1,5 +1,4 @@
 import { configureLocalizedCommands, miniAppUrl, normalizedLanguage, localized, telegramApi } from '../_telegram.js';
-import { db } from '../_firebase.js';
 import { parseInvoicePayload, premiumPlan, nextExpiry, applyRefund } from '../_premium.js';
 import { SUPPORT_CATEGORIES, createSupportRequest, diagnosePremium, diagnoseDiscovery, diagnoseProfile } from '../_support.js';
 import { enforceRateLimit } from '../_ratelimit.js';
@@ -142,13 +141,14 @@ function stillNeedHelpRow(language, category) {
 // language, never to an error. Pre-checkout answers are the deliberate exception: Telegram
 // allows ten seconds for an answer and shows its own error copy, so they use the update's
 // language directly.
-async function resolveChatLanguage(firestore, from) {
+async function resolveChatLanguage(storage, from) {
   const telegramLanguage = normalizedLanguage(from?.language_code);
-  if (!from?.id || !firestore) return telegramLanguage;
+  if (!from?.id) return telegramLanguage;
   try {
-    const snap = await firestore.collection('users').doc(String(from.id)).get();
-    const data = snap.exists ? snap.data() : {};
-    return normalizedLanguage(data.locale || data.languageCode || from.language_code);
+    const { query } = await import('../_db.js');
+    const result = await query('SELECT locale, language_code FROM users WHERE telegram_id = $1', [String(from.id)]);
+    const row = result.rows[0] || {};
+    return normalizedLanguage(row.locale || row.language_code || from.language_code);
   } catch (error) {
     console.warn('[bezy-webhook] language lookup failed, using Telegram language:', error.message);
     return telegramLanguage;
@@ -567,23 +567,65 @@ async function supportPrivacy(chatId, language) {
   await sendDiagnosis(chatId, language, text, [stillNeedHelpRow(language, 'privacy_account'), [openProfile]]);
 }
 
-async function handleSupportCategory(chatId, language, from, category, firestore) {
-  const userSnap = await firestore.collection('users').doc(String(from.id)).get();
-  const userData = userSnap.data() || {};
-  // The document is already in hand: the explicit Bezy choice wins over the Telegram
+async function handleSupportCategory(chatId, language, from, category, storage) {
+  const { query } = await import('../_db.js');
+  const userResult = await query(
+    `SELECT u.telegram_id, u.first_name, u.language_code, u.locale, u.age_eligibility_confirmed,
+            u.profile_complete, u.discoverable, u.processing_restricted, u.processing_objection,
+            p.display_name, p.age, p.gender, p.seeking, p.city, p.bio, p.interests, p.languages,
+            pm.active AS premium_active, pm.plan_id AS premium_plan_id, pm.expires_at AS premium_expires_at,
+            pm.revoked_at AS premium_revoked_at, pm.revocation_reason AS premium_revocation_reason,
+            pr.min_age AS pref_min_age, pr.max_age AS pref_max_age, pr.city AS pref_city,
+            pr.same_city_only AS pref_same_city_only, pr.languages AS pref_languages,
+            us.day AS usage_day, us.discovery_actions AS usage_discovery_actions, us.super_likes AS usage_super_likes
+     FROM users u
+     LEFT JOIN profiles p ON p.telegram_id = u.telegram_id
+     LEFT JOIN premium_memberships pm ON pm.telegram_id = u.telegram_id
+     LEFT JOIN preferences pr ON pr.telegram_id = u.telegram_id
+     LEFT JOIN usage us ON us.telegram_id = u.telegram_id
+     WHERE u.telegram_id = $1`,
+    [String(from.id)]
+  );
+  const r = userResult.rows[0] || {};
+  const userData = r.telegram_id ? {
+    telegramId: String(r.telegram_id),
+    firstName: r.first_name ?? null,
+    languageCode: r.language_code ?? null,
+    locale: r.locale ?? null,
+    ageEligibilityConfirmed: r.age_eligibility_confirmed === true,
+    profileComplete: r.profile_complete === true,
+    discoverable: r.discoverable === true,
+    processingRestricted: r.processing_restricted === true,
+    processingObjection: r.processing_objection === true,
+    profile: {
+      displayName: r.display_name ?? '', age: r.age ?? null, gender: r.gender ?? '', seeking: r.seeking ?? 'everyone',
+      city: r.city ?? '', bio: r.bio ?? '', interests: r.interests ?? [], languages: r.languages ?? []
+    },
+    preferences: { minAge: r.pref_min_age ?? 18, maxAge: r.pref_max_age ?? 100, city: r.pref_city ?? '', sameCityOnly: r.pref_same_city_only === true, languages: r.pref_languages ?? [] },
+    bezyPremium: {
+      active: r.premium_active === true, planId: r.premium_plan_id ?? null,
+      expiresAt: r.premium_expires_at ? new Date(r.premium_expires_at) : null,
+      revokedAt: r.premium_revoked_at ? new Date(r.premium_revoked_at) : null,
+      revocationReason: r.premium_revocation_reason ?? null
+    },
+    usage: { day: r.usage_day ?? null, discoveryActions: Number(r.usage_discovery_actions) || 0, superLikes: Number(r.usage_super_likes) || 0 }
+  } : {};
+  // The row is already in hand: the explicit Bezy choice wins over the Telegram
   // language, matching how notifications resolve the recipient's language.
   language = normalizedLanguage(userData.locale || from.language_code);
   if (category === 'contact' || category === 'problem') {
-    await beginSupportIntake(chatId, language, from, category, firestore);
+    await beginSupportIntake(chatId, language, from, category, storage);
     return;
   }
   if (category === 'premium') return supportPremium(chatId, language, userData);
   if (category === 'profile') return supportProfile(chatId, language, userData);
   if (category === 'discovery') return supportDiscovery(chatId, language, userData);
   if (category === 'likes_matches') {
-    const matches = await firestore.collection('matches').where('participants', 'array-contains', String(from.id)).get();
-    const active = matches.docs.filter((d) => d.data()?.active !== false).length;
-    return supportMatches(chatId, language, active);
+    const matches = await query(
+      'SELECT count(*)::int AS n FROM matches WHERE (participant_a = $1 OR participant_b = $1) AND active = TRUE',
+      [String(from.id)]
+    );
+    return supportMatches(chatId, language, matches.rows[0].n);
   }
   if (category === 'privacy_account') return supportPrivacy(chatId, language);
 }
@@ -652,27 +694,34 @@ const SUPPORT_CONFIRMATION = {
   ko: (ref) => `지원 요청이 접수되었습니다.\n참조 번호: ${ref}.\n검토 후 여기에서 답변드리겠습니다. 법적 또는 공식 사안: contacts@digitalconcordia.com`
 };
 
-async function beginSupportIntake(chatId, language, from, category, firestore) {
-  await firestore.collection('users').doc(String(from.id)).set({ pendingSupportRequest: { category, at: new Date() } }, { merge: true });
+async function beginSupportIntake(chatId, language, from, category, storage) {
+  const { query } = await import('../_db.js');
+  await query(
+    'INSERT INTO users (telegram_id, pending_support_category, pending_support_at, created_at, updated_at) VALUES ($1, $2, now(), now(), now()) ON CONFLICT (telegram_id) DO UPDATE SET pending_support_category = EXCLUDED.pending_support_category, pending_support_at = EXCLUDED.pending_support_at, updated_at = now()',
+    [String(from.id), category]
+  );
   const text = localized(language, SUPPORT_INTAKE);
   await telegramApi('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML' });
 }
 
-async function handleSupportText(chatId, language, from, firestore, messageText) {
+async function handleSupportText(chatId, language, from, storage, messageText) {
+  const { query } = await import('../_db.js');
   const userId = String(from.id);
-  const userRef = firestore.collection('users').doc(userId);
-  const userSnap = await userRef.get();
-  const userData = userSnap.data() || {};
-  const pending = userData.pendingSupportRequest;
-  if (!pending || !SUPPORT_CATEGORIES.includes(pending.category)) return false;
-  // The document is already in hand: the explicit Bezy choice wins over the Telegram
+  const userResult = await query(
+    'SELECT pending_support_category, locale, language_code FROM users WHERE telegram_id = $1',
+    [userId]
+  );
+  const row = userResult.rows[0] || {};
+  const pending = row.pending_support_category;
+  if (!pending || !SUPPORT_CATEGORIES.includes(pending)) return false;
+  // The row is already in hand: the explicit Bezy choice wins over the Telegram
   // language, matching how notifications resolve the recipient's language.
-  language = normalizedLanguage(userData.locale || from.language_code);
+  language = normalizedLanguage(row.locale || from.language_code);
 
   // Support spam protection: the same bucket as the Mini App, so neither channel can flood
   // the queue. Fails open like every rate limit.
   try {
-    await enforceRateLimit(firestore, userId, 'support_create');
+    await enforceRateLimit(storage, userId, 'support_create');
   } catch (error) {
     if (error.rateLimited) {
       const text = localized(language, SUPPORT_RATE_LIMITED);
@@ -682,15 +731,18 @@ async function handleSupportText(chatId, language, from, firestore, messageText)
     throw error;
   }
 
-  const reference = await createSupportRequest(firestore, {
+  const reference = await createSupportRequest(storage, {
     telegramUserId: userId,
-    category: pending.category,
+    category: pending,
     details: String(messageText || ''),
     // The resolved Bezy locale (explicit choice > Telegram language) is what the operator
     // queue should record — the same language the user actually reads.
     languageCode: language
   });
-  await userRef.update({ pendingSupportRequest: null });
+  await query(
+    'UPDATE users SET pending_support_category = NULL, pending_support_at = NULL, updated_at = now() WHERE telegram_id = $1',
+    [userId]
+  );
   const text = localized(language, SUPPORT_CONFIRMATION)(reference);
   await telegramApi('sendMessage', { chat_id: chatId, text });
   return true;
@@ -795,7 +847,7 @@ async function sendCommand(chatId, command, language) {
 // ---------------------------------------------------------------------------
 
 // Telegram requires an answer within 10 seconds. Every field is re-derived from server
-// state: the plan, the price and the buyer all come from Firestore, never from the update.
+// state: the plan, the price and the buyer all come from PostgreSQL, never from the update.
 // Telegram shows error_message directly to the buyer, so it follows their language.
 const CHECKOUT_ERRORS = {
   en: {
@@ -954,7 +1006,7 @@ const CHECKOUT_ERRORS = {
 };
 
 // Payment logging is deliberately narrow: enough to diagnose a failed checkout from the
-// Vercel logs, with no bot token, no Firebase key, no initData and no profile content.
+// Vercel logs, with no bot token, no database credentials, no initData and no profile content.
 function logPayment(event, fields) {
   console.log(`[bezy-payment] ${event} ${JSON.stringify(fields)}`);
 }
@@ -985,10 +1037,11 @@ async function handlePreCheckout(query) {
   if (query.currency !== 'XTR') return reject('currency');
   if (Number(query.total_amount) !== plan.stars) return reject('price');
 
-  const invoiceSnap = await db().collection('bezyInvoices').doc(parsed.nonce).get();
-  if (!invoiceSnap.exists) return reject('expired');
-  const invoice = invoiceSnap.data() || {};
-  if (invoice.telegramUserId !== parsed.telegramUserId || invoice.planId !== plan.id || Number(invoice.stars) !== plan.stars) {
+  const { query: dbQuery } = await import('../_db.js');
+  const invoiceResult = await dbQuery('SELECT telegram_user_id, plan_id, stars FROM bezy_invoices WHERE nonce = $1', [parsed.nonce]);
+  const invoice = invoiceResult.rows[0] || null;
+  if (!invoice) return reject('expired');
+  if (String(invoice.telegram_user_id) !== parsed.telegramUserId || invoice.plan_id !== plan.id || Number(invoice.stars) !== plan.stars) {
     return reject('unverified');
   }
 
@@ -1026,58 +1079,65 @@ async function handleSuccessfulPayment(message) {
     return null;
   }
 
-  const firestore = db();
-  const paymentRef = firestore.collection('bezyPayments').doc(chargeId);
-  const userRef = firestore.collection('users').doc(parsed.telegramUserId);
-  const invoiceRef = firestore.collection('bezyInvoices').doc(parsed.nonce);
+  const { tx, advisoryLock } = await import('../_db.js');
   const now = new Date();
 
-  const result = await firestore.runTransaction(async (tx) => {
-    const existing = await tx.get(paymentRef);
-    if (existing.exists) return { duplicate: true, expiresAt: existing.data()?.membershipExpiresAt || null };
+  // Activation runs in one transaction keyed on the charge id. The primary key on
+  // telegram_payment_charge_id is the database-enforced idempotency boundary: a redelivered
+  // update can never activate Premium twice, and the invoice corroboration inside the
+  // transaction means a forged event without a matching invoice grants nothing.
+  const result = await tx(async (q) => {
+    await advisoryLock(q, `charge:${chargeId}`);
+    await advisoryLock(q, `premium:${parsed.telegramUserId}`);
+    const existing = await q('SELECT membership_expires_at FROM bezy_payments WHERE telegram_payment_charge_id = $1 FOR UPDATE', [chargeId]);
+    if (existing.rows.length) return { duplicate: true, expiresAt: existing.rows[0].membership_expires_at || null };
 
     // The invoice created at pre-checkout is the server-side record of what was offered.
     // Activation corroborates the update against it — a well-formed successful_payment
     // without a matching invoice record grants nothing, mirroring the pre-checkout gate.
-    const invoiceSnap = await tx.get(invoiceRef);
-    const invoice = invoiceSnap.exists ? invoiceSnap.data() : null;
-    if (!invoice || invoice.telegramUserId !== parsed.telegramUserId || invoice.planId !== plan.id || Number(invoice.stars) !== plan.stars) {
+    const invoiceRows = await q(
+      'SELECT telegram_user_id, plan_id, stars, status FROM bezy_invoices WHERE nonce = $1 FOR UPDATE',
+      [parsed.nonce]
+    );
+    const invoice = invoiceRows.rows[0] || null;
+    if (!invoice || invoice.status === 'paid' || String(invoice.telegram_user_id) !== parsed.telegramUserId || invoice.plan_id !== plan.id || Number(invoice.stars) !== plan.stars) {
       logPayment('successful_payment.rejected', { ...context, reason: 'invoice_mismatch' });
       return { rejected: true };
     }
 
-    const userSnap = await tx.get(userRef);
-    const userData = userSnap.exists ? userSnap.data() : {};
+    const membershipRows = await q(
+      'SELECT active, expires_at, plan_id, purchased_at FROM premium_memberships WHERE telegram_id = $1 FOR UPDATE',
+      [parsed.telegramUserId]
+    );
+    const userData = membershipRows.rows[0]
+      ? { bezyPremium: { active: membershipRows.rows[0].active === true, planId: membershipRows.rows[0].plan_id, expiresAt: membershipRows.rows[0].expires_at ? new Date(membershipRows.rows[0].expires_at) : null, purchasedAt: membershipRows.rows[0].purchased_at ? new Date(membershipRows.rows[0].purchased_at) : null } }
+      : {};
     const expiresAt = nextExpiry(userData, plan, now);
 
-    tx.set(paymentRef, {
-      telegramPaymentChargeId: chargeId,
-      providerPaymentChargeId: payment.provider_payment_charge_id || '',
-      telegramUserId: parsed.telegramUserId,
-      product: 'bezy_premium',
-      planId: plan.id,
-      stars: Number(payment.total_amount),
-      currency: payment.currency,
-      invoicePayload: payment.invoice_payload,
-      status: 'processed',
-      createdAt: now,
-      processedAt: now,
-      membershipExpiresAt: expiresAt
-    });
+    await q(
+      `INSERT INTO bezy_payments (telegram_payment_charge_id, provider_payment_charge_id, telegram_user_id, product,
+                                  plan_id, stars, currency, invoice_payload, status, created_at, processed_at, membership_expires_at)
+       VALUES ($1, $2, $3, 'bezy_premium', $4, $5, $6, $7, 'processed', $8, $8, $9)
+       ON CONFLICT (telegram_payment_charge_id) DO NOTHING`,
+      [
+        chargeId, payment.provider_payment_charge_id || '', parsed.telegramUserId, plan.id,
+        Number(payment.total_amount), payment.currency, payment.invoice_payload, now, expiresAt
+      ]
+    );
 
-    const membership = {
-      active: true,
-      planId: plan.id,
-      expiresAt,
-      purchasedAt: now,
-      updatedAt: now,
-      source: 'telegram_stars',
-      telegramPaymentChargeId: chargeId
-    };
-    if (userSnap.exists) tx.update(userRef, { bezyPremium: membership });
-    else tx.set(userRef, { telegramId: Number(parsed.telegramUserId), bezyPremium: membership, createdAt: now, updatedAt: now }, { merge: true });
+    await q(
+      `INSERT INTO premium_memberships (telegram_id, active, plan_id, expires_at, purchased_at, updated_at, source, telegram_payment_charge_id)
+       VALUES ($1, TRUE, $2, $3, $4, $4, 'telegram_stars', $5)
+       ON CONFLICT (telegram_id) DO UPDATE SET active = TRUE, plan_id = EXCLUDED.plan_id, expires_at = EXCLUDED.expires_at,
+         purchased_at = EXCLUDED.purchased_at, updated_at = EXCLUDED.updated_at, source = EXCLUDED.source,
+         telegram_payment_charge_id = EXCLUDED.telegram_payment_charge_id, revoked_at = NULL, revocation_reason = NULL, refunded_charge_id = NULL`,
+      [parsed.telegramUserId, plan.id, expiresAt, now, chargeId]
+    );
 
-    tx.set(invoiceRef, { status: 'paid', paidAt: now, telegramPaymentChargeId: chargeId }, { merge: true });
+    await q(
+      `UPDATE bezy_invoices SET status = 'paid', paid_at = $1, telegram_payment_charge_id = $2 WHERE nonce = $3`,
+      [now, chargeId, parsed.nonce]
+    );
 
     return { duplicate: false, expiresAt, planId: plan.id };
   });
@@ -1110,7 +1170,7 @@ async function handleRefundedPayment(message) {
     return null;
   }
 
-  const result = await applyRefund(db(), chargeId, { source: 'telegram_webhook' });
+  const result = await applyRefund(null, chargeId, { source: 'telegram_webhook' });
 
   if (result.outcome === 'unknown_payment') {
     logPayment('refund.unknown_payment', context);
@@ -1230,12 +1290,12 @@ export default async function handler(req, res) {
         const chatId = query.message?.chat?.id;
         const from = query.from;
         if (chatId && from) {
-          const language = await resolveChatLanguage(db(), from);
+          const language = await resolveChatLanguage(null, from);
           const part = data.slice('support:'.length);
           if (part.startsWith('new:')) {
-            await beginSupportIntake(chatId, language, from, part.slice(4), db());
+            await beginSupportIntake(chatId, language, from, part.slice(4), null);
           } else if (SUPPORT_CATEGORIES.includes(part)) {
-            await handleSupportCategory(chatId, language, from, part, db());
+            await handleSupportCategory(chatId, language, from, part, null);
           }
         }
       }
@@ -1258,7 +1318,7 @@ export default async function handler(req, res) {
   if (!message?.chat?.id) return res.status(200).json({ ok: true });
   // The explicit Bezy choice wins over the Telegram language where the user document can
   // safely be read; every other bot reply falls back to the Telegram language.
-  const language = await resolveChatLanguage(db(), message.from);
+  const language = await resolveChatLanguage(null, message.from);
 
   if (message.refunded_payment) {
     try {
@@ -1291,7 +1351,7 @@ export default async function handler(req, res) {
     // Not a command: if the user was mid support intake, this plain message is their
     // problem description. Anything else stays unanswered, as before.
     try {
-      await handleSupportText(message.chat.id, language, message.from, db(), String(message.text || ''));
+      await handleSupportText(message.chat.id, language, message.from, null, String(message.text || ''));
     } catch (error) {
       console.error('Support intake failed:', error);
       try {

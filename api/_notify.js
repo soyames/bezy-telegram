@@ -85,43 +85,42 @@ export function isNotificationEnabled(userData, category) {
 
 /**
  * Fixed-window counter (24 hours by default, per-category `windowMs` override), stored
- * alongside the rate-limit counters in `rateLimits/{telegramUserId}` under a `notify_` prefix.
- * Reusing that document is deliberate: it is already deleted with the account (see
- * api/account.js), so capping introduces no new personal-data surface and no new retention
+ * alongside the rate-limit counters in the `rate_limits` row under a `notify_` prefix.
+ * Reusing that row is deliberate: it is already deleted with the account via the users
+ * foreign key, so capping introduces no new personal-data surface and no new retention
  * obligation.
  *
- * Fails open, like the rate limiter. This only ever runs after a Firestore transaction has
- * already succeeded, so a read failure here is a transient blip that can cost a handful of
- * extra messages — not a path to an unbounded flood.
+ * Fails open, like the rate limiter. This only ever runs after the state change it follows
+ * has already been committed, so a read failure here is a transient blip that can cost a
+ * handful of extra messages — not a path to an unbounded flood.
  */
-export async function withinDailyCap(firestore, userId, category, now = Date.now()) {
+export async function withinDailyCap(storage, userId, category, now = Date.now()) {
   const definition = NOTIFICATION_CATEGORIES[category] || {};
   const cap = definition.dailyCap || 0;
   if (!cap) return true;
 
   const window = definition.windowMs || DAY_MS;
-  const ref = firestore.collection('rateLimits').doc(String(userId));
   const key = `notify_${category}`;
-  let entry = {};
   try {
-    const snap = await ref.get();
-    entry = (snap.exists ? snap.data() || {} : {})[key] || {};
+    const { tx } = await import('./_db.js');
+    return await tx(async (q) => {
+      const lock = await q('SELECT buckets FROM rate_limits WHERE user_id = $1 FOR UPDATE', [String(userId)]);
+      const buckets = lock.rows[0]?.buckets || {};
+      const entry = buckets[key] || {};
+      const startedAt = Number(entry.w) || 0;
+      const expired = now - startedAt >= window;
+      const count = expired ? 0 : Number(entry.c) || 0;
+      if (count >= cap) return false;
+      await q(
+        'INSERT INTO rate_limits (user_id, buckets) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET buckets = rate_limits.buckets || EXCLUDED.buckets',
+        [String(userId), JSON.stringify({ [key]: { w: expired ? now : startedAt, c: count + 1 } })]
+      );
+      return true;
+    });
   } catch (error) {
     console.warn(`[bezy-notify] cap read failed for ${category}, allowing:`, error.message);
     return true;
   }
-
-  const startedAt = Number(entry.w) || 0;
-  const expired = now - startedAt >= window;
-  const count = expired ? 0 : Number(entry.c) || 0;
-  if (count >= cap) return false;
-
-  try {
-    await ref.set({ [key]: { w: expired ? now : startedAt, c: count + 1 } }, { merge: true });
-  } catch (error) {
-    console.warn(`[bezy-notify] cap write failed for ${category}:`, error.message);
-  }
-  return true;
 }
 
 /**
@@ -131,11 +130,11 @@ export async function withinDailyCap(firestore, userId, category, now = Date.now
  * already been committed, so a Telegram failure must not turn a successful action into an
  * error for the user who performed it.
  */
-export async function deliverNotification(firestore, recipient, category, message) {
+export async function deliverNotification(storage, recipient, category, message) {
   const chatId = recipient?.telegramId;
   if (!chatId) return { sent: false, reason: 'NO_RECIPIENT' };
   if (!isNotificationEnabled(recipient, category)) return { sent: false, reason: 'DISABLED' };
-  if (!(await withinDailyCap(firestore, chatId, category))) return { sent: false, reason: 'CAPPED' };
+  if (!(await withinDailyCap(storage, chatId, category))) return { sent: false, reason: 'CAPPED' };
   try {
     await telegramApi('sendMessage', { chat_id: chatId, ...message });
     return { sent: true };

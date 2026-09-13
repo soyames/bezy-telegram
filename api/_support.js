@@ -2,7 +2,7 @@
 //
 // The bot is the primary support channel; contacts@digitalconcordia.com stays the fallback
 // for formal legal/privacy matters. Nothing here is a ticketing platform: requests are one
-// Firestore collection with a four-state lifecycle, created from validated Telegram update
+// PostgreSQL collection with a four-state lifecycle, created from validated Telegram update
 // context (the webhook) or from the Mini App behind `requireTelegramUser`, and read back by
 // their owner only. The operator works the queue through scripts/list-support.mjs, exactly
 // like moderation reports.
@@ -37,10 +37,9 @@ export function normalizeSupportRequest(input = {}) {
  * Mini App endpoint (validated initData); the telegram id always comes from the caller's
  * authenticated context, never from the payload.
  */
-export async function createSupportRequest(firestore, { telegramUserId, category, details, languageCode = null }) {
+export async function createSupportRequest(storage, { telegramUserId, category, details, languageCode = null }) {
   const userId = String(telegramUserId);
-  const counterRef = firestore.collection('supportMeta').doc('refs');
-  const now = new Date();
+  const { tx, advisoryLock } = await import('./_db.js');
   // Normalization lives here, the single choke point: both channels (Mini App endpoint and
   // bot intake) get the same category allow-list and the same 1000-character ceiling, so
   // neither can store a longer description or an invalid category.
@@ -48,20 +47,23 @@ export async function createSupportRequest(firestore, { telegramUserId, category
   if (!normalized.category) throw new Error('INVALID_CATEGORY');
   details = normalized.details;
 
-  const reference = await firestore.runTransaction(async (tx) => {
-    const counterSnap = await tx.get(counterRef);
-    const next = (counterSnap.data()?.n || 0) + 1;
-    tx.set(counterRef, { n: next });
+  // The reference counter is row-locked inside the transaction, so references are dense,
+  // unique and unguessable without the counter — and concurrent requests serialize instead
+  // of colliding. A caller can never influence the id.
+  const reference = await tx(async (q) => {
+    await advisoryLock(q, `support:${userId}`);
+    const retry = await q(`SELECT reference FROM support_requests WHERE telegram_user_id=$1 AND category=$2
+      AND details=$3 AND created_at >= now() - interval '1 minute' ORDER BY created_at DESC LIMIT 1`, [userId,category,details]);
+    if (retry.rows.length) return retry.rows[0].reference;
+    const counter = await q(`INSERT INTO support_meta(id,n) VALUES ('refs',1)
+      ON CONFLICT(id) DO UPDATE SET n=support_meta.n+1 RETURNING n`);
+    const next = Number(counter.rows[0].n);
     const ref = formatSupportReference(next);
-    tx.set(firestore.collection('supportRequests').doc(ref), {
-      reference: ref,
-      telegramUserId: userId,
-      category,
-      details,
-      status: 'open',
-      languageCode: languageCode || null,
-      createdAt: now
-    });
+    await q(
+      `INSERT INTO support_requests (reference, telegram_user_id, category, details, status, language_code, created_at)
+       VALUES ($1, $2, $3, $4, 'open', $5, now())`,
+      [ref, userId, category, details, languageCode || null]
+    );
     return ref;
   });
 
@@ -70,27 +72,23 @@ export async function createSupportRequest(firestore, { telegramUserId, category
 }
 
 /** The caller's own requests, newest first. Never anyone else's. */
-export async function listSupportRequests(firestore, telegramUserId, limit = 20) {
-  // Deliberately no orderBy in the query: where + orderBy on different fields would need a
-  // composite index (observed live as a 500 on 2026-09-10), and a user's own requests are a
-  // handful — creation is rate-limited to 3/hour. Sort in memory instead.
-  const snap = await firestore.collection('supportRequests')
-    .where('telegramUserId', '==', String(telegramUserId))
-    .get();
-  const requests = snap.docs.map((doc) => {
-    const d = doc.data() || {};
-    const ms = d.createdAt?.toMillis?.() ?? new Date(d.createdAt || 0).getTime();
-    return {
-      reference: d.reference || doc.id,
-      category: SUPPORT_CATEGORIES.includes(d.category) ? d.category : 'problem',
-      status: SUPPORT_STATUSES.includes(d.status) ? d.status : 'open',
-      details: String(d.details || '').slice(0, SUPPORT_DETAILS_MAX),
-      createdAt: Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null,
-      createdAtMs: ms
-    };
-  });
-  requests.sort((a, b) => b.createdAtMs - a.createdAtMs);
-  return requests.slice(0, Math.min(Number(limit) || 20, 50)).map(({ createdAtMs, ...rest }) => rest);
+export async function listSupportRequests(storage, telegramUserId, limit = 20) {
+  const { query } = await import('./_db.js');
+  const result = await query(
+    `SELECT reference, category, status, details, created_at
+     FROM support_requests
+     WHERE telegram_user_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [String(telegramUserId), Math.min(Number(limit) || 20, 50)]
+  );
+  return result.rows.map((r) => ({
+    reference: String(r.reference),
+    category: SUPPORT_CATEGORIES.includes(r.category) ? r.category : 'problem',
+    status: SUPPORT_STATUSES.includes(r.status) ? r.status : 'open',
+    details: String(r.details || '').slice(0, SUPPORT_DETAILS_MAX),
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : null
+  }));
 }
 
 /**

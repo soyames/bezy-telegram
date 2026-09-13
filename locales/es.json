@@ -333,7 +333,11 @@
     "interests_limit": "Máximo 12 intereses.",
     "quota_likes_left": "Quedan {n} likes hoy",
     "quota_super_likes_left": "Quedan {n} Super Likes",
-    "check_payment_status": "Comprobar el estado del pago"
+    "check_payment_status": "Comprobar el estado del pago",
+    "home_screen_title": "Añadir Bezy a la pantalla de inicio",
+    "home_screen_body": "Ten Bezy a un toque: añádelo a la pantalla de inicio de tu teléfono.",
+    "home_screen_add": "Añadir Bezy a la pantalla de inicio",
+    "home_screen_added": "Bezy está en tu pantalla de inicio ✓"
   },
   "profile": {
     "edit": "Editar perfil",

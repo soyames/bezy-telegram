@@ -333,7 +333,11 @@
     "interests_limit": "Maksymalnie 12 zainteresowań.",
     "quota_likes_left": "Zostało dziś {n} polubień",
     "quota_super_likes_left": "Zostało {n} Super Polubień",
-    "check_payment_status": "Sprawdź status płatności"
+    "check_payment_status": "Sprawdź status płatności",
+    "home_screen_title": "Dodaj Bezy do ekranu głównego",
+    "home_screen_body": "Miej Bezy w zasięgu jednego dotknięcia — dodaj go do ekranu głównego telefonu.",
+    "home_screen_add": "Dodaj Bezy do ekranu głównego",
+    "home_screen_added": "Bezy jest na Twoim ekranie głównym ✓"
   },
   "profile": {
     "edit": "Edytuj profil",

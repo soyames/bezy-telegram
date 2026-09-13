@@ -333,7 +333,11 @@
     "interests_limit": "최대 12개의 관심사.",
     "quota_likes_left": "오늘 좋아요 {n}개 남음",
     "quota_super_likes_left": "슈퍼 좋아요 {n}개 남음",
-    "check_payment_status": "결제 상태 확인"
+    "check_payment_status": "결제 상태 확인",
+    "home_screen_title": "Bezy를 홈 화면에 추가",
+    "home_screen_body": "Bezy를 한 번의 탭으로 열 수 있게 휴대폰 홈 화면에 추가하세요.",
+    "home_screen_add": "Bezy를 홈 화면에 추가",
+    "home_screen_added": "Bezy가 홈 화면에 있습니다 ✓"
   },
   "profile": {
     "edit": "프로필 수정",

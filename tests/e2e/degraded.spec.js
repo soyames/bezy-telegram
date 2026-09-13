@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // Degraded-dependency states, driven deterministically through route interception — no
-// Firestore, no network flakiness. The contract: any dependency failure degrades to a
+// PostgreSQL, no network flakiness. The contract: any dependency failure degrades to a
 // usable app with a typed message, never to a dead static page (app.js boot()).
 
 const JSON_500 = (payload) => ({

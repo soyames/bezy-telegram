@@ -333,7 +333,11 @@
     "interests_limit": "最多 12 个兴趣。",
     "quota_likes_left": "今天还剩 {n} 次喜欢",
     "quota_super_likes_left": "还剩 {n} 次超级喜欢",
-    "check_payment_status": "查看付款状态"
+    "check_payment_status": "查看付款状态",
+    "home_screen_title": "将 Bezy 添加到主屏幕",
+    "home_screen_body": "让 Bezy 一键可达——将它添加到手机主屏幕。",
+    "home_screen_add": "将 Bezy 添加到主屏幕",
+    "home_screen_added": "Bezy 已在你的主屏幕上 ✓"
   },
   "profile": {
     "edit": "编辑资料",

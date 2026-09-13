@@ -333,7 +333,11 @@
     "interests_limit": "12 centres d’intérêt maximum.",
     "quota_likes_left": "{n} likes restants aujourd’hui",
     "quota_super_likes_left": "{n} Super Likes restants",
-    "check_payment_status": "Vérifier le statut du paiement"
+    "check_payment_status": "Vérifier le statut du paiement",
+    "home_screen_title": "Ajouter Bezy à l’écran d’accueil",
+    "home_screen_body": "Gardez Bezy à portée de main : ajoutez-le à l’écran d’accueil de votre téléphone.",
+    "home_screen_add": "Ajouter Bezy à l’écran d’accueil",
+    "home_screen_added": "Bezy est sur votre écran d’accueil ✓"
   },
   "profile": {
     "edit": "Modifier le profil",

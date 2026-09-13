@@ -37,11 +37,15 @@ export function requirePost(req, res) {
 
 export function requireTelegramUser(req, res) {
   const user = validateInitData(req.body?.initData);
-  if (!user?.id) {
+  if (!Number.isSafeInteger(user?.id) || user.id <= 0) {
     res.status(401).json({ error: 'INVALID_SESSION' });
     return null;
   }
   return user;
+}
+
+export function validUserId(value) {
+  return /^[1-9]\d{0,18}$/.test(String(value)) && BigInt(value) <= 9223372036854775807n;
 }
 
 export async function telegramApi(method, body) {
@@ -50,10 +54,11 @@ export async function telegramApi(method, body) {
   const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000)
   });
   const data = await response.json();
-  if (!data.ok) throw new Error(data.description || `Telegram API error: ${method}`);
+  if (!data.ok) throw new Error('TELEGRAM_UNAVAILABLE');
   return data.result;
 }
 

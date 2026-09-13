@@ -333,7 +333,11 @@
     "interests_limit": "Höchstens 12 Interessen.",
     "quota_likes_left": "Heute noch {n} Likes",
     "quota_super_likes_left": "{n} Super Likes übrig",
-    "check_payment_status": "Zahlungsstatus prüfen"
+    "check_payment_status": "Zahlungsstatus prüfen",
+    "home_screen_title": "Bezy zum Startbildschirm hinzufügen",
+    "home_screen_body": "Bezy immer griffbereit: Füge es dem Startbildschirm deines Handys hinzu.",
+    "home_screen_add": "Bezy zum Startbildschirm hinzufügen",
+    "home_screen_added": "Bezy ist auf deinem Startbildschirm ✓"
   },
   "profile": {
     "edit": "Profil bearbeiten",

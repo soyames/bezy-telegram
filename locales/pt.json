@@ -333,7 +333,11 @@
     "interests_limit": "No máximo 12 interesses.",
     "quota_likes_left": "Faltam {n} likes hoje",
     "quota_super_likes_left": "Faltam {n} Super Likes",
-    "check_payment_status": "Verificar o estado do pagamento"
+    "check_payment_status": "Verificar o estado do pagamento",
+    "home_screen_title": "Adicionar o Bezy ao ecrã inicial",
+    "home_screen_body": "Mantém o Bezy a um toque: adiciona-o ao ecrã inicial do teu telemóvel.",
+    "home_screen_add": "Adicionar o Bezy ao ecrã inicial",
+    "home_screen_added": "O Bezy está no teu ecrã inicial ✓"
   },
   "profile": {
     "edit": "Editar perfil",

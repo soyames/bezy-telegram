@@ -98,10 +98,11 @@ function olderThan(value, days, now) {
  * `protectedIds` shields real production accounts from ever being selected by a run started
  * with the wrong flags.
  */
-export async function planRetention(firestore, { now = Date.now(), protectedIds = [] } = {}) {
+export async function planRetention(storage, { now = Date.now(), protectedIds = [] } = {}) {
   const policy = retentionPolicy();
   const guard = new Set(protectedIds.map(String));
   const plan = { policy, users: [], matches: [], invoices: [], rateLimits: [], payments: [], reports: [], supportRequests: [], skipped: [] };
+  const { query } = await import('./_db.js');
 
   for (const [name, rule] of Object.entries(policy)) {
     if (!isConfigured(rule)) {
@@ -111,60 +112,69 @@ export async function planRetention(firestore, { now = Date.now(), protectedIds 
 
   // Abandoned signups: never declared 18+, never completed a profile, no payment history.
   if (isConfigured(policy.abandonedSignups)) {
-    for (const doc of (await firestore.collection('users').get()).docs) {
-      if (guard.has(doc.id)) continue;
-      const d = doc.data() || {};
-      const abandoned = d.ageEligibilityConfirmed !== true && d.profileComplete !== true;
-      if (abandoned && olderThan(d.createdAt, policy.abandonedSignups.days, now)) {
-        const paid = await firestore.collection('bezyPayments').where('telegramUserId', '==', doc.id).limit(1).get();
-        if (paid.empty) plan.users.push(doc.id);
-      }
+    const candidates = await query(
+      `SELECT u.telegram_id, u.created_at
+       FROM users u
+       WHERE u.age_eligibility_confirmed = FALSE AND u.profile_complete = FALSE
+         AND NOT EXISTS (SELECT 1 FROM bezy_payments bp WHERE bp.telegram_user_id = u.telegram_id)`,
+      []
+    );
+    for (const row of candidates.rows) {
+      if (guard.has(String(row.telegram_id))) continue;
+      if (olderThan(row.created_at, policy.abandonedSignups.days, now)) plan.users.push(String(row.telegram_id));
     }
   }
 
   if (isConfigured(policy.endedMatches)) {
-    for (const doc of (await firestore.collection('matches').get()).docs) {
-      const d = doc.data() || {};
-      if (d.active === false && olderThan(d.endedAt, policy.endedMatches.days, now)) plan.matches.push(doc.id);
+    const result = await query(
+      'SELECT match_id, ended_at FROM matches WHERE active = FALSE AND ended_at IS NOT NULL',
+      []
+    );
+    for (const row of result.rows) {
+      if (olderThan(row.ended_at, policy.endedMatches.days, now)) plan.matches.push(String(row.match_id));
     }
   }
 
   if (isConfigured(policy.spentInvoices)) {
-    for (const doc of (await firestore.collection('bezyInvoices').get()).docs) {
-      const d = doc.data() || {};
-      if (guard.has(String(d.telegramUserId))) continue;
-      if (olderThan(d.createdAt, policy.spentInvoices.days, now)) plan.invoices.push(doc.id);
+    const result = await query('SELECT nonce, telegram_user_id, created_at FROM bezy_invoices', []);
+    for (const row of result.rows) {
+      if (guard.has(String(row.telegram_user_id))) continue;
+      if (olderThan(row.created_at, policy.spentInvoices.days, now)) plan.invoices.push(String(row.nonce));
     }
   }
 
   if (isConfigured(policy.staleRateLimits)) {
-    for (const doc of (await firestore.collection('rateLimits').get()).docs) {
-      if (guard.has(doc.id)) continue;
-      const windows = Object.values(doc.data() || {});
+    const result = await query('SELECT user_id, buckets FROM rate_limits', []);
+    for (const row of result.rows) {
+      if (guard.has(String(row.user_id))) continue;
+      const windows = Object.values(row.buckets || {});
       const newest = windows.reduce((max, w) => Math.max(max, Number(w?.w) || 0), 0);
-      if (newest > 0 && now - newest >= policy.staleRateLimits.days * DAY_MS) plan.rateLimits.push(doc.id);
+      if (newest > 0 && now - newest >= policy.staleRateLimits.days * DAY_MS) plan.rateLimits.push(String(row.user_id));
     }
   }
 
   if (isConfigured(policy.payments)) {
-    for (const doc of (await firestore.collection('bezyPayments').get()).docs) {
-      const d = doc.data() || {};
-      if (guard.has(String(d.telegramUserId))) continue;
-      if (olderThan(d.processedAt || d.createdAt, policy.payments.days, now)) plan.payments.push(doc.id);
+    const result = await query(
+      'SELECT telegram_payment_charge_id, telegram_user_id, processed_at, created_at FROM bezy_payments',
+      []
+    );
+    for (const row of result.rows) {
+      if (guard.has(String(row.telegram_user_id))) continue;
+      if (olderThan(row.processed_at || row.created_at, policy.payments.days, now)) plan.payments.push(String(row.telegram_payment_charge_id));
     }
   }
 
   if (isConfigured(policy.reports)) {
-    for (const doc of (await firestore.collection('reports').get()).docs) {
-      const d = doc.data() || {};
-      if (olderThan(d.createdAt, policy.reports.days, now)) plan.reports.push(doc.id);
+    const result = await query('SELECT id, created_at FROM reports', []);
+    for (const row of result.rows) {
+      if (olderThan(row.created_at, policy.reports.days, now)) plan.reports.push(String(row.id));
     }
   }
 
   if (isConfigured(policy.supportRequests)) {
-    for (const doc of (await firestore.collection('supportRequests').get()).docs) {
-      const d = doc.data() || {};
-      if (olderThan(d.createdAt, policy.supportRequests.days, now)) plan.supportRequests.push(doc.id);
+    const result = await query('SELECT reference, created_at FROM support_requests', []);
+    for (const row of result.rows) {
+      if (olderThan(row.created_at, policy.supportRequests.days, now)) plan.supportRequests.push(String(row.reference));
     }
   }
 
@@ -173,26 +183,27 @@ export async function planRetention(firestore, { now = Date.now(), protectedIds 
   return plan;
 }
 
-/** Executes a plan produced by planRetention. Users are removed recursively with their subcollections. */
-export async function applyRetention(firestore, plan) {
+/** Executes a plan produced by planRetention. User rows cascade their strictly-erased children. */
+export async function applyRetention(storage, plan) {
   const applied = { users: 0, matches: 0, invoices: 0, rateLimits: 0, payments: 0, reports: 0, supportRequests: 0 };
+  const { query } = await import('./_db.js');
 
   for (const id of plan.users) {
-    await firestore.recursiveDelete(firestore.collection('users').doc(id));
-    await firestore.collection('rateLimits').doc(id).delete().catch(() => {});
-    applied.users++;
+    const result = await query('DELETE FROM users WHERE telegram_id = $1', [id]);
+    applied.users += result.rowCount || 0;
   }
-  for (const [collection, ids, key] of [
-    ['matches', plan.matches, 'matches'],
-    ['bezyInvoices', plan.invoices, 'invoices'],
-    ['rateLimits', plan.rateLimits, 'rateLimits'],
-    ['bezyPayments', plan.payments, 'payments'],
-    ['reports', plan.reports, 'reports'],
-    ['supportRequests', plan.supportRequests, 'supportRequests']
-  ]) {
+  const deletes = [
+    ['matches', 'match_id', plan.matches, 'matches'],
+    ['bezy_invoices', 'nonce', plan.invoices, 'invoices'],
+    ['rate_limits', 'user_id', plan.rateLimits, 'rateLimits'],
+    ['bezy_payments', 'telegram_payment_charge_id', plan.payments, 'payments'],
+    ['reports', 'id', plan.reports, 'reports'],
+    ['support_requests', 'reference', plan.supportRequests, 'supportRequests']
+  ];
+  for (const [table, column, ids, key] of deletes) {
     for (const id of ids) {
-      await firestore.collection(collection).doc(id).delete();
-      applied[key]++;
+      const result = await query(`DELETE FROM ${table} WHERE ${column} = $1`, [id]);
+      applied[key] += result.rowCount || 0;
     }
   }
 

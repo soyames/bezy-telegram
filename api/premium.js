@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { db } from './_firebase.js';
+import { query, ApiError } from './_db.js';
 import { requirePost, requireTelegramUser, telegramApi, normalizedLanguage } from './_telegram.js';
 import { premiumPlan, premiumPlans, premiumState, PREMIUM_BENEFITS, limitsFor, currentUsage, buildInvoicePayload } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
@@ -54,8 +54,22 @@ export function publicPlans() {
 }
 
 async function statusResponse(res, userId) {
-  const snap = await db().collection('users').doc(String(userId)).get();
-  const data = snap.exists ? snap.data() : {};
+  const [userResult, usageResult] = await Promise.all([
+    query('SELECT * FROM premium_memberships WHERE telegram_id = $1', [String(userId)]),
+    query('SELECT * FROM usage WHERE telegram_id = $1', [String(userId)])
+  ]);
+  const pm = userResult.rows[0] || null;
+  const us = usageResult.rows[0] || null;
+  const data = {
+    bezyPremium: pm ? {
+      active: pm.active === true, planId: pm.plan_id,
+      expiresAt: pm.expires_at ? new Date(pm.expires_at) : null,
+      purchasedAt: pm.purchased_at ? new Date(pm.purchased_at) : null,
+      revokedAt: pm.revoked_at ? new Date(pm.revoked_at) : null,
+      revocationReason: pm.revocation_reason
+    } : null,
+    usage: us ? { day: String(us.day), discoveryActions: Number(us.discovery_actions) || 0, superLikes: Number(us.super_likes) || 0 } : null
+  };
   const state = premiumState(data);
   const limits = limitsFor(state.active);
   const usage = currentUsage(data);
@@ -86,16 +100,12 @@ async function createInvoice(req, res, user) {
 
   // The pending invoice is recorded before the link is issued so pre-checkout can verify
   // the plan and price against server state rather than trusting the echoed payload alone.
-  await db().collection('bezyInvoices').doc(nonce).set({
-    nonce,
-    telegramUserId: String(user.id),
-    planId: plan.id,
-    stars: plan.stars,
-    currency: plan.currency,
-    payload,
-    status: 'pending',
-    createdAt: new Date()
-  });
+  await query(
+    `INSERT INTO bezy_invoices (nonce, telegram_user_id, plan_id, stars, status, created_at)
+     VALUES ($1, $2, $3, $4, 'pending', now())
+     ON CONFLICT (nonce) DO NOTHING`,
+    [nonce, String(user.id), plan.id, plan.stars]
+  );
 
   const title = `Bezy Premium · ${(PLAN_LABELS[language] || PLAN_LABELS.en)[plan.id]}`;
   const invoiceLink = await telegramApi('createInvoiceLink', {
@@ -123,15 +133,16 @@ export default async function handler(req, res) {
   try {
     const action = String(req.body?.action || 'status');
     if (action === 'status') {
-      if (!(await rateLimit(db(), res, user.id, 'premium_status'))) return;
+      if (!(await rateLimit(null, res, user.id, 'premium_status'))) return;
       return await statusResponse(res, user.id);
     }
     if (action === 'invoice') {
-      if (!(await rateLimit(db(), res, user.id, 'premium_invoice'))) return;
+      if (!(await rateLimit(null, res, user.id, 'premium_invoice'))) return;
       return await createInvoice(req, res, user);
     }
     return res.status(400).json({ error: 'INVALID_ACTION' });
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     console.error('Premium request failed:', error);
     return res.status(500).json({ error: 'PREMIUM_UNAVAILABLE' });
   }

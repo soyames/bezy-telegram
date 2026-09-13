@@ -1,5 +1,6 @@
-import { db } from './_firebase.js';
-import { miniAppUrl, requirePost, requireTelegramUser, normalizedLanguage, localized } from './_telegram.js';
+import { readUsers } from './_users.js';
+import { query, tx, advisoryLock, ApiError } from './_db.js';
+import { miniAppUrl, requirePost, requireTelegramUser, validUserId, normalizedLanguage, localized } from './_telegram.js';
 import { isPremiumActive, checkSwipeQuota } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 import { deliverNotification } from './_notify.js';
@@ -8,7 +9,7 @@ import { processingPaused } from './_privacy.js';
 const ACTIONS = new Set(['like', 'super', 'pass']);
 
 function matchId(a, b) {
-  return [String(a), String(b)].sort().join('_');
+  return [String(a), String(b)].sort((x, y) => BigInt(x) < BigInt(y) ? -1 : 1).join('_');
 }
 
 // The match notification points at the Bezy conversation (ADR 0009): Bezy owns messaging
@@ -39,27 +40,16 @@ function matchMessage(language, name) {
   });
 }
 
-export async function notifyMatch(firestore, user, other, language) {
+export async function notifyMatch(storage, user, other, language) {
   const otherName = other.profile?.displayName || other.firstName || localized(language, YOUR_MATCH);
   const openChatText = localized(language, START_CHATTING);
   const buttons = [[{ text: openChatText, web_app: { url: miniAppUrl('messages') } }]];
-  return deliverNotification(firestore, user, 'matches', {
+  return deliverNotification(storage, user, 'matches', {
     text: matchMessage(language, otherName),
     reply_markup: { inline_keyboard: buttons }
   });
 }
 
-/**
- * Super Like notification.
- *
- * Deliberately anonymous. Naming the sender would hand out, for free and unprompted, exactly
- * what /api/likes charges Premium members to see — and, more importantly, it would disclose
- * someone's interest before the recipient has expressed any of their own. The message says
- * that it happened and points back to the deck, where the recipient decides for themselves.
- *
- * It carries no name, no photo, no @username and no id, and it is sent only when the super
- * like did not already produce a match: a match notification says more and supersedes it.
- */
 function superLikeMessage(language) {
   return localized(language, {
     en: '⭐ Someone super liked you on Bezy.\n\nKeep discovering — if you like them back, it\'s a match.',
@@ -82,17 +72,19 @@ function superLikeMessage(language) {
   });
 }
 
-async function notifySuperLike(firestore, recipient) {
+async function notifySuperLike(storage, recipient) {
   // The recipient's explicit Bezy choice wins over their Telegram language, so a user who
   // picked French never receives an English Super Like notification.
   const language = normalizedLanguage(recipient.locale || recipient.languageCode);
   const openBezyText = localized(language, OPEN_BEZY_BTN);
-  return deliverNotification(firestore, recipient, 'super_likes', {
+  return deliverNotification(storage, recipient, 'super_likes', {
     text: superLikeMessage(language),
     reply_markup: { inline_keyboard: [[{ text: openBezyText, web_app: { url: miniAppUrl('discover') } }]] }
   });
 }
 
+// The caller/target rows in the shape every pure check (`processingPaused`, `isPremiumActive`,
+// `checkSwipeQuota`) already consumes.
 export default async function handler(req, res) {
   if (!requirePost(req, res)) return;
   const user = requireTelegramUser(req, res);
@@ -103,28 +95,33 @@ export default async function handler(req, res) {
   if (!targetId || targetId === String(user.id) || !ACTIONS.has(action)) {
     return res.status(400).json({ error: 'INVALID_ACTION' });
   }
+  if (!validUserId(targetId)) return res.status(404).json({ error: 'TARGET_NOT_FOUND' });
 
-  const firestore = db();
-  const userRef = firestore.collection('users').doc(String(user.id));
-  const targetRef = firestore.collection('users').doc(targetId);
-  const actionRef = userRef.collection('actions').doc(targetId);
-  const reciprocalRef = targetRef.collection('actions').doc(String(user.id));
-  const matchRef = firestore.collection('matches').doc(matchId(user.id, targetId));
-
-  const likeReceivedRef = targetRef.collection('likesReceived').doc(String(user.id));
-
-  if (!(await rateLimit(firestore, res, user.id, 'swipe'))) return;
+  if (!(await rateLimit(null, res, user.id, 'swipe'))) return;
 
   try {
-    const result = await firestore.runTransaction(async (tx) => {
-      // All reads must precede all writes inside a Firestore transaction.
-      const currentSnap = await tx.get(userRef);
-      const targetSnap = await tx.get(targetRef);
-      const reciprocalSnap = await tx.get(reciprocalRef);
-      const existingMatch = await tx.get(matchRef);
-      const blockedEitherWay = await tx.get(userRef.collection('blocks').doc(targetId));
-      const blockedByTarget = await tx.get(userRef.collection('blockedBy').doc(targetId));
-      const currentData = currentSnap.exists ? currentSnap.data() : {};
+    let result = await tx(async (q) => {
+      // Same-user swipes serialize on an advisory lock instead of a row lock: the caller's
+      // quota must not be raced, but an exclusive row lock would deadlock against the other
+      // transaction's foreign-key checks during concurrent mutual likes.
+      await advisoryLock(q, `swipe:${user.id}`);
+      await advisoryLock(q, `pair:${matchId(user.id, targetId)}`);
+      // All reads precede all writes inside one transaction, exactly like the PostgreSQL
+      // version.
+      const accounts = await readUsers([String(user.id), targetId], q);
+      // Sequential on the single transaction client: pg serializes these anyway, and
+      // explicit awaits keep the transaction client free of queued-query deprecation.
+      const reciprocalRows = await q('SELECT action FROM actions WHERE actor_id = $1 AND target_id = $2', [targetId, String(user.id)]);
+      // No FOR UPDATE here: two concurrent mutual likes would each hold a speculative lock
+      // on the same (possibly absent) match row and deadlock against the caller-row lock
+      // the other transaction holds. The INSERT ... ON CONFLICT below is the serialization
+      // point, and RETURNING tells each transaction whether it created the match.
+      const matchRows = await q('SELECT * FROM matches WHERE match_id = $1', [matchId(user.id, targetId)]);
+      const blockedMine = await q('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [String(user.id), targetId]);
+      const blockedTheirs = await q('SELECT 1 FROM blocked_by WHERE blocked_id = $1 AND blocker_id = $2', [String(user.id), targetId]);
+      const actionRows = await q('SELECT 1 FROM actions WHERE actor_id = $1 AND target_id = $2', [String(user.id), targetId]);
+
+      const currentData = accounts.get(String(user.id)) || {};
       // Liking, super-liking and matching are all 18+ actions. The declaration is checked
       // here as well as in the profile endpoint so a direct API call cannot bypass the gate.
       // It is evaluated before anything about the target is considered, so an ineligible
@@ -140,7 +137,7 @@ export default async function handler(req, res) {
       // direction" all return the identical error. Otherwise anyone holding valid initData
       // could probe arbitrary Telegram ids and learn who has a Bezy dating account — which
       // for a dating service is exactly the kind of disclosure that must not be possible.
-      const targetData = targetSnap.exists ? targetSnap.data() : null;
+      const targetData = accounts.get(targetId);
       const reachable = Boolean(targetData)
         // A paused account is not processed for anyone, and is unreachable through the
         // same identical error as every other unreachable case.
@@ -149,15 +146,15 @@ export default async function handler(req, res) {
         // A hidden profile is unreachable too. Without this, a caller could distinguish
         // "no Bezy account" from "has an account but is not discoverable".
         && targetData.discoverable === true
-        && !blockedEitherWay.exists
-        && !blockedByTarget.exists;
+        && blockedMine.rows.length === 0
+        && blockedTheirs.rows.length === 0;
       if (!reachable) throw new Error('TARGET_NOT_FOUND');
 
       const isPremium = isPremiumActive(currentData);
 
       // Daily allowances are enforced here, inside the transaction, so the counter cannot
       // be bypassed by a client that ignores the UI or races concurrent requests.
-      const alreadyActioned = (await tx.get(actionRef)).exists;
+      const alreadyActioned = actionRows.rows.length > 0;
       if (!alreadyActioned) {
         const quota = checkSwipeQuota(currentData, action, isPremium);
         if (!quota.allowed) {
@@ -165,72 +162,93 @@ export default async function handler(req, res) {
           error.quota = { reason: quota.reason, usage: quota.usage, limits: quota.limits, isPremium };
           throw error;
         }
-        tx.set(userRef, { usage: quota.usage }, { merge: true });
+        await q(
+          `INSERT INTO usage (telegram_id, day, discovery_actions, super_likes) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (telegram_id) DO UPDATE SET day = EXCLUDED.day,
+             discovery_actions = EXCLUDED.discovery_actions, super_likes = EXCLUDED.super_likes`,
+          [String(user.id), String(quota.usage.day), quota.usage.discoveryActions, quota.usage.superLikes]
+        );
       }
 
-      tx.set(actionRef, { action, createdAt: new Date() }, { merge: true });
-
-      const reciprocal = reciprocalSnap.exists ? reciprocalSnap.data()?.action : '';
+      const reciprocal = reciprocalRows.rows[0]?.action || '';
       const isLike = action === 'like' || action === 'super';
       const isReciprocalLike = reciprocal === 'like' || reciprocal === 'super';
       const matched = isLike && isReciprocalLike;
+      const existingMatch = matchRows.rows[0] || null;
+
+      await q(
+        `INSERT INTO actions (actor_id, target_id, action, created_at) VALUES ($1, $2, $3, now())
+         ON CONFLICT (actor_id, target_id) DO UPDATE SET action = EXCLUDED.action, created_at = EXCLUDED.created_at`,
+        [String(user.id), targetId, action]
+      );
 
       // A pass overwrites the like that underpins an existing match, so the match is ended
       // here rather than left dangling as an active match with no reciprocal like behind
       // it. This is the same effect unmatch has, without the two-sided pass records.
-      if (!isLike && existingMatch.exists && existingMatch.data()?.active !== false) {
-        tx.set(matchRef, { active: false, endedAt: new Date(), endedReason: 'pass' }, { merge: true });
+      if (!isLike && existingMatch && existingMatch.active !== false) {
+        await q(`UPDATE matches SET active = FALSE, ended_at = now(), ended_reason = 'pass' WHERE match_id = $1`, [matchId(user.id, targetId)]);
       }
 
       // Reverse index of the same action, so a user can be shown who liked them without
       // scanning every other user's actions. This is an index, not a second like system.
-      if (isLike) tx.set(likeReceivedRef, { fromId: String(user.id), action, createdAt: new Date() }, { merge: true });
-      else tx.delete(likeReceivedRef);
+      if (isLike) {
+        await q(
+          `INSERT INTO likes_received (target_id, from_id, action, created_at) VALUES ($1, $2, $3, now())
+           ON CONFLICT (target_id, from_id) DO UPDATE SET action = EXCLUDED.action, created_at = EXCLUDED.created_at`,
+          [targetId, String(user.id), action]
+        );
+      } else {
+        await q('DELETE FROM likes_received WHERE target_id = $1 AND from_id = $2', [targetId, String(user.id)]);
+      }
 
-      if (matched && !existingMatch.exists) {
-        tx.set(matchRef, {
-          participants: [String(user.id), targetId].sort(),
-          createdAt: new Date(),
-          source: 'mutual_like',
-          active: true
-        });
+      let createdNow = false;
+      if (matched && !existingMatch) {
+        const parts = [String(user.id), targetId].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+        // Database-enforced match uniqueness: concurrent mutual likes race to this INSERT,
+        // and exactly one of them can win. RETURNING tells THIS request whether it was the
+        // one that created the match — so exactly one match notification goes out, never two.
+        const inserted = await q(
+          'INSERT INTO matches (match_id, participant_a, participant_b, source, active, created_at) VALUES ($1, $2, $3, $4, TRUE, now()) ON CONFLICT (match_id) DO NOTHING RETURNING match_id',
+          [matchId(user.id, targetId), parts[0], parts[1], 'mutual_like']
+        );
+        createdNow = inserted.rows.length > 0;
       }
 
       return {
         matched,
-        created: matched && !existingMatch.exists,
+        created: createdNow,
         // A super like only warrants its own notification when the recipient has not already
         // decided about the sender — telling someone about a profile they have already passed
         // on is noise, not news.
-        superLiked: action === 'super' && !matched && !reciprocalSnap.exists && !alreadyActioned,
-        target: targetSnap.data() || {}
+        superLiked: action === 'super' && !matched && reciprocalRows.rows.length === 0 && !alreadyActioned,
+        target: targetData || {}
       };
     });
 
     if (result.created) {
-      const currentSnap = await userRef.get();
-      const current = currentSnap.data() || { telegramId: user.id };
       // The recipient is re-read AFTER the commit, so a pause or block that landed during
       // the transaction is respected by the notification path too — the in-transaction
       // snapshot can be stale by the time the message is delivered.
-      const targetSnap = await targetRef.get();
-      const target = targetSnap.data() || result.target;
+      const accounts = await readUsers([String(user.id),targetId]);
+      const current = accounts.get(String(user.id)) || { telegramId: user.id };
+      const target = accounts.get(targetId) || result.target;
       // Both sides resolve their explicit Bezy choice before their Telegram language.
       const language = normalizedLanguage(current.locale || user.language_code);
       const targetLanguage = normalizedLanguage(target.locale || target.languageCode);
       await Promise.allSettled([
-        notifyMatch(firestore, current, target, language),
-        notifyMatch(firestore, target, current, targetLanguage)
+        notifyMatch(null, current, target, language),
+        notifyMatch(null, target, current, targetLanguage)
       ]);
     } else if (result.superLiked) {
       // Same re-read: a super-like notification is suppressed for a recipient who paused
       // or blocked in the window between the transaction and the delivery.
-      const targetSnap = await targetRef.get();
-      if (targetSnap.exists) await notifySuperLike(firestore, targetSnap.data() || {});
+      const target = (await readUsers([targetId])).get(targetId);
+      if (target) await notifySuperLike(null, target);
     }
 
     return res.status(200).json({ ok: true, action, matched: result.matched });
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     console.error('Swipe failed:', error);
     // Only the expected, user-meaningful case is surfaced; internal database errors
     // must not leak their text to the Mini App.

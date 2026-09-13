@@ -333,7 +333,11 @@
     "interests_limit": "Maslahi 12 zaidi.",
     "quota_likes_left": "Imependa {n} zimesalia leo",
     "quota_super_likes_left": "Super Like {n} zimesalia",
-    "check_payment_status": "Angalia hali ya malipo"
+    "check_payment_status": "Angalia hali ya malipo",
+    "home_screen_title": "Ongeza Bezy kwenye skrini ya kwanza",
+    "home_screen_body": "Weka Bezy karibu zaidi — iongeze kwenye skrini ya kwanza ya simu yako.",
+    "home_screen_add": "Ongeza Bezy kwenye skrini ya kwanza",
+    "home_screen_added": "Bezy iko kwenye skrini yako ya kwanza ✓"
   },
   "profile": {
     "edit": "Hariri wasifu",

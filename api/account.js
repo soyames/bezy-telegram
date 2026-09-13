@@ -1,4 +1,4 @@
-import { db } from './_firebase.js';
+import { query, tx, ApiError } from './_db.js';
 import { requirePost, requireTelegramUser, normalizedLanguage, localized } from './_telegram.js';
 import { premiumState } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
@@ -146,9 +146,9 @@ function accountEventMessages(language) {
   });
 }
 
-function sendAccountEvent(firestore, userData, key) {
+function sendAccountEvent(storage, userData, key) {
   // The user's explicit Bezy choice wins over their Telegram language.
-  return deliverNotification(firestore, userData, 'account', { text: accountEventMessages(normalizedLanguage(userData?.locale || userData?.languageCode))[key] });
+  return deliverNotification(null, userData, 'account', { text: accountEventMessages(normalizedLanguage(userData?.locale || userData?.languageCode))[key] });
 }
 
 function iso(value) {
@@ -161,40 +161,91 @@ function iso(value) {
  * Other people's personal data is never included: likes received are returned as a count,
  * and matches expose only the counterpart's Telegram id, which the user already has.
  */
-async function exportData(firestore, userId) {
-  const userRef = firestore.collection('users').doc(userId);
-  const snap = await userRef.get();
-  if (!snap.exists) return { account: null, note: 'No Bezy account exists for this Telegram user.' };
-  const data = snap.data() || {};
+async function exportData(storage, userId) {
+  const [userResult, profileResult, promptResult, prefsResult, nsResult, premiumResult, usageResult] = await Promise.all([
+    query('SELECT * FROM users WHERE telegram_id = $1', [userId]),
+    query('SELECT * FROM profiles WHERE telegram_id = $1', [userId]),
+    query('SELECT id, answer FROM prompt_answers WHERE telegram_id = $1 ORDER BY position, id', [userId]),
+    query('SELECT * FROM preferences WHERE telegram_id = $1', [userId]),
+    query('SELECT * FROM notification_settings WHERE telegram_id = $1', [userId]),
+    query('SELECT * FROM premium_memberships WHERE telegram_id = $1', [userId]),
+    query('SELECT * FROM usage WHERE telegram_id = $1', [userId])
+  ]);
+  const u = userResult.rows[0];
+  if (!u) return { account: null, note: 'No Bezy account exists for this Telegram user.' };
+  const p = profileResult.rows[0] || {};
+  const pr = prefsResult.rows[0] || {};
+  const ns = nsResult.rows[0] || {};
+  const pm = premiumResult.rows[0] || null;
+  const us = usageResult.rows[0] || null;
 
-  const [actions, blocks, likesReceived, matchesSnap, payments, reports, supportSnap, conversationsSnap] = await Promise.all([
-    userRef.collection('actions').get(),
-    userRef.collection('blocks').get(),
-    userRef.collection('likesReceived').get(),
-    firestore.collection('matches').where('participants', 'array-contains', userId).get(),
-    firestore.collection('bezyPayments').where('telegramUserId', '==', userId).get(),
-    firestore.collection('reports').where('reporterId', '==', userId).get(),
-    firestore.collection('supportRequests').where('telegramUserId', '==', userId).get(),
-    firestore.collection('conversations').where('participants', 'array-contains', userId).get()
+  const data = {
+    telegramId: String(u.telegram_id),
+    firstName: u.first_name ?? null,
+    lastName: u.last_name ?? null,
+    username: u.username ?? null,
+    languageCode: u.language_code ?? null,
+    locale: u.locale ?? null,
+    photoUrl: u.photo_url ?? null,
+    isPremiumTelegram: u.is_premium_telegram ?? null,
+    createdAt: iso(u.created_at),
+    updatedAt: iso(u.updated_at),
+    ageEligibilityConfirmed: u.age_eligibility_confirmed === true,
+    ageEligibilityConfirmedAt: iso(u.age_eligibility_confirmed_at),
+    ageEligibilityMethod: u.age_eligibility_method ?? null,
+    processingRestricted: u.processing_restricted === true,
+    processingRestrictedAt: iso(u.processing_restricted_at),
+    processingRestrictionLiftedAt: iso(u.processing_restriction_lifted_at),
+    processingObjection: u.processing_objection === true,
+    processingObjectedAt: iso(u.processing_objected_at),
+    processingObjectionLiftedAt: iso(u.processing_objection_lifted_at),
+    profile: {
+      displayName: p.display_name ?? '', age: p.age ?? null, gender: p.gender ?? '', seeking: p.seeking ?? 'everyone',
+      city: p.city ?? '', bio: p.bio ?? '', interests: p.interests ?? [],
+      prompts: promptResult.rows.map((r) => ({ id: r.id, answer: r.answer })),
+      languages: p.languages ?? [], discoverable: u.discoverable === true, profileComplete: u.profile_complete === true
+    },
+    preferences: { minAge: pr.min_age ?? 18, maxAge: pr.max_age ?? 100, city: pr.city ?? '', sameCityOnly: pr.same_city_only === true, languages: pr.languages ?? [] },
+    notifications: { matches: ns.matches !== false, super_likes: ns.super_likes !== false, profile_reminders: ns.profile_reminders !== false, messages: ns.messages !== false },
+    bezyPremium: pm ? {
+      active: pm.active === true, planId: pm.plan_id, expiresAt: iso(pm.expires_at), purchasedAt: iso(pm.purchased_at),
+      updatedAt: iso(pm.updated_at), source: pm.source, telegramPaymentChargeId: pm.telegram_payment_charge_id,
+      revokedAt: iso(pm.revoked_at), revocationReason: pm.revocation_reason
+    } : null,
+    usage: us ? { day: String(us.day), discoveryActions: Number(us.discovery_actions) || 0, superLikes: Number(us.super_likes) || 0 } : null
+  };
+
+  const [actions, blocks, likesReceived, matchesResult, payments, reports, supportResult, conversationsResult] = await Promise.all([
+    query('SELECT target_id, action, created_at FROM actions WHERE actor_id = $1', [userId]),
+    query('SELECT blocked_id, created_at FROM blocks WHERE blocker_id = $1', [userId]),
+    query('SELECT from_id FROM likes_received WHERE target_id = $1', [userId]),
+    query('SELECT * FROM matches WHERE participant_a = $1 OR participant_b = $1', [userId]),
+    query('SELECT * FROM bezy_payments WHERE telegram_user_id = $1', [userId]),
+    query('SELECT reason, status, created_at FROM reports WHERE reporter_id = $1', [userId]),
+    query('SELECT reference, category, status, details, created_at FROM support_requests WHERE telegram_user_id = $1', [userId]),
+    query('SELECT * FROM conversations WHERE participant_a = $1 OR participant_b = $1', [userId])
   ]);
 
   // Bezy conversations (ADR 0009) hold the data subject's own message content — Art. 15/20
   // access and portability cover it. One read per conversation for its messages; the
   // counterpart's identity is already known to the caller from the match itself.
   const conversations = [];
-  for (const conv of conversationsSnap.docs) {
-    const messages = await firestore.collection('conversations').doc(conv.id).collection('messages')
-      .orderBy('createdAt', 'asc').get();
+  for (const conv of conversationsResult.rows) {
+    const messages = await query(
+      'SELECT client_id, sender_id, text, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC',
+      [String(conv.conversation_id)]
+    );
+    const otherId = String(conv.participant_a) === userId ? String(conv.participant_b) : String(conv.participant_a);
     conversations.push({
-      conversationId: conv.id,
-      otherTelegramId: (conv.data().participants || []).find((p) => p !== userId) ?? null,
-      status: conv.data().status ?? 'open',
-      lastMessageAt: iso(conv.data().lastMessageAt),
-      messages: messages.docs.map((m) => ({
-        id: m.id,
-        senderId: m.data().senderId,
-        text: String(m.data().text || ''),
-        createdAt: iso(m.data().createdAt)
+      conversationId: String(conv.conversation_id),
+      otherTelegramId: otherId,
+      status: conv.status ?? 'open',
+      lastMessageAt: iso(conv.last_message_at),
+      messages: messages.rows.map((m) => ({
+        id: String(m.client_id),
+        senderId: String(m.sender_id),
+        text: String(m.text || ''),
+        createdAt: iso(m.created_at)
       }))
     });
   }
@@ -202,60 +253,60 @@ async function exportData(firestore, userId) {
   return {
     exportedAt: new Date().toISOString(),
     account: {
-      telegramId: data.telegramId ?? null,
-      firstName: data.firstName ?? null,
-      lastName: data.lastName ?? null,
-      username: data.username ?? null,
-      languageCode: data.languageCode ?? null,
-      photoUrl: data.photoUrl ?? null,
-      isPremiumTelegram: data.isPremiumTelegram ?? null,
-      createdAt: iso(data.createdAt),
-      updatedAt: iso(data.updatedAt)
+      telegramId: data.telegramId,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      username: data.username,
+      languageCode: data.languageCode,
+      photoUrl: data.photoUrl,
+      isPremiumTelegram: data.isPremiumTelegram,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt
     },
     ageEligibility: {
-      confirmed: data.ageEligibilityConfirmed === true,
-      confirmedAt: iso(data.ageEligibilityConfirmedAt),
-      method: data.ageEligibilityMethod ?? null
+      confirmed: data.ageEligibilityConfirmed,
+      confirmedAt: data.ageEligibilityConfirmedAt,
+      method: data.ageEligibilityMethod
     },
-    profile: data.profile ?? null,
-    discoveryPreferences: data.preferences ?? null,
+    profile: data.profile,
+    discoveryPreferences: data.preferences,
     notificationPreferences: notificationSettings(data),
     processingRestriction: {
-      restricted: data.processingRestricted === true,
-      restrictedAt: iso(data.processingRestrictedAt),
-      liftedAt: iso(data.processingRestrictionLiftedAt)
+      restricted: data.processingRestricted,
+      restrictedAt: data.processingRestrictedAt,
+      liftedAt: data.processingRestrictionLiftedAt
     },
     processingObjection: {
-      objected: data.processingObjection === true,
-      objectedAt: iso(data.processingObjectedAt),
-      withdrawnAt: iso(data.processingObjectionLiftedAt)
+      objected: data.processingObjection,
+      objectedAt: data.processingObjectedAt,
+      withdrawnAt: data.processingObjectionLiftedAt
     },
-    dailyUsage: data.usage ?? null,
-    premium: { ...premiumState(data), raw: data.bezyPremium ? { planId: data.bezyPremium.planId ?? null, purchasedAt: iso(data.bezyPremium.purchasedAt), revokedAt: iso(data.bezyPremium.revokedAt) } : null },
-    decisions: actions.docs.map((d) => ({ targetTelegramId: d.id, action: d.data().action, at: iso(d.data().createdAt) })),
-    blocked: blocks.docs.map((d) => ({ targetTelegramId: d.id, at: iso(d.data().createdAt) })),
+    dailyUsage: data.usage,
+    premium: { ...premiumState(data), raw: data.bezyPremium ? { planId: data.bezyPremium.planId ?? null, purchasedAt: data.bezyPremium.purchasedAt, revokedAt: data.bezyPremium.revokedAt } : null },
+    decisions: actions.rows.map((r) => ({ targetTelegramId: String(r.target_id), action: r.action, at: iso(r.created_at) })),
+    blocked: blocks.rows.map((r) => ({ targetTelegramId: String(r.blocked_id), at: iso(r.created_at) })),
     // A count only: revealing who liked you would disclose other people's personal data.
-    likesReceivedCount: likesReceived.size,
-    matches: matchesSnap.docs.map((d) => ({
-      matchId: d.id,
-      otherTelegramId: (d.data().participants || []).find((p) => p !== userId) ?? null,
-      active: d.data().active !== false,
-      createdAt: iso(d.data().createdAt),
-      endedAt: iso(d.data().endedAt)
+    likesReceivedCount: likesReceived.rows.length,
+    matches: matchesResult.rows.map((r) => ({
+      matchId: String(r.match_id),
+      otherTelegramId: String(r.participant_a) === userId ? String(r.participant_b) : String(r.participant_a),
+      active: r.active !== false,
+      createdAt: iso(r.created_at),
+      endedAt: iso(r.ended_at)
     })),
-    reportsYouFiled: reports.docs.map((d) => ({ reason: d.data().reason, status: d.data().status, at: iso(d.data().createdAt) })),
+    reportsYouFiled: reports.rows.map((r) => ({ reason: r.reason, status: r.status, at: iso(r.created_at) })),
     conversations,
-    supportRequests: supportSnap.docs.map((d) => ({
-      reference: d.data().reference || d.id,
-      category: d.data().category,
-      status: d.data().status,
-      details: String(d.data().details || '').slice(0, 500),
-      createdAt: iso(d.data().createdAt)
+    supportRequests: supportResult.rows.map((r) => ({
+      reference: String(r.reference),
+      category: r.category,
+      status: r.status,
+      details: String(r.details || '').slice(0, 500),
+      createdAt: iso(r.created_at)
     })),
-    payments: payments.docs.map((d) => ({
-      chargeId: d.id, planId: d.data().planId, stars: d.data().stars, currency: d.data().currency,
-      status: d.data().status, refundStatus: d.data().refundStatus ?? 'none',
-      paidAt: iso(d.data().processedAt), refundedAt: iso(d.data().refundedAt)
+    payments: payments.rows.map((r) => ({
+      chargeId: String(r.telegram_payment_charge_id), planId: r.plan_id, stars: String(r.stars), currency: r.currency,
+      status: r.status, refundStatus: r.refund_status ?? 'none',
+      paidAt: iso(r.processed_at), refundedAt: iso(r.refunded_at)
     })),
     notes: [
       'Bezy conversations are stored by Bezy (see "conversations" above) and are deleted when you delete your account.',
@@ -282,27 +333,36 @@ async function exportData(firestore, userId) {
  * Idempotent in both directions: restricting twice, or lifting when not restricted, is safe
  * and reports the same outcome.
  */
-async function setProcessingRestriction(firestore, userId, restricted) {
-  const userRef = firestore.collection('users').doc(userId);
-  const snap = await userRef.get();
-  if (!snap.exists) return { restricted: false, alreadyInState: true, unknownAccount: true };
+async function setProcessingRestriction(storage, userId, restricted) {
+  const result = await query('SELECT telegram_id, first_name, language_code, locale, processing_restricted FROM users WHERE telegram_id = $1', [userId]);
+  const u = result.rows[0];
+  if (!u) return { restricted: false, alreadyInState: true, unknownAccount: true };
 
-  const current = snap.data() || {};
-  const already = (current.processingRestricted === true) === restricted;
-  const now = new Date();
-
-  const update = restricted
-    ? { processingRestricted: true, processingRestrictedAt: now, discoverable: false, updatedAt: now }
-    : { processingRestricted: false, processingRestrictionLiftedAt: now, updatedAt: now };
-  // The stored profile carries its own copy of `discoverable`; both must agree or the profile
-  // endpoint would hand the Mini App a value discovery does not honour.
-  if (restricted && current.profile) update.profile = { ...current.profile, discoverable: false };
+  const current = { telegramId: String(u.telegram_id), firstName: u.first_name ?? null, languageCode: u.language_code ?? null, locale: u.locale ?? null };
+  const already = (u.processing_restricted === true) === restricted;
 
   if (!already) {
-    await userRef.update(update);
+    await tx(async (q) => {
+      if (restricted) {
+        await q(
+          `UPDATE users SET processing_restricted = TRUE, processing_restricted_at = now(), discoverable = FALSE, updated_at = now()
+           WHERE telegram_id = $1`,
+          [userId]
+        );
+        // The stored profile carries its own copy of `discoverable`; both must agree or the
+        // profile endpoint would hand the Mini App a value discovery does not honour.
+        await q('UPDATE profiles SET discoverable = FALSE WHERE telegram_id = $1', [userId]);
+      } else {
+        await q(
+          `UPDATE users SET processing_restricted = FALSE, processing_restriction_lifted_at = now(), updated_at = now()
+           WHERE telegram_id = $1`,
+          [userId]
+        );
+      }
+    });
     // The user's record of what just happened to their account. Transactional, so it is
     // delivered even though engagement notifications are already suppressed by the pause.
-    await sendAccountEvent(firestore, current, restricted ? 'restricted' : 'unrestricted');
+    await sendAccountEvent(storage, current, restricted ? 'restricted' : 'unrestricted');
   }
 
   console.log(`[bezy-privacy] account.processing_restriction ${JSON.stringify({ telegramUserId: userId, restricted, alreadyInState: already })}`);
@@ -331,25 +391,34 @@ async function setProcessingRestriction(firestore, userId, restricted) {
  *
  * Idempotent in both directions, like restriction.
  */
-async function setProcessingObjection(firestore, userId, objected) {
-  const userRef = firestore.collection('users').doc(userId);
-  const snap = await userRef.get();
-  if (!snap.exists) return { objected: false, alreadyInState: true, unknownAccount: true };
+async function setProcessingObjection(storage, userId, objected) {
+  const result = await query('SELECT telegram_id, first_name, language_code, locale, processing_objection FROM users WHERE telegram_id = $1', [userId]);
+  const u = result.rows[0];
+  if (!u) return { objected: false, alreadyInState: true, unknownAccount: true };
 
-  const current = snap.data() || {};
-  const already = (current.processingObjection === true) === objected;
-  const now = new Date();
-
-  const update = objected
-    ? { processingObjection: true, processingObjectedAt: now, discoverable: false, updatedAt: now }
-    : { processingObjection: false, processingObjectionLiftedAt: now, updatedAt: now };
-  // Same double write as restriction: the stored profile carries its own `discoverable` copy
-  // and both must agree.
-  if (objected && current.profile) update.profile = { ...current.profile, discoverable: false };
+  const current = { telegramId: String(u.telegram_id), firstName: u.first_name ?? null, languageCode: u.language_code ?? null, locale: u.locale ?? null };
+  const already = (u.processing_objection === true) === objected;
 
   if (!already) {
-    await userRef.update(update);
-    await sendAccountEvent(firestore, current, objected ? 'objected' : 'unobjected');
+    await tx(async (q) => {
+      if (objected) {
+        await q(
+          `UPDATE users SET processing_objection = TRUE, processing_objected_at = now(), discoverable = FALSE, updated_at = now()
+           WHERE telegram_id = $1`,
+          [userId]
+        );
+        // Same double write as restriction: the stored profile carries its own `discoverable`
+        // copy and both must agree.
+        await q('UPDATE profiles SET discoverable = FALSE WHERE telegram_id = $1', [userId]);
+      } else {
+        await q(
+          `UPDATE users SET processing_objection = FALSE, processing_objection_lifted_at = now(), updated_at = now()
+           WHERE telegram_id = $1`,
+          [userId]
+        );
+      }
+    });
+    await sendAccountEvent(storage, current, objected ? 'objected' : 'unobjected');
   }
 
   console.log(`[bezy-privacy] account.processing_objection ${JSON.stringify({ telegramUserId: userId, objected, alreadyInState: already })}`);
@@ -372,77 +441,72 @@ async function setProcessingObjection(firestore, userId, objected) {
  *     erasing their account — a basis/period question flagged for legal review, not
  *     decided in code.
  */
-async function deleteAccount(firestore, userId) {
-  const userRef = firestore.collection('users').doc(userId);
-  const snap = await userRef.get();
-  if (!snap.exists) return { deleted: true, alreadyDeleted: true, retained: {} };
-  const data = snap.data() || {};
-
-  // Remove this user from other people's "who liked you" lists before their own action
-  // records are destroyed, since those records are what identify the fan-out targets.
-  const actions = await userRef.collection('actions').get();
-  const mirrors = firestore.batch();
-  for (const doc of actions.docs) {
-    mirrors.delete(firestore.collection('users').doc(doc.id).collection('likesReceived').doc(userId));
-  }
-  // Blocks placed on others leave a mirror under the blocked account; clear those too.
-  const blocks = await userRef.collection('blocks').get();
-  for (const doc of blocks.docs) {
-    mirrors.delete(firestore.collection('users').doc(doc.id).collection('blockedBy').doc(userId));
-  }
-  const blockedBy = await userRef.collection('blockedBy').get();
-  for (const doc of blockedBy.docs) {
-    mirrors.delete(firestore.collection('users').doc(doc.id).collection('blocks').doc(userId));
-  }
-  await mirrors.commit();
-
-  // End every match so the counterpart is not left with a live match to a deleted account.
-  const matchesSnap = await firestore.collection('matches').where('participants', 'array-contains', userId).get();
-  const now = new Date();
-  const matchBatch = firestore.batch();
-  for (const doc of matchesSnap.docs) {
-    matchBatch.set(doc.ref, { active: false, endedAt: now, endedReason: 'account_deleted' }, { merge: true });
-  }
-  await matchBatch.commit();
-
-  // Bezy conversations are deleted outright, including every message: erasure covers the
-  // deleted user's message content, and the counterpart's copy of the exchange goes with
-  // it. (Message-retention policy for active accounts is a flagged legal follow-up — see
-  // the roadmap — this only defines the deletion behaviour, which erasure already
-  // required.)
-  const conversationsSnap = await firestore.collection('conversations').where('participants', 'array-contains', userId).get();
-  for (const doc of conversationsSnap.docs) {
-    await firestore.recursiveDelete(doc.ref);
-  }
-
-  const retained = {
-    payments: (await firestore.collection('bezyPayments').where('telegramUserId', '==', userId).get()).size,
-    // Invoices are retained for accounting like the payments they record, so the deletion
-    // response says so rather than letting a retained document go unreported.
-    invoices: (await firestore.collection('bezyInvoices').where('telegramUserId', '==', userId).get()).size,
-    reportsAboutYou: (await firestore.collection('reports').where('targetId', '==', userId).get()).size,
-    reportsYouFiled: (await firestore.collection('reports').where('reporterId', '==', userId).get()).size
+async function deleteAccount(storage, userId) {
+  const userResult = await query(
+    `SELECT telegram_id, first_name, language_code, locale FROM users WHERE telegram_id = $1`,
+    [userId]
+  );
+  const u = userResult.rows[0];
+  if (!u) return { deleted: true, alreadyDeleted: true, retained: {} };
+  const data = {
+    telegramId: String(u.telegram_id),
+    firstName: u.first_name ?? null,
+    languageCode: u.language_code ?? null,
+    locale: u.locale ?? null
   };
+
+  let matchesEnded = 0;
+  let retained;
+  await tx(async (q) => {
+    // Remove this user from other people's "who liked you" lists before their own action
+    // rows are destroyed, since those rows are what identify the fan-out targets.
+    await q('DELETE FROM likes_received WHERE from_id = $1', [userId]);
+    // Blocks placed on others leave a mirror under the blocked account; clear those too.
+    await q('DELETE FROM blocked_by WHERE blocker_id = $1', [userId]);
+    await q('DELETE FROM blocks WHERE blocked_id = $1', [userId]);
+
+    // End every match so the counterpart is not left with a live match to a deleted account.
+    const ended = await q(
+      `UPDATE matches SET active = FALSE, ended_at = now(), ended_reason = 'account_deleted'
+       WHERE (participant_a = $1 OR participant_b = $1) AND active = TRUE`,
+      [userId]
+    );
+    matchesEnded = ended.rowCount || 0;
+
+    // Bezy conversations are deleted outright, including every message: erasure covers the
+    // deleted user's message content, and the counterpart's copy of the exchange goes with
+    // it. The messages cascade with the conversations rows.
+    await q('DELETE FROM conversations WHERE participant_a = $1 OR participant_b = $2', [userId, userId]);
+
+    // Deleting the user row cascades the strictly-erased set: profiles, prompt answers,
+    // preferences, notification settings, usage, membership, actions, likes, blocks,
+    // support requests and the translation cache. Rate-limit counters record when the
+    // account acted and are erased explicitly (the table has no FK, mirroring PostgreSQL).
+    await q('DELETE FROM users WHERE telegram_id = $1', [userId]);
+    await q('DELETE FROM rate_limits WHERE user_id = $1', [userId]);
+
+    // Retained counts, computed before the delete for the response (payments, invoices and
+    // reports are intentionally NOT deleted — see the erasure contract above).
+    const [payments, invoices, aboutYou, byYou] = await Promise.all([
+      q('SELECT count(*)::int AS n FROM bezy_payments WHERE telegram_user_id = $1', [userId]),
+      q('SELECT count(*)::int AS n FROM bezy_invoices WHERE telegram_user_id = $1', [userId]),
+      q('SELECT count(*)::int AS n FROM reports WHERE target_id = $1', [userId]),
+      q('SELECT count(*)::int AS n FROM reports WHERE reporter_id = $1', [userId])
+    ]);
+    retained = {
+      payments: payments.rows[0].n,
+      invoices: invoices.rows[0].n,
+      reportsAboutYou: aboutYou.rows[0].n,
+      reportsYouFiled: byYou.rows[0].n
+    };
+  });
 
   // Sent while the account still exists: the user's durable record that erasure happened.
   // Transactional, so it is delivered regardless of notification choices.
-  await sendAccountEvent(firestore, data, 'deleted');
+  await sendAccountEvent(storage, data, 'deleted');
 
-  // Support requests are the caller's own personal data, so erasure covers them too. They
-  // reference the user by Telegram id only, like everything else in the request.
-  const supportSnap = await firestore.collection('supportRequests').where('telegramUserId', '==', userId).get();
-  const supportBatch = firestore.batch();
-  for (const doc of supportSnap.docs) supportBatch.delete(doc.ref);
-  await supportBatch.commit();
-
-  // Removes the user document and every subcollection: profile, actions, likesReceived,
-  // blocks and blockedBy.
-  await firestore.recursiveDelete(userRef);
-  // Rate-limit counters record when the account acted, so they are erased with it.
-  await firestore.collection('rateLimits').doc(userId).delete().catch(() => {});
-
-  console.log(`[bezy-privacy] account.deleted ${JSON.stringify({ telegramUserId: userId, matchesEnded: matchesSnap.size, retainedPayments: retained.payments })}`);
-  return { deleted: true, alreadyDeleted: false, matchesEnded: matchesSnap.size, retained };
+  console.log(`[bezy-privacy] account.deleted ${JSON.stringify({ telegramUserId: userId, matchesEnded, retainedPayments: retained.payments })}`);
+  return { deleted: true, alreadyDeleted: false, matchesEnded, retained };
 }
 
 export default async function handler(req, res) {
@@ -456,29 +520,29 @@ export default async function handler(req, res) {
   const action = String(req.body?.action || '');
 
   try {
-    const firestore = db();
     if (action === 'export') {
-      if (!(await rateLimit(firestore, res, userId, 'account_export'))) return;
-      return res.status(200).json({ ok: true, data: await exportData(firestore, userId) });
+      if (!(await rateLimit(null, res, userId, 'account_export'))) return;
+      return res.status(200).json({ ok: true, data: await exportData(null, userId) });
     }
     if (action === 'restrict' || action === 'unrestrict') {
-      if (!(await rateLimit(firestore, res, userId, 'account_restrict'))) return;
-      return res.status(200).json({ ok: true, ...(await setProcessingRestriction(firestore, userId, action === 'restrict')) });
+      if (!(await rateLimit(null, res, userId, 'account_restrict'))) return;
+      return res.status(200).json({ ok: true, ...(await setProcessingRestriction(null, userId, action === 'restrict')) });
     }
     if (action === 'object' || action === 'unobject') {
-      if (!(await rateLimit(firestore, res, userId, 'account_objection'))) return;
-      return res.status(200).json({ ok: true, ...(await setProcessingObjection(firestore, userId, action === 'object')) });
+      if (!(await rateLimit(null, res, userId, 'account_objection'))) return;
+      return res.status(200).json({ ok: true, ...(await setProcessingObjection(null, userId, action === 'object')) });
     }
     if (action === 'delete') {
       // A typed confirmation guards an irreversible action against accidental calls.
-      if (!(await rateLimit(firestore, res, userId, 'account_delete'))) return;
+      if (!(await rateLimit(null, res, userId, 'account_delete'))) return;
       if (req.body?.confirm !== DELETE_CONFIRMATION) {
         return res.status(400).json({ error: 'CONFIRMATION_REQUIRED' });
       }
-      return res.status(200).json({ ok: true, ...(await deleteAccount(firestore, userId)) });
+      return res.status(200).json({ ok: true, ...(await deleteAccount(null, userId)) });
     }
     return res.status(400).json({ error: 'INVALID_ACTION' });
   } catch (error) {
+    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
     console.error('Account request failed:', error);
     return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
   }

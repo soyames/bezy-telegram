@@ -1,11 +1,11 @@
+import { getRow, listRows, seedRow, deleteRow, resetTestData, sql } from './fixtures.mjs';
 // Bezy backend suite: core dating flow + Bezy Premium (Telegram Stars).
-// Runs the real API handlers against the real Firestore database using synthetic
+// Runs the real API handlers against the real PostgreSQL database using synthetic
 // Telegram IDs 9000000xx, which are deleted before and after the run.
 //
-//   BEZY_SERVICE_ACCOUNT=<path to service-account.json> node tests/backend.test.mjs
+// Run through tests/run.mjs with TEST_DATABASE_URL or NEON_ENV_FILE.
 import { startHarness, makeInitData, TEST_USERS } from './harness.mjs';
 import { premiumPlans, parseInvoicePayload, addMonths, nextExpiry, premiumState, checkSwipeQuota, LIMITS, applyRefund, REFUND_STATUS } from '../api/_premium.js';
-import { db } from '../api/_firebase.js';
 import { PROMPT_IDS, LANGUAGE_IDS } from '../api/profile/me.js';
 import { sharedSignals } from '../api/matches.js';
 import { defaultNotificationSettings, normalizeNotificationSettings, notificationSettings, isNotificationEnabled, withinDailyCap, OPTIONAL_CATEGORIES, NOTIFICATION_CATEGORIES } from '../api/_notify.js';
@@ -46,31 +46,11 @@ async function webhook(update) {
 const sent = () => fetch(`${BASE}/__telegram-calls`).then((r) => r.json());
 const resetCalls = () => fetch(`${BASE}/__reset-telegram-calls`, { method: 'POST' });
 
-const firestore = db();
+const storage = null;
 const isTestId = (id) => /^9000000\d\d$/.test(String(id));
-async function cleanup() {
-  for (const doc of (await firestore.collection('users').get()).docs) {
-    if (isTestId(doc.id)) await firestore.recursiveDelete(doc.ref);
-  }
-  for (const col of ['matches', 'bezyPayments', 'bezyInvoices', 'reports', 'conversations']) {
-    for (const doc of (await firestore.collection(col).get()).docs) {
-      const d = doc.data();
-      const touchesTest = (d.participants || []).some(isTestId) || isTestId(d.telegramUserId)
-        || isTestId(d.reporterId) || isTestId(d.targetId);
-      // Conversations carry a messages subcollection: a plain doc delete would orphan the
-      // messages under the pair id, and they would resurface the moment the pair talks again.
-      if (touchesTest) { if (col === 'conversations') await firestore.recursiveDelete(doc.ref); else await doc.ref.delete(); }
-    }
-  }
-  // Rate-limit counters are per-user and would otherwise carry across scenarios, which run
-  // far more requests as one user than any human would. Rate limiting itself is verified in
-  // tests/security.test.mjs.
-  for (const doc of (await firestore.collection('rateLimits').get()).docs) {
-    if (isTestId(doc.id)) await doc.ref.delete();
-  }
-}
+async function cleanup() { await resetTestData(); }
 async function setPremium(userId, membership) {
-  await firestore.collection('users').doc(String(userId)).set({ bezyPremium: membership }, { merge: true });
+  await seedRow('users', [String(userId)], { bezyPremium: membership }, { merge: true });
 }
 const PROFILES = {
   a: { displayName: 'Ada', age: 29, city: 'Paris', gender: 'woman', seeking: 'men', interests: ['music', 'travel', 'books'], bio: 'Testing Bezy.', discoverable: true },
@@ -195,25 +175,25 @@ try {
 
   await resetCalls();
   check('successful_payment returns 200', (await webhook(paidMessage())).status === 200);
-  let userDoc = (await firestore.collection('users').doc('900000001').get()).data();
+  let userDoc = (await getRow('users', '900000001'));
   check('membership activated', userDoc?.bezyPremium?.active === true, JSON.stringify(userDoc?.bezyPremium));
   check('membership records the purchased plan', userDoc?.bezyPremium?.planId === 'monthly');
   check('membership stores the charge id', userDoc?.bezyPremium?.telegramPaymentChargeId === 'charge_test_1');
-  const firstExpiry = userDoc.bezyPremium.expiresAt.toMillis();
+  const firstExpiry = userDoc.bezyPremium.expiresAt.getTime();
   check('expiry is about one month out', Math.abs(firstExpiry - addMonths(new Date(), 1).getTime()) < 3 * 86400000);
-  const paymentDoc = (await firestore.collection('bezyPayments').doc('charge_test_1').get()).data();
+  const paymentDoc = (await getRow('bezy_payments', 'charge_test_1'));
   check('payment recorded under charge id', paymentDoc?.status === 'processed', JSON.stringify(paymentDoc || {}).slice(0, 160));
   check('payment stores provider charge id for refunds', paymentDoc?.providerPaymentChargeId === 'prov_1');
-  check('payment records Stars amount and currency', paymentDoc?.stars === PLANS.monthly.stars && paymentDoc?.currency === 'XTR');
+  check('payment records Stars amount and currency', Number(paymentDoc?.stars) === PLANS.monthly.stars && paymentDoc?.currency === 'XTR');
   const confirm = (await sent()).filter((c) => c.method === 'sendMessage').pop();
   check('activation confirmation sent to user', /Bezy Premium is now active/.test(confirm?.body?.text || ''), confirm?.body?.text);
 
   section('Idempotency');
   await resetCalls();
   check('duplicate successful_payment returns 200', (await webhook(paidMessage())).status === 200);
-  userDoc = (await firestore.collection('users').doc('900000001').get()).data();
-  check('duplicate does NOT extend membership', userDoc.bezyPremium.expiresAt.toMillis() === firstExpiry,
-    `${new Date(firstExpiry).toISOString()} -> ${userDoc.bezyPremium.expiresAt.toDate().toISOString()}`);
+  userDoc = (await getRow('users', '900000001'));
+  check('duplicate does NOT extend membership', userDoc.bezyPremium.expiresAt.getTime() === firstExpiry,
+    `${new Date(firstExpiry).toISOString()} -> ${userDoc.bezyPremium.expiresAt.toISOString()}`);
   check('duplicate sends no second confirmation', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
 
   section('Renewal');
@@ -221,22 +201,22 @@ try {
   check('quarterly invoice created for renewal', renewPayloadRes.status === 200);
   const renewPayload = (await sent()).filter((c) => c.method === 'createInvoiceLink').pop().body.payload;
   await webhook(paidMessage({}, { invoice_payload: renewPayload, total_amount: PLANS.quarterly.stars, telegram_payment_charge_id: 'charge_test_2' }));
-  userDoc = (await firestore.collection('users').doc('900000001').get()).data();
-  const renewedExpiry = userDoc.bezyPremium.expiresAt.toMillis();
+  userDoc = (await getRow('users', '900000001'));
+  const renewedExpiry = userDoc.bezyPremium.expiresAt.getTime();
   check('renewal adds to the existing expiry', Math.abs(renewedExpiry - addMonths(new Date(firstExpiry), 3).getTime()) < 2 * 86400000,
     `${new Date(firstExpiry).toISOString()} -> ${new Date(renewedExpiry).toISOString()}`);
   check('renewal updates the active plan', userDoc.bezyPremium.planId === 'quarterly');
 
   section('Forged payment rejection');
   await webhook(paidMessage({ from: { id: 900000003, language_code: 'en' }, chat: { id: 900000003 } }, { telegram_payment_charge_id: 'charge_forged_1' }));
-  check('payment for a mismatched user is not recorded', (await firestore.collection('bezyPayments').doc('charge_forged_1').get()).exists === false);
+  check('payment for a mismatched user is not recorded', Boolean(await getRow('bezy_payments', 'charge_forged_1')) === false);
   await webhook(paidMessage({}, { total_amount: 1, telegram_payment_charge_id: 'charge_forged_2' }));
-  check('under-paid amount is not recorded', (await firestore.collection('bezyPayments').doc('charge_forged_2').get()).exists === false);
+  check('under-paid amount is not recorded', Boolean(await getRow('bezy_payments', 'charge_forged_2')) === false);
   await webhook(paidMessage({}, { currency: 'USD', telegram_payment_charge_id: 'charge_forged_3' }));
-  check('non-Stars currency is not recorded', (await firestore.collection('bezyPayments').doc('charge_forged_3').get()).exists === false);
+  check('non-Stars currency is not recorded', Boolean(await getRow('bezy_payments', 'charge_forged_3')) === false);
   await webhook(paidMessage({}, { invoice_payload: 'garbage', telegram_payment_charge_id: 'charge_forged_4' }));
-  check('malformed payload is not recorded', (await firestore.collection('bezyPayments').doc('charge_forged_4').get()).exists === false);
-  const cSnap = (await firestore.collection('users').doc('900000003').get()).data();
+  check('malformed payload is not recorded', Boolean(await getRow('bezy_payments', 'charge_forged_4')) === false);
+  const cSnap = (await getRow('users', '900000003'));
   check('no membership leaked to the forged user', premiumState(cSnap).active === false);
 
   // ------------------------------------------------------------------ entitlement
@@ -257,7 +237,7 @@ try {
   await setPremium('900000001', { active: true, planId: 'monthly', expiresAt: new Date(Date.now() - 1000) });
   r = await call('/api/likes', 'a');
   check('expired premium is refused like a free user', r.status === 403 && r.data.error === 'PREMIUM_REQUIRED');
-  await firestore.collection('users').doc('900000001').set({ isPremiumTelegram: true, bezyPremium: { active: false } }, { merge: true });
+  await seedRow('users', ['900000001'], { isPremiumTelegram: true, bezyPremium: { active: false } }, { merge: true });
   r = await call('/api/likes', 'a');
   check('Telegram Premium does NOT unlock the feature', r.status === 403, JSON.stringify(r.data));
 
@@ -274,8 +254,8 @@ try {
   await call('/api/profile/me', 'a', { preferences: { minAge: 18, maxAge: 100, city: '', sameCityOnly: false } });
 
   await setPremium('900000002', { active: true, planId: 'yearly', expiresAt: new Date(Date.now() + 86400000) });
-  await firestore.collection('users').doc('900000001').collection('actions').doc('900000002').delete();
-  await firestore.collection('users').doc('900000001').collection('actions').doc('900000004').delete();
+  await deleteRow('actions', '900000001', '900000002');
+  await deleteRow('actions', '900000001', '900000004');
   r = await call('/api/discover', 'a');
   const bo = (r.data.profiles || []).find((p) => p.id === '900000002');
   check('premium candidate receives a visibility boost', bo && bo.compatibility >= 99, `Bo=${bo?.compatibility}`);
@@ -284,7 +264,7 @@ try {
 
   section('Server-enforced quotas');
   await setPremium('900000001', { active: false });
-  await firestore.collection('users').doc('900000001').set({
+  await seedRow('users', ['900000001'], {
     usage: { day: new Date().toISOString().slice(0, 10), discoveryActions: LIMITS.free.discoveryActions, superLikes: LIMITS.free.superLikes }
   }, { merge: true });
   r = await call('/api/swipe', 'a', { targetId: '900000003', action: 'like' });
@@ -292,7 +272,7 @@ try {
   await setPremium('900000001', { active: true, planId: 'monthly', expiresAt: new Date(Date.now() + 86400000) });
   r = await call('/api/swipe', 'a', { targetId: '900000003', action: 'like' });
   check('premium user bypasses the free discovery limit', r.status === 200, JSON.stringify(r.data));
-  await firestore.collection('users').doc('900000001').set({
+  await seedRow('users', ['900000001'], {
     usage: { day: new Date().toISOString().slice(0, 10), discoveryActions: 0, superLikes: LIMITS.premium.superLikes }
   }, { merge: true });
   r = await call('/api/swipe', 'a', { targetId: '900000004', action: 'super' });
@@ -309,7 +289,7 @@ try {
   check('new account needs the age declaration', r.data.needsAgeConfirmation === true, JSON.stringify(r.data.needsAgeConfirmation));
   check('new account is not marked confirmed', r.data.ageEligibility?.confirmed === false);
   check('nothing is silently confirmed on creation',
-    (await firestore.collection('users').doc('900000001').get()).data()?.ageEligibilityConfirmed === undefined);
+    (await getRow('users', '900000001'))?.ageEligibilityConfirmed === false);
 
   // Server-side enforcement: a client that skips the gate still cannot become discoverable.
   r = await call('/api/profile/me', 'a', { profile: PROFILES.a });
@@ -325,22 +305,22 @@ try {
     await call('/api/profile/me', 'a', { ageEligibilityConfirmed: bogus });
   }
   check('only an explicit boolean true is accepted',
-    (await firestore.collection('users').doc('900000001').get()).data()?.ageEligibilityConfirmed === undefined);
+    (await getRow('users', '900000001'))?.ageEligibilityConfirmed === false);
 
   // The affirmative action.
   r = await call('/api/profile/me', 'a', { ageEligibilityConfirmed: true });
   check('declaration accepted', r.data.needsAgeConfirmation === false, JSON.stringify(r.data.needsAgeConfirmation));
-  let ageDoc = (await firestore.collection('users').doc('900000001').get()).data();
+  let ageDoc = (await getRow('users', '900000001'));
   check('ageEligibilityConfirmed stored', ageDoc.ageEligibilityConfirmed === true);
   check('ageEligibilityConfirmedAt stored', Boolean(ageDoc.ageEligibilityConfirmedAt));
   check('method recorded as self_declaration', ageDoc.ageEligibilityMethod === 'self_declaration', ageDoc.ageEligibilityMethod);
   check('no "verifiedAge" field is created', ageDoc.verifiedAge === undefined && ageDoc.ageVerified === undefined);
-  const declaredAt = ageDoc.ageEligibilityConfirmedAt.toMillis();
+  const declaredAt = ageDoc.ageEligibilityConfirmedAt.getTime();
 
   // Re-declaring must not re-date the original record.
   await call('/api/profile/me', 'a', { ageEligibilityConfirmed: true });
   check('existing declaration is not re-dated',
-    (await firestore.collection('users').doc('900000001').get()).data().ageEligibilityConfirmedAt.toMillis() === declaredAt);
+    (await getRow('users', '900000001')).ageEligibilityConfirmedAt.getTime() === declaredAt);
 
   r = await call('/api/profile/me', 'a', { profile: PROFILES.a });
   check('profile completes once declared', r.data.profile?.profileComplete === true);
@@ -353,7 +333,7 @@ try {
   await call('/api/profile/me', 'a', { profile: PROFILES.a });
 
   // Existing accounts created before the gate are asked, not grandfathered in.
-  await firestore.collection('users').doc('900000002').set({
+  await seedRow('users', ['900000002'], {
     telegramId: 900000002, profile: PROFILES.b, profileComplete: true, discoverable: true, createdAt: new Date()
   });
   r = await call('/api/profile/me', 'b');
@@ -363,7 +343,7 @@ try {
   check('pre-existing account cannot swipe until it declares', r.status === 403 && r.data.error === 'AGE_CONFIRMATION_REQUIRED');
 
   // ------------------------------------------------------------------ launch checks
-  section('Firestore record structure');
+  section('PostgreSQL record structure');
   await cleanup();
   await seedAll();
   const structRes = await call('/api/premium', 'a', { action: 'invoice', planId: 'monthly' });
@@ -371,11 +351,11 @@ try {
   const structPayload = (await sent()).filter((c) => c.method === 'createInvoiceLink').pop().body.payload;
   const structNonce = parseInvoicePayload(structPayload).nonce;
 
-  const invoiceDoc = (await firestore.collection('bezyInvoices').doc(structNonce).get()).data();
+  const invoiceDoc = (await getRow('bezy_invoices', structNonce));
   check('bezyInvoices keyed by server nonce', Boolean(invoiceDoc), structNonce);
   check('pending invoice starts as status=pending', invoiceDoc?.status === 'pending', invoiceDoc?.status);
   check('pending invoice records user, plan, stars and currency',
-    invoiceDoc?.telegramUserId === '900000001' && invoiceDoc?.planId === 'monthly' && invoiceDoc?.stars === PLANS.monthly.stars && invoiceDoc?.currency === 'XTR',
+    invoiceDoc?.telegramUserId === '900000001' && invoiceDoc?.planId === 'monthly' && Number(invoiceDoc?.stars) === PLANS.monthly.stars && invoiceDoc?.currency === 'XTR',
     JSON.stringify(invoiceDoc || {}).slice(0, 160));
 
   const structCharge = 'charge_struct_1';
@@ -386,21 +366,21 @@ try {
     }
   });
 
-  const membership = (await firestore.collection('users').doc('900000001').get()).data()?.bezyPremium || {};
+  const membership = (await getRow('users', '900000001'))?.bezyPremium || {};
   for (const field of ['active', 'planId', 'expiresAt', 'purchasedAt', 'source', 'telegramPaymentChargeId']) {
     check(`membership has ${field}`, membership[field] !== undefined, Object.keys(membership).join(','));
   }
   check('membership source is telegram_stars', membership.source === 'telegram_stars', membership.source);
-  const payDoc = (await firestore.collection('bezyPayments').doc(structCharge).get()).data();
+  const payDoc = (await getRow('bezy_payments', structCharge));
   check('bezyPayments document id IS the charge id', payDoc?.telegramPaymentChargeId === structCharge);
   check('payment links back to the invoice payload', payDoc?.invoicePayload === structPayload);
   check('payment stores membershipExpiresAt for audit', Boolean(payDoc?.membershipExpiresAt));
   check('invoice marked paid and linked to the charge',
-    (await firestore.collection('bezyInvoices').doc(structNonce).get()).data()?.status === 'paid');
+    (await getRow('bezy_invoices', structNonce))?.status === 'paid');
 
   section('Idempotency (explicit)');
-  const beforeCount = (await firestore.collection('bezyPayments').get()).size;
-  const expiryBefore = membership.expiresAt.toMillis();
+  const beforeCount = (await listRows('bezy_payments', [])).length;
+  const expiryBefore = membership.expiresAt.getTime();
   await resetCalls();
   const replay = await webhook({
     message: {
@@ -409,12 +389,12 @@ try {
     }
   });
   check('replayed payment still acknowledged with 200', replay.status === 200);
-  check('replay creates NO second payment document', (await firestore.collection('bezyPayments').get()).size === beforeCount);
+  check('replay creates NO second payment document', (await listRows('bezy_payments', [])).length === beforeCount);
   check('replay does NOT extend membership',
-    (await firestore.collection('users').doc('900000001').get()).data().bezyPremium.expiresAt.toMillis() === expiryBefore);
+    (await getRow('users', '900000001')).bezyPremium.expiresAt.getTime() === expiryBefore);
   check('replay sends no duplicate confirmation', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
   check('entitlement still active exactly once',
-    premiumState((await firestore.collection('users').doc('900000001').get()).data()).active === true);
+    premiumState((await getRow('users', '900000001'))).active === true);
 
   section('Expiration boundary');
   const nowRef = new Date('2026-06-15T12:00:00Z');
@@ -436,7 +416,7 @@ try {
 
   section('Telegram Premium is not Bezy Premium');
   // A Telegram Premium user who never bought Bezy Premium.
-  await firestore.collection('users').doc('900000001').set({ isPremiumTelegram: true }, { merge: true });
+  await seedRow('users', ['900000001'], { isPremiumTelegram: true }, { merge: true });
   await setPremium('900000001', { active: false });
   r = await call('/api/premium', 'a');
   check('Telegram Premium user reports isPremium=false', r.data.premium?.active === false, JSON.stringify(r.data.premium));
@@ -446,7 +426,7 @@ try {
   check('Telegram Premium user gets no advanced discovery', r.data.isPremium === false);
   check('Telegram Premium user keeps free quota', r.data.quota?.limits?.discoveryActions === LIMITS.free.discoveryActions);
   check('isPremiumTelegram is still stored as informational',
-    (await firestore.collection('users').doc('900000001').get()).data().isPremiumTelegram === true);
+    (await getRow('users', '900000001')).isPremiumTelegram === true);
 
   // ------------------------------------------------------------------ refunds
   // Helper: buy a plan for user A and return the charge id backing the membership.
@@ -473,8 +453,8 @@ try {
       }
     }
   });
-  const userDocOf = async (id = '900000001') => (await firestore.collection('users').doc(id).get()).data() || {};
-  const payDocOf = async (id) => (await firestore.collection('bezyPayments').doc(id).get()).data() || {};
+  const userDocOf = async (id = '900000001') => (await getRow('users', id)) || {};
+  const payDocOf = async (id) => (await getRow('bezy_payments', id)) || {};
 
   section('Refund A: successful refund revokes Premium');
   await cleanup();
@@ -484,8 +464,8 @@ try {
   let doc = await userDocOf();
   check('membership active before refund', premiumState(doc).active === true);
   const originalPlan = doc.bezyPremium.planId;
-  const originalPurchasedAt = doc.bezyPremium.purchasedAt.toMillis();
-  const originalExpiry = doc.bezyPremium.expiresAt.toMillis();
+  const originalPurchasedAt = doc.bezyPremium.purchasedAt.getTime();
+  const originalExpiry = doc.bezyPremium.expiresAt.getTime();
   check('membership expiry is in the future', originalExpiry > Date.now());
 
   await resetCalls();
@@ -523,26 +503,26 @@ try {
 
   section('Refund H: historical purchase data preserved');
   check('original plan retained', doc.bezyPremium.planId === originalPlan);
-  check('original purchase date retained', doc.bezyPremium.purchasedAt.toMillis() === originalPurchasedAt);
-  check('original expiry retained for audit', doc.bezyPremium.expiresAt.toMillis() === originalExpiry);
+  check('original purchase date retained', doc.bezyPremium.purchasedAt.getTime() === originalPurchasedAt);
+  check('original expiry retained for audit', doc.bezyPremium.expiresAt.getTime() === originalExpiry);
   check('original charge id retained', doc.bezyPremium.telegramPaymentChargeId === 'charge_refund_1');
-  check('payment retains plan and amount', pay.planId === 'monthly' && pay.stars === PLANS.monthly.stars);
+  check('payment retains plan and amount', pay.planId === 'monthly' && Number(pay.stars) === PLANS.monthly.stars);
   check('payment retains currency and payload', pay.currency === 'XTR' && pay.invoicePayload === refPayload);
   check('payment retains provider charge id', pay.providerPaymentChargeId === 'prov_charge_refund_1');
   check('payment retains original processedAt', Boolean(pay.processedAt));
 
   section('Refund C: duplicate refund is idempotent');
-  const revokedAtFirst = doc.bezyPremium.revokedAt.toMillis();
-  const paymentsBefore = (await firestore.collection('bezyPayments').get()).size;
+  const revokedAtFirst = doc.bezyPremium.revokedAt.getTime();
+  const paymentsBefore = (await listRows('bezy_payments', [])).length;
   await resetCalls();
   const dupRes = await webhook(refundUpdate('charge_refund_1', refPayload, PLANS.monthly.stars));
   check('replayed refund returns 200', dupRes.status === 200);
   check('no duplicate confirmation sent', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
   doc = await userDocOf();
-  check('revokedAt unchanged on replay', doc.bezyPremium.revokedAt.toMillis() === revokedAtFirst);
+  check('revokedAt unchanged on replay', doc.bezyPremium.revokedAt.getTime() === revokedAtFirst);
   check('membership still inactive (not reactivated)', premiumState(doc).active === false);
-  check('no extra payment document created', (await firestore.collection('bezyPayments').get()).size === paymentsBefore);
-  const dupDirect = await applyRefund(firestore, 'charge_refund_1', { source: 'admin_script' });
+  check('no extra payment document created', (await listRows('bezy_payments', [])).length === paymentsBefore);
+  const dupDirect = await applyRefund(storage, 'charge_refund_1', { source: 'admin_script' });
   check('applyRefund reports already_refunded', dupDirect.outcome === 'already_refunded', dupDirect.outcome);
   check('replay did not overwrite the original refund source', (await payDocOf('charge_refund_1')).refundSource === 'telegram_webhook');
 
@@ -552,12 +532,12 @@ try {
   doc = await userDocOf();
   check('new purchase reactivates Premium', premiumState(doc).active === true);
   check('new expiry starts from now, not the refunded expiry',
-    Math.abs(doc.bezyPremium.expiresAt.toMillis() - addMonths(new Date(), 1).getTime()) < 2 * 86400000,
-    `refunded expiry ${new Date(originalExpiry).toISOString()} -> new ${doc.bezyPremium.expiresAt.toDate().toISOString()}`);
+    Math.abs(doc.bezyPremium.expiresAt.getTime() - addMonths(new Date(), 1).getTime()) < 2 * 86400000,
+    `refunded expiry ${new Date(originalExpiry).toISOString()} -> new ${doc.bezyPremium.expiresAt.toISOString()}`);
   check('revocation markers cleared by the new purchase', !doc.bezyPremium.revokedAt);
 
   section('Refund B: failed Telegram refund does not revoke');
-  await firestore.collection('bezyPayments').doc('charge_after_refund').set({
+  await seedRow('bezy_payments', ['charge_after_refund'], {
     refundStatus: REFUND_STATUS.FAILED, refundFailedAt: new Date(), refundFailureReason: 'CHARGE_NOT_FOUND'
   }, { merge: true });
   doc = await userDocOf();
@@ -573,12 +553,12 @@ try {
   await resetCalls();
   const yearPayload = await purchase('yearly', 'charge_year_1');
   doc = await userDocOf();
-  const yearExpiry = doc.bezyPremium.expiresAt.toMillis();
+  const yearExpiry = doc.bezyPremium.expiresAt.getTime();
   check('yearly membership expires far in the future', yearExpiry > Date.now() + 300 * 86400000);
   await webhook(refundUpdate('charge_year_1', yearPayload, PLANS.yearly.stars));
   doc = await userDocOf();
   check('long-dated membership revoked immediately', premiumState(doc).active === false);
-  check('future expiresAt preserved but powerless', doc.bezyPremium.expiresAt.toMillis() === yearExpiry);
+  check('future expiresAt preserved but powerless', doc.bezyPremium.expiresAt.getTime() === yearExpiry);
   r = await call('/api/likes', 'a');
   check('access denied despite unexpired date', r.status === 403);
 
@@ -597,7 +577,7 @@ try {
   check('no confirmation sent when nothing was revoked', (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
 
   section('Refund F: Telegram Premium cannot resurrect a refunded membership');
-  await firestore.collection('users').doc('900000001').set({ isPremiumTelegram: true }, { merge: true });
+  await seedRow('users', ['900000001'], { isPremiumTelegram: true }, { merge: true });
   doc = await userDocOf();
   check('Telegram Premium flag set', doc.isPremiumTelegram === true);
   check('Bezy Premium still Free after refund', premiumState(doc).active === false);
@@ -612,9 +592,9 @@ try {
   check('refund is not an accepted /api/premium action', r.status === 400 && r.data.error === 'INVALID_ACTION', JSON.stringify(r.data));
   r = await call('/api/premium', 'b', { action: 'invoice', planId: 'monthly' });
   check('another user cannot act on someone else\'s payment through the API', r.status === 200 && parseInvoicePayload((await sent()).filter((c) => c.method === 'createInvoiceLink').pop().body.payload).telegramUserId === '900000002');
-  const unknown = await applyRefund(firestore, 'charge_does_not_exist', { source: 'admin_script' });
+  const unknown = await applyRefund(storage, 'charge_does_not_exist', { source: 'admin_script' });
   check('refunding an unrecorded charge is refused', unknown.outcome === 'unknown_payment', unknown.outcome);
-  check('unrecorded charge writes no payment document', (await firestore.collection('bezyPayments').doc('charge_does_not_exist').get()).exists === false);
+  check('unrecorded charge writes no payment document', Boolean(await getRow('bezy_payments', 'charge_does_not_exist')) === false);
 
   section('Refund: webhook robustness');
   check('refunded_payment without a charge id returns 200', (await webhook({
@@ -629,9 +609,9 @@ try {
   r = await call('/api/relationship', 'a', { action: 'block', targetId: '900000002' });
   check('block accepted', r.status === 200 && r.data.blocked === true, JSON.stringify(r.data));
   check('block recorded for the blocker',
-    (await firestore.collection('users').doc('900000001').collection('blocks').doc('900000002').get()).exists);
+    Boolean(await getRow('blocks', '900000001', '900000002')));
   check('mirror recorded under the blocked user',
-    (await firestore.collection('users').doc('900000002').collection('blockedBy').doc('900000001').get()).exists);
+    Boolean(await getRow('blocked_by', '900000002', '900000001')));
   r = await call('/api/discover', 'a');
   check('blocked user removed from blocker deck', !(r.data.profiles || []).some((p) => p.id === '900000002'), (r.data.profiles || []).map((p) => p.id).join(','));
   r = await call('/api/discover', 'b');
@@ -645,9 +625,9 @@ try {
   r = await call('/api/relationship', 'a', { action: 'unblock', targetId: '900000002' });
   check('unblock accepted', r.status === 200 && r.data.blocked === false);
   check('block document removed',
-    (await firestore.collection('users').doc('900000001').collection('blocks').doc('900000002').get()).exists === false);
+    Boolean(await getRow('blocks', '900000001', '900000002')) === false);
   check('mirror removed',
-    (await firestore.collection('users').doc('900000002').collection('blockedBy').doc('900000001').get()).exists === false);
+    Boolean(await getRow('blocked_by', '900000002', '900000001')) === false);
 
   section('Block ends an existing match');
   await cleanup();
@@ -666,18 +646,18 @@ try {
   await seedAll();
   r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000002', reason: 'harassment', details: 'Test report.' });
   check('report accepted', r.status === 200 && r.data.reported === true, JSON.stringify(r.data));
-  const reportSnap = await firestore.collection('reports').doc(r.data.reportId).get();
-  const reportData = reportSnap.data() || {};
+  const reportSnap = await getRow('reports', r.data.reportId);
+  const reportData = reportSnap || {};
   check('report stores reporter, target, reason and status',
     reportData.reporterId === '900000001' && reportData.targetId === '900000002' && reportData.reason === 'harassment' && reportData.status === 'open',
     JSON.stringify(reportData).slice(0, 160));
   check('report stores no profile snapshot', reportData.profile === undefined && reportData.displayName === undefined);
   check('reporting also blocks',
-    (await firestore.collection('users').doc('900000001').collection('blocks').doc('900000002').get()).exists);
+    Boolean(await getRow('blocks', '900000001', '900000002')));
   r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000003', reason: 'not_a_real_reason' });
-  check('unknown reason normalized to other', (await firestore.collection('reports').doc(r.data.reportId).get()).data().reason === 'other');
+  check('unknown reason normalized to other', (await getRow('reports', r.data.reportId)).reason === 'other');
   r = await call('/api/relationship', 'a', { action: 'report', targetId: '900000004', details: 'x'.repeat(5000) });
-  check('report details truncated', (await firestore.collection('reports').doc(r.data.reportId).get()).data().details.length === 1000);
+  check('report details truncated', (await getRow('reports', r.data.reportId)).details.length === 1000);
 
   section('Unmatch');
   await cleanup();
@@ -695,9 +675,8 @@ try {
 
   // ------------------------------------------------ mutual-like state machine
   section('Mutual-like state machine (reciprocal consent invariant)');
-  const activeMatchDocs = async (a, b) => (await firestore.collection('matches')
-    .where('participants', 'array-contains', a).get()).docs
-    .filter((d) => (d.data().participants || []).map(String).includes(b) && d.data().active !== false);
+  const activeMatchDocs = async (a, b) => (await listRows('matches', [], ['participants', 'array-contains', a]))
+    .filter((d) => (d.participants || []).map(String).includes(b) && d.active !== false);
 
   // CASE 1 — one-sided Like: A likes B, B has not liked A.
   await cleanup();
@@ -753,7 +732,7 @@ try {
   // never be displayed, even if it somehow exists.
   await cleanup();
   await seedAll();
-  await firestore.collection('matches').doc('900000001_900000002').set({
+  await seedRow('matches', ['900000001_900000002'], {
     participants: ['900000001', '900000002'], createdAt: new Date(), source: 'mutual_like', active: true
   });
   check('a match document with no underlying likes is filtered by the read path',
@@ -826,9 +805,9 @@ try {
   await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
   await setPremium('900000001', { active: true, expiresAt: new Date(Date.now() + 86400000) });
   await call('/api/messages', 'a', { action: 'send', conversationId: cid, text: 'bye', clientId: 'ffffffff' });
-  check('conversation document exists before deletion', (await firestore.collection('conversations').doc(cid).get()).exists);
+  check('conversation document exists before deletion', Boolean(await getRow('conversations', cid)));
   await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
-  check('account deletion erases the conversation', (await firestore.collection('conversations').doc(cid).get()).exists === false);
+  check('account deletion erases the conversation', Boolean(await getRow('conversations', cid)) === false);
 
   // Malformed conversation ids must answer the same 404 as every unreachable case, never a
   // 500 from the Admin SDK document-path parser.
@@ -844,20 +823,20 @@ try {
   // so the erasure query can always find it, and the watermark never moves backwards.
   r = await call('/api/messages', 'a', { action: 'read', conversationId: cid, lastMessageAt: new Date(Date.now() - 3600000).toISOString() });
   check('marking read succeeds', r.status === 200);
-  let conv = (await firestore.collection('conversations').doc(cid).get()).data() || {};
+  let conv = (await getRow('conversations', cid)) || {};
   check('a read-only conversation carries its participants',
     JSON.stringify((conv.participants || []).slice().sort()) === JSON.stringify(['900000001', '900000002']), JSON.stringify(conv.participants));
-  const watermarkAt = conv.lastRead?.['900000001']?.toMillis?.() ?? 0;
+  const watermarkAt = conv.lastRead?.['900000001']?.getTime?.() ?? 0;
   r = await call('/api/messages', 'a', { action: 'read', conversationId: cid, lastMessageAt: new Date(watermarkAt - 60000).toISOString() });
-  conv = (await firestore.collection('conversations').doc(cid).get()).data() || {};
+  conv = (await getRow('conversations', cid)) || {};
   check('the read watermark never moves backwards',
-    (conv.lastRead?.['900000001']?.toMillis?.() ?? 0) === watermarkAt, `was ${watermarkAt}`);
+    (conv.lastRead?.['900000001']?.getTime?.() ?? 0) === watermarkAt, `was ${watermarkAt}`);
 
   // The newest-200 window: the cap truncates OLD history, never the recent end.
-  const messagesRef = firestore.collection('conversations').doc(cid).collection('messages');
+  
   const base = Date.now() - 24 * 3600000;
   for (let i = 0; i < 205; i++) {
-    await messagesRef.doc(`cap${String(i).padStart(3, '0')}`).set({ senderId: '900000001', text: `m${i}`, createdAt: new Date(base + i * 1000) });
+    await seedRow('messages', [cid, `cap_test_${String(i).padStart(3, '0')}`], { senderId: '900000001', text: `m${i}`, createdAt: new Date(base + i * 1000) });
   }
   r = await call('/api/messages', 'a', { action: 'list', conversationId: cid });
   check('the list is capped at the newest 200',
@@ -872,7 +851,7 @@ try {
   await call('/api/swipe', 'a', { targetId: '900000002', action: 'like' });
   await call('/api/swipe', 'b', { targetId: '900000001', action: 'like' });
   await setPremium('900000001', { active: true, expiresAt: new Date(Date.now() + 86400000) });
-  await firestore.collection('users').doc('900000002').set({ processingRestricted: true, processingRestrictedAt: new Date() }, { merge: true });
+  await seedRow('users', ['900000002'], { processingRestricted: true, processingRestrictedAt: new Date() }, { merge: true });
   r = await call('/api/messages', 'a', { action: 'list', conversationId: cid });
   check('a paused counterpart closes the conversation for both sides', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE', JSON.stringify(r.data));
 
@@ -903,7 +882,7 @@ try {
   await call('/api/relationship', 'a', { action: 'block', targetId: '900000003' });
   r = await call('/api/account', 'a', { action: 'export' });
   const exported = r.data.data || {};
-  check('export returns the account', r.status === 200 && exported.account?.telegramId === 900000001, JSON.stringify(exported.account).slice(0, 120));
+  check('export returns the account', r.status === 200 && exported.account?.telegramId === '900000001', JSON.stringify(exported.account).slice(0, 120));
   check('export includes the profile', exported.profile?.displayName === 'Ada');
   check('export includes the age declaration', exported.ageEligibility?.confirmed === true && exported.ageEligibility?.method === 'self_declaration');
   check('export includes own decisions', (exported.decisions || []).some((d) => d.targetTelegramId === '900000002'));
@@ -929,24 +908,24 @@ try {
   r = await call('/api/account', 'a', { action: 'delete', confirm: 'yes' });
   check('wrong confirmation rejected', r.status === 400);
   check('account still present before confirmed deletion',
-    (await firestore.collection('users').doc('900000001').get()).exists);
+    Boolean(await getRow('users', '900000001')));
 
   r = await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
   check('deletion succeeds with confirmation', r.status === 200 && r.data.deleted === true, JSON.stringify(r.data));
-  check('user document removed', (await firestore.collection('users').doc('900000001').get()).exists === false);
+  check('user document removed', Boolean(await getRow('users', '900000001')) === false);
   check('actions subcollection removed',
-    (await firestore.collection('users').doc('900000001').collection('actions').get()).size === 0);
+    (await listRows('actions', ['900000001'])).length === 0);
   check('blocks subcollection removed',
-    (await firestore.collection('users').doc('900000001').collection('blocks').get()).size === 0);
+    (await listRows('blocks', ['900000001'])).length === 0);
   check('mirror under the blocked user cleaned up',
-    (await firestore.collection('users').doc('900000003').collection('blockedBy').doc('900000001').get()).exists === false);
+    Boolean(await getRow('blocked_by', '900000003', '900000001')) === false);
   check('like mirror removed from the other user',
-    (await firestore.collection('users').doc('900000002').collection('likesReceived').doc('900000001').get()).exists === false);
+    Boolean(await getRow('likes_received', '900000002', '900000001')) === false);
   check('matches ended for the counterpart', (await call('/api/matches', 'b')).data.matches.length === 0);
   check('deleted user is not discoverable',
     !((await call('/api/discover', 'b')).data.profiles || []).some((p) => p.id === '900000001'));
   check('payment record retained for accounting',
-    (await firestore.collection('bezyPayments').doc('charge_delete_1').get()).exists);
+    Boolean(await getRow('bezy_payments', 'charge_delete_1')));
   check('retained counts reported to the user', r.data.retained?.payments === 1, JSON.stringify(r.data.retained));
 
   r = await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
@@ -957,13 +936,13 @@ try {
   // Reopening the Mini App creates a brand-new account. It must carry nothing over.
   r = await call('/api/profile/me', 'a');
   check('returning user must re-declare age', r.data.needsAgeConfirmation === true);
-  const reborn = (await firestore.collection('users').doc('900000001').get()).data() || {};
+  const reborn = (await getRow('users', '900000001')) || {};
   check('returning user has no previous profile', !reborn.profile?.displayName, JSON.stringify(reborn.profile));
   check('returning user has no previous membership', premiumState(reborn).active === false);
   check('returning user has no previous decisions',
-    (await firestore.collection('users').doc('900000001').collection('actions').get()).size === 0);
+    (await listRows('actions', ['900000001'])).length === 0);
   check('returning user has no previous blocks',
-    (await firestore.collection('users').doc('900000001').collection('blocks').get()).size === 0);
+    (await listRows('blocks', ['900000001'])).length === 0);
 
   // ------------------------------------------------------------------ regression
   section('Regression: existing dating flow');
@@ -1182,21 +1161,21 @@ try {
 
   section('Super Like flood ceiling');
   const capUser = '900000099';
-  await firestore.collection('rateLimits').doc(capUser).delete().catch(() => {});
+  await deleteRow('rate_limits', capUser).catch(() => {});
   const capResults = [];
-  for (let i = 0; i < 7; i += 1) capResults.push(await withinDailyCap(firestore, capUser, 'super_likes'));
+  for (let i = 0; i < 7; i += 1) capResults.push(await withinDailyCap(storage, capUser, 'super_likes'));
   check('the daily ceiling allows exactly five Super Like notifications',
     capResults.filter(Boolean).length === 5, capResults.join(','));
   check('the ceiling blocks everything after it', capResults.slice(5).every((v) => v === false), capResults.join(','));
   check('an uncapped category is never blocked',
-    (await withinDailyCap(firestore, capUser, 'matches')) === true);
+    (await withinDailyCap(storage, capUser, 'matches')) === true);
   // The counter lives in the rate-limit document, which account deletion already erases, so
   // capping adds no new personal-data surface.
-  const capDoc = (await firestore.collection('rateLimits').doc(capUser).get()).data() || {};
+  const capDoc = (await getRow('rate_limits', capUser)) || {};
   check('the counter is stored with the rate-limit counters', 'notify_super_likes' in capDoc, Object.keys(capDoc).join(','));
   check('yesterday\'s window does not carry over',
-    (await withinDailyCap(firestore, capUser, 'super_likes', Date.now() + 86400001)) === true);
-  await firestore.collection('rateLimits').doc(capUser).delete().catch(() => {});
+    (await withinDailyCap(storage, capUser, 'super_likes', Date.now() + 86400001)) === true);
+  await deleteRow('rate_limits', capUser).catch(() => {});
 
   // --------------------------------------------------- profile-completion reminders (N-2)
   section('Profile-completion reminders (pure logic)');
@@ -1214,19 +1193,19 @@ try {
   await cleanup();
   // Four account shapes: eligible, complete (excluded), never-confirmed (excluded) and
   // paused-by-objection (excluded).
-  await firestore.collection('users').doc('900000060').set({
+  await seedRow('users', ['900000060'], {
     telegramId: 900000060, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false,
     languageCode: 'fr', createdAt: new Date(), profile: { displayName: 'Eligible' }
   });
-  await firestore.collection('users').doc('900000061').set({
+  await seedRow('users', ['900000061'], {
     telegramId: 900000061, ageEligibilityConfirmed: true, profileComplete: true, discoverable: true,
     createdAt: new Date(), profile: { ...PROFILES.b, displayName: 'Done' }
   });
-  await firestore.collection('users').doc('900000062').set({
+  await seedRow('users', ['900000062'], {
     telegramId: 900000062, profileComplete: false, discoverable: false,
     createdAt: new Date(), profile: { displayName: 'NeverConfirmed' }
   });
-  await firestore.collection('users').doc('900000063').set({
+  await seedRow('users', ['900000063'], {
     telegramId: 900000063, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false,
     processingObjection: true, processingObjectedAt: new Date(),
     createdAt: new Date(), profile: { displayName: 'Objecting' }
@@ -1235,19 +1214,19 @@ try {
   // The database is production-shared, so every REAL account is shielded from the plan:
   // the assertions below must hold regardless of how many real incomplete accounts exist,
   // and a test run must never select a real user for a reminder.
-  const realIds = (await firestore.collection('users').get()).docs
+  const realIds = (await listRows('users', []))
     .map((d) => d.id)
     .filter((id) => !/^9000000\d\d$/.test(id));
   const planOptions = { protectedIds: realIds };
-  let plan = await planProfileReminders(firestore, planOptions);
+  let plan = await planProfileReminders(storage, planOptions);
   const plannedIds = plan.users.map((u) => u.id);
   check('only the confirmed, incomplete, unpaused account is selected',
     JSON.stringify(plannedIds) === JSON.stringify(['900000060']), plannedIds.join(','));
   check('protected ids are never selected',
-    (await planProfileReminders(firestore, { protectedIds: ['900000060', ...realIds] })).users.length === 0);
+    (await planProfileReminders(storage, { protectedIds: ['900000060', ...realIds] })).users.length === 0);
 
   await resetCalls();
-  let summary = await sendProfileReminders(firestore, plan);
+  let summary = await sendProfileReminders(storage, plan);
   check('the reminder is sent once', summary.sent === 1, JSON.stringify(summary));
   const reminderNotes = (await sent()).filter((c) => c.method === 'sendMessage');
   check('the reminder is in the recipient\'s language', /profil/.test(reminderNotes[0]?.body?.text || ''), reminderNotes[0]?.body?.text);
@@ -1255,36 +1234,36 @@ try {
     /view=profile/.test(JSON.stringify(reminderNotes[0]?.body?.reply_markup || {})), JSON.stringify(reminderNotes[0]?.body?.reply_markup));
 
   // The seven-day cap: a second run in the same window sends nothing.
-  summary = await sendProfileReminders(firestore, plan);
+  summary = await sendProfileReminders(storage, plan);
   check('a second run in the same seven-day window is capped', summary.capped === 1 && summary.sent === 0, JSON.stringify(summary));
 
   // The cap record expires: a run in eight days' time goes through again.
-  await firestore.collection('rateLimits').doc('900000060').delete().catch(() => {});
-  await firestore.collection('rateLimits').doc('900000060').set({ notify_profile_reminders: { w: Date.now() - 8 * 86400000, c: 1 } });
-  summary = await sendProfileReminders(firestore, plan);
+  await deleteRow('rate_limits', '900000060').catch(() => {});
+  await seedRow('rate_limits', ['900000060'], { notify_profile_reminders: { w: Date.now() - 8 * 86400000, c: 1 } });
+  summary = await sendProfileReminders(storage, plan);
   check('an expired window allows the reminder again', summary.sent === 1, JSON.stringify(summary));
 
   // A user can switch the reminder off entirely, like any engagement notification.
   await cleanup();
-  await firestore.collection('users').doc('900000060').set({
+  await seedRow('users', ['900000060'], {
     telegramId: 900000060, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false,
     notifications: { matches: true, super_likes: true, profile_reminders: false },
     createdAt: new Date(), profile: { displayName: 'Eligible' }
   });
-  plan = await planProfileReminders(firestore, planOptions);
-  await firestore.collection('rateLimits').doc('900000060').delete().catch(() => {});
-  summary = await sendProfileReminders(firestore, plan);
+  plan = await planProfileReminders(storage, planOptions);
+  await deleteRow('rate_limits', '900000060').catch(() => {});
+  summary = await sendProfileReminders(storage, plan);
   check('a switched-off reminder is not sent', summary.disabled === 1 && summary.sent === 0, JSON.stringify(summary));
 
   // The reminder must never outrank a legal pause — and it does not, because delivery goes
   // through the same policy as everything else.
   await cleanup();
-  await firestore.collection('users').doc('900000063').set({
+  await seedRow('users', ['900000063'], {
     telegramId: 900000063, ageEligibilityConfirmed: true, profileComplete: false, discoverable: false,
     processingRestricted: true, processingRestrictedAt: new Date(),
     createdAt: new Date(), profile: { displayName: 'Restricted' }
   });
-  plan = await planProfileReminders(firestore, planOptions);
+  plan = await planProfileReminders(storage, planOptions);
   check('a paused account is not even selected for a reminder', plan.users.length === 0, plan.users.map((u) => u.id).join(','));
 
   // ------------------------------------------- safety / account event notifications (N-3)
@@ -1371,7 +1350,7 @@ try {
   notes = (await sent()).filter((c) => c.method === 'sendMessage');
   check('deletion is confirmed in the bot chat', notes.length === 1 && /deleted/i.test(notes[0].body.text || ''),
     notes[0]?.body?.text);
-  check('the account is gone afterwards', !(await firestore.collection('users').doc('900000001').get()).exists);
+  check('the account is gone afterwards', !Boolean(await getRow('users', '900000001')));
 
   // ------------------------------------------------------------------ language filter
   section('Languages spoken');
@@ -1475,8 +1454,8 @@ try {
   await cleanup();
   await seedAll();
   // Bo's filters fit Ada (same city, open age); Cy's exclude her (age floor above Ada's).
-  await firestore.collection('users').doc('900000002').set({ preferences: { minAge: 25, maxAge: 35, city: '', sameCityOnly: false, languages: [] } }, { merge: true });
-  await firestore.collection('users').doc('900000003').set({ preferences: { minAge: 40, maxAge: 50, city: '', sameCityOnly: false, languages: [] } }, { merge: true });
+  await seedRow('users', ['900000002'], { preferences: { minAge: 25, maxAge: 35, city: '', sameCityOnly: false, languages: [] } }, { merge: true });
+  await seedRow('users', ['900000003'], { preferences: { minAge: 40, maxAge: 50, city: '', sameCityOnly: false, languages: [] } }, { merge: true });
   r = await call('/api/discover', 'a');
   const deck = r.data.profiles || [];
   const boIndex = deck.findIndex((p) => p.id === '900000002');
@@ -1493,11 +1472,11 @@ try {
   await seedAll();
   // Two synthetic candidates with byte-identical profiles, differing only in updatedAt.
   const twin = { ...PROFILES.b, displayName: 'Twin' };
-  await firestore.collection('users').doc('900000060').set({
+  await seedRow('users', ['900000060'], {
     telegramId: 900000060, ageEligibilityConfirmed: true, profileComplete: true, discoverable: true,
     profile: { ...twin, discoverable: true, profileComplete: true }, createdAt: new Date(), updatedAt: new Date()
   });
-  await firestore.collection('users').doc('900000061').set({
+  await seedRow('users', ['900000061'], {
     telegramId: 900000061, ageEligibilityConfirmed: true, profileComplete: true, discoverable: true,
     profile: { ...twin, discoverable: true, profileComplete: true }, createdAt: new Date(), updatedAt: new Date(Date.now() - 400 * 86400000)
   });
@@ -1545,7 +1524,7 @@ try {
   await cleanup();
   await seedAll();
   for (const id of TEST_CANDIDATES) {
-    await firestore.collection('users').doc(id).set({ discoverable: false }, { merge: true });
+    await seedRow('users', [id], { discoverable: false }, { merge: true });
   }
   r = await call('/api/discover', 'a');
   check('an empty market reports no supply',
@@ -1572,11 +1551,7 @@ try {
   await cleanup();
   await seedAll();
   // Hermetic start: no prior decisions or blocks for the caller.
-  for (const sub of ['actions', 'blocks', 'blockedBy']) {
-    for (const doc of (await firestore.collection('users').doc('900000001').collection(sub).get()).docs) {
-      await doc.ref.delete();
-    }
-  }
+  for (const table of ['actions', 'blocks', 'blocked_by']) await deleteRow(table, '900000001');
 
   r = await call('/api/discover', 'a');
   check('the mutually eligible pair appears in the deck',
@@ -1597,7 +1572,7 @@ try {
     for (let i = 0; i < 105; i++) {
       const id = 900000100 + i;
       windowIds.push(id);
-      await firestore.collection('users').doc(String(id)).set({
+      await seedRow('users', [String(id)], {
         telegramId: id, firstName: `Window ${i}`, ageEligibilityConfirmed: true,
         profileComplete: true, discoverable: true, createdAt: new Date(), updatedAt: new Date(),
         profile: { displayName: `Window ${i}`, age: 30, city: 'Paris', gender: 'man', seeking: 'women', interests: ['music'], languages: ['en'], discoverable: true, profileComplete: true }
@@ -1605,7 +1580,7 @@ try {
     }
     const eldest = 900000300;
     windowIds.push(eldest);
-    await firestore.collection('users').doc(String(eldest)).set({
+    await seedRow('users', [String(eldest)], {
       telegramId: eldest, firstName: 'Eldest', ageEligibilityConfirmed: true,
       profileComplete: true, discoverable: true,
       createdAt: new Date(Date.now() - 365 * 86400000), updatedAt: new Date(Date.now() - 365 * 86400000),
@@ -1617,7 +1592,7 @@ try {
     check('an old but eligible candidate is never dropped by newest-first ordering',
       r.data.stats.available === 109 + realEligible, 'the oldest account must still count as eligible');
   } finally {
-    for (const id of windowIds) await firestore.collection('users').doc(String(id)).delete();
+    for (const id of windowIds) await deleteRow('users', String(id));
   }
 
   // Everyone semantics (live regression): a caller seeking Everyone must see every
@@ -1642,7 +1617,7 @@ try {
     for (let i = 0; i < 25; i++) {
       const id = 900000400 + i;
       pagerIds.push(id);
-      await firestore.collection('users').doc(String(id)).set({
+      await seedRow('users', [String(id)], {
         telegramId: id, firstName: `Pager ${i}`, ageEligibilityConfirmed: true,
         profileComplete: true, discoverable: true, createdAt: new Date(), updatedAt: new Date(),
         profile: { displayName: `Pager ${i}`, age: 30, city: 'Paris', gender: 'man', seeking: 'women', interests: [], languages: [], discoverable: true, profileComplete: true }
@@ -1661,12 +1636,12 @@ try {
       check(`page ${pages} is bounded by the documented size`, page.length <= 20, String(page.length));
       // Test candidates rank by freshness above real accounts, so the pages surface them
       // first; the bound is a safety net, never the expected path.
-      if (seen.size === expected.size || pages > 60) break;
+      if (seen.length === expected.length || pages > 60) break;
     }
-    check('pagination reached every eligible candidate across pages', seen.size === expected.size, `seen=${seen.size}`);
+    check('pagination reached every eligible candidate across pages', seen.length === expected.length, `seen=${seen.length}`);
     check('no page ever reported a false empty reason', pages > 0, `pages=${pages}`);
   } finally {
-    for (const id of pagerIds) await firestore.collection('users').doc(String(id)).delete();
+    for (const id of pagerIds) await deleteRow('users', String(id));
   }
 
   // -------------------------------------------------- restriction of processing (Art. 18)
@@ -1879,7 +1854,7 @@ try {
   // The support_create bucket is deliberately tight (3/hour); the semantics tested here
   // are not rate limiting — that has its own check below — so the counter is cleared
   // between the creates this section needs.
-  const clearSupportBucket = async () => { await firestore.collection('rateLimits').doc('900000001').delete().catch(() => {}); };
+  const clearSupportBucket = async () => { await deleteRow('rate_limits', '900000001').catch(() => {}); };
   r = await call('/api/support', 'a', { action: 'create', category: 'premium', details: 'My Premium is gone.' });
   check('a Mini App request is created with a reference', r.status === 200 && /^BZ-\d{4}$/.test(r.data.reference || ''), JSON.stringify(r.data));
   const firstReference = r.data.reference;
@@ -1926,16 +1901,16 @@ try {
   await clearSupportBucket();
   await supportWebhook({ callback_query: { id: 'cb2', data: 'support:new:premium', from: { id: 900000001, language_code: 'en' }, message: { chat: { id: 900000001 } } } });
   check('intake asks for a description', /Describe your problem/i.test(((await sent()).filter((c) => c.method === 'sendMessage')[0]?.body?.text || '')));
-  const pendingDoc = await firestore.collection('users').doc('900000001').get();
-  check('the pending category is stored on the caller\'s own document', pendingDoc.data()?.pendingSupportRequest?.category === 'premium');
+  const pendingDoc = await getRow('users', '900000001');
+  check('the pending category is stored on the caller\'s own document', pendingDoc?.pendingSupportCategory === 'premium');
   await resetCalls();
   await supportWebhook({ message: { chat: { id: 900000001 }, from: { id: 900000001, language_code: 'en' }, text: 'Stars are missing from my balance.' } });
   supportNotes = (await sent()).filter((c) => c.method === 'sendMessage');
   check('the plain message becomes a support request',
     supportNotes.length === 1 && /Reference: BZ-\d{4}/.test(supportNotes[0].body.text || ''), supportNotes[0]?.body?.text?.slice(0, 160));
   check('the confirmation states the fallback email', /contacts@digitalconcordia\.com/.test(supportNotes[0]?.body?.text || ''));
-  const afterIntake = await firestore.collection('users').doc('900000001').get();
-  check('the pending state is cleared', !afterIntake.data()?.pendingSupportRequest);
+  const afterIntake = await getRow('users', '900000001');
+  check('the pending state is cleared', !afterIntake?.pendingSupportRequest);
   r = await call('/api/support', 'a', { action: 'list' });
   check('the bot-created request appears in the caller\'s history',
     (r.data.requests || []).some((q) => q.category === 'premium' && /Stars are missing/.test(q.details)), JSON.stringify(r.data.requests));
@@ -1945,12 +1920,12 @@ try {
   await supportWebhook({ message: { chat: { id: 900000001 }, from: { id: 900000001, language_code: 'en' }, text: 'hello there' } });
   check('an unprompted plain message creates no request',
     (await sent()).filter((c) => c.method === 'sendMessage').length === 0);
-  const totalAfterNoise = (await firestore.collection('supportRequests').where('telegramUserId', '==', '900000001').get()).size;
+  const totalAfterNoise = (await listRows('support_requests', [], ['telegramUserId', '==', '900000001'])).length;
   check('the request count is unchanged', totalAfterNoise === 3, String(totalAfterNoise));
 
   // Support spam protection: the bucket is shared with the Mini App channel.
-  await firestore.collection('rateLimits').doc('900000001').delete().catch(() => {});
-  await firestore.collection('rateLimits').doc('900000001').set({ support_create_86400: { w: Date.now(), c: 10 } });
+  await deleteRow('rate_limits', '900000001').catch(() => {});
+  await seedRow('rate_limits', ['900000001'], { support_create_86400: { w: Date.now(), c: 10 } });
   r = await call('/api/support', 'a', { action: 'create', category: 'problem', details: 'too many' });
   check('support creation is rate limited', r.status === 429 && r.data.error === 'RATE_LIMITED', JSON.stringify(r.data));
 
@@ -1961,7 +1936,7 @@ try {
     JSON.stringify((r.data.data?.supportRequests || []).length));
   await call('/api/account', 'a', { action: 'delete', confirm: 'DELETE' });
   check('erasure removes the caller\'s support requests',
-    (await firestore.collection('supportRequests').where('telegramUserId', '==', '900000001').get()).size === 0);
+    (await listRows('support_requests', [], ['telegramUserId', '==', '900000001'])).length === 0);
 } finally {
   await cleanup();
   await harness.close();

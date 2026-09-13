@@ -333,7 +333,11 @@
     "interests_limit": "अधिकतम 12 रुचियाँ।",
     "quota_likes_left": "आज {n} लाइक बचे हैं",
     "quota_super_likes_left": "{n} सुपर लाइक बचे हैं",
-    "check_payment_status": "भुगतान की स्थिति जाँचें"
+    "check_payment_status": "भुगतान की स्थिति जाँचें",
+    "home_screen_title": "Bezy को होम स्क्रीन पर जोड़ें",
+    "home_screen_body": "Bezy एक टैप दूर रहे — इसे अपने फ़ोन की होम स्क्रीन पर जोड़ें।",
+    "home_screen_add": "Bezy को होम स्क्रीन पर जोड़ें",
+    "home_screen_added": "Bezy आपकी होम स्क्रीन पर है ✓"
   },
   "profile": {
     "edit": "प्रोफ़ाइल बदलें",

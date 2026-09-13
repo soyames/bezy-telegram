@@ -1,20 +1,12 @@
+import { getRow, listRows, seedRow, deleteRow, resetTestData, sql } from '../fixtures.mjs';
 import { test, expect } from '@playwright/test';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'node:fs';
 
 // The Mini App under test is the real index.html + app.js talking to the real API
 // handlers. Only the native Telegram payment sheet is stubbed (tests/harness.mjs).
 
-if (!getApps().length) {
-  if (process.env.BEZY_SERVICE_ACCOUNT) {
-    const sa = JSON.parse(fs.readFileSync(process.env.BEZY_SERVICE_ACCOUNT, 'utf8'));
-    initializeApp({ credential: cert({ projectId: sa.project_id, clientEmail: sa.client_email, privateKey: sa.private_key }) });
-  } else {
-    initializeApp({ credential: cert({ projectId: process.env.FIREBASE_PROJECT_ID, clientEmail: process.env.FIREBASE_CLIENT_EMAIL, privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n') }) });
-  }
-}
-const db = getFirestore();
+
+const storage = null;
 const ADA = '900000001';
 
 const PROFILES = {
@@ -29,21 +21,8 @@ async function seed(page, key) {
   await page.request.post('/api/profile/me', { data: { initData: users[key].initData, profile: PROFILES[key] } });
   return users;
 }
-async function cleanup() {
-  for (const doc of (await db.collection('users').get()).docs) {
-    if (/^9000000\d\d$/.test(doc.id)) await db.recursiveDelete(doc.ref);
-  }
-  for (const doc of (await db.collection('rateLimits').get()).docs) {
-    if (/^9000000\d\d$/.test(doc.id)) await doc.ref.delete();
-  }
-  for (const col of ['matches', 'bezyPayments', 'bezyInvoices', 'reports']) {
-    for (const doc of (await db.collection(col).get()).docs) {
-      const d = doc.data();
-      if ((d.participants || []).some((p) => /^9000000\d\d$/.test(p)) || /^9000000\d\d$/.test(String(d.telegramUserId)) || /^9000000\d\d$/.test(String(d.reporterId)) || /^9000000\d\d$/.test(String(d.targetId))) await doc.ref.delete();
-    }
-  }
-}
-const setPremium = (membership) => db.collection('users').doc(ADA).set({ bezyPremium: membership }, { merge: true });
+async function cleanup() { await resetTestData(); }
+const setPremium = (membership) => seedRow('users', [ADA], { bezyPremium: membership }, { merge: true });
 
 // Waits for initialization to finish so tests never race the startup routing.
 async function openApp(page, { as = 'a', lang } = {}) {
@@ -68,7 +47,7 @@ test.afterAll(async () => { await cleanup(); });
 
 test('new user is gated behind an explicit 18+ declaration', async ({ page }) => {
   // Wipe the declaration so this account looks brand new.
-  await db.recursiveDelete(db.collection('users').doc(ADA));
+  await deleteRow('users', ADA);
 
   await page.goto('/?as=a');
   await expect(page.locator('html')).toHaveAttribute('data-bezy-ready', 'true');
@@ -96,7 +75,7 @@ test('new user is gated behind an explicit 18+ declaration', async ({ page }) =>
 });
 
 test('declaring under 18 blocks access entirely', async ({ page }) => {
-  await db.recursiveDelete(db.collection('users').doc(ADA));
+  await deleteRow('users', ADA);
 
   await page.goto('/?as=a');
   await expect(page.locator('html')).toHaveAttribute('data-bezy-ready', 'true');
@@ -116,7 +95,7 @@ test('declaring under 18 blocks access entirely', async ({ page }) => {
 });
 
 test('age gate is localized in French', async ({ page }) => {
-  await db.recursiveDelete(db.collection('users').doc(ADA));
+  await deleteRow('users', ADA);
   await page.addInitScript(() => window.localStorage.setItem('bezy-language', 'fr'));
   await page.goto('/?as=a');
   await expect(page.locator('html')).toHaveAttribute('data-bezy-ready', 'true');
@@ -141,10 +120,11 @@ test('free member sees plans and prices from the backend', async ({ page }) => {
   await expect(page.locator('#premium-view')).toHaveClass(/active/);
   await expect(page.locator('.premium-hero h2')).toContainText('Bezy Premium');
 
-  // Every advertised benefit is rendered.
-  await expect(page.locator('.benefits li')).toHaveCount(5);
+  // Every advertised benefit is rendered (messaging is a Premium capability — roadmap §14).
+  await expect(page.locator('.benefits li')).toHaveCount(6);
   await expect(page.locator('.premium-hero')).toContainText('See who liked you');
   await expect(page.locator('.premium-hero')).toContainText('Unlimited discovery');
+  await expect(page.locator('.premium-hero')).toContainText('Chat with your matches');
 
   // Prices must match what /api/premium returns, not anything hard-coded in the UI.
   const status = await (await page.request.post('/api/premium', {
@@ -192,8 +172,10 @@ test('premium member sees likers and can match from the Premium screen', async (
   await page.locator('[data-liker-like]').click();
   await expect(page.locator('#toast')).toContainText('match');
 
+  // A fresh match opens the Ways-to-start sheet; close it before navigating on.
+  await page.locator('[data-sheet-close]').click();
   await page.locator('.nav button[data-view="matches"]').click();
-  await expect(page.locator('.match-info b')).toContainText('Bo');
+  await expect(page.locator('#match-grid .match-info b')).toContainText('Bo');
 });
 
 test('active membership shows plan and expiry', async ({ page }) => {
@@ -243,8 +225,9 @@ test('checkout requests a Stars invoice and does not self-grant Premium', async 
   const invoice = await page.evaluate(() => window.__lastInvoiceUrl);
   expect(decodeURIComponent(invoice)).toContain(`bezy_premium:v1:monthly:${ADA}`);
 
-  // The app must still show the purchase CTA, never a fabricated active membership.
-  await expect(page.locator('#premium-buy')).toContainText('Subscribe with Telegram Stars');
+  // The app must never fabricate an active membership: while the invoice is unresolved the
+  // CTA offers the payment-status check, and no membership card appears.
+  await expect(page.locator('#premium-buy')).toContainText(/Subscribe with Telegram Stars|Check payment status/);
   await expect(page.locator('.membership')).toHaveCount(0);
   expect((await (await page.request.post('/api/premium', {
     data: { initData: (await (await page.request.get('/__test-users')).json()).a.initData, action: 'status' }
@@ -315,7 +298,7 @@ test('Premium screen is fully localized in French', async ({ page }) => {
 });
 
 test('free discovery limit explains itself without an uninvited teleport', async ({ page }) => {
-  await db.collection('users').doc(ADA).set({
+  await seedRow('users', [ADA], {
     usage: { day: new Date().toISOString().slice(0, 10), discoveryActions: 30, superLikes: 1 }
   }, { merge: true });
 

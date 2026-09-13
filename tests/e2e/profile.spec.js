@@ -1,21 +1,13 @@
+import { getRow, listRows, seedRow, deleteRow, resetTestData, sql } from '../fixtures.mjs';
 import { test, expect } from '@playwright/test';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'node:fs';
 import path from 'node:path';
 
 // Profile prompts, the "how others see you" preview, why-you-matched and the openers derived
 // from it — driven through the real Mini App against the real API handlers.
 
-if (!getApps().length) {
-  if (process.env.BEZY_SERVICE_ACCOUNT) {
-    const sa = JSON.parse(fs.readFileSync(process.env.BEZY_SERVICE_ACCOUNT, 'utf8'));
-    initializeApp({ credential: cert({ projectId: sa.project_id, clientEmail: sa.client_email, privateKey: sa.private_key }) });
-  } else {
-    initializeApp({ credential: cert({ projectId: process.env.FIREBASE_PROJECT_ID, clientEmail: process.env.FIREBASE_CLIENT_EMAIL, privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n') }) });
-  }
-}
-const db = getFirestore();
+
+const storage = null;
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.slice(1)), '../..');
 const en = JSON.parse(fs.readFileSync(path.join(root, 'locales/en.json'), 'utf8')).app;
 const fr = JSON.parse(fs.readFileSync(path.join(root, 'locales/fr.json'), 'utf8')).app;
@@ -31,17 +23,7 @@ const PROFILES = {
   b: { displayName: 'Bo', age: 31, city: 'Paris', gender: 'man', seeking: 'women', interests: ['music', 'travel'], bio: 'E2E.', discoverable: true }
 };
 
-async function cleanup() {
-  for (const doc of (await db.collection('users').get()).docs) {
-    if (isTest(doc.id)) await db.recursiveDelete(doc.ref);
-  }
-  for (const doc of (await db.collection('rateLimits').get()).docs) {
-    if (isTest(doc.id)) await doc.ref.delete();
-  }
-  for (const doc of (await db.collection('matches').get()).docs) {
-    if ((doc.data().participants || []).some(isTest)) await doc.ref.delete();
-  }
-}
+async function cleanup() { await resetTestData(); }
 
 async function seedProfiles(page, { prompts = [], languages = [] } = {}) {
   const users = await (await page.request.get('/__test-users')).json();
@@ -173,9 +155,9 @@ test('a match explains itself with the signals both people actually share', asyn
   await openApp(page);
   await page.locator('.nav button[data-view="matches"]').click();
 
-  await expect(page.locator('.match-info b')).toContainText('Bo');
-  await expect(page.locator('.why-label')).toHaveText(en.why_matched);
-  const chips = await page.locator('.why-chip').allTextContents();
+  await expect(page.locator('#match-grid .match-info b')).toContainText('Bo');
+  await expect(page.locator('#match-grid .why-label')).toHaveText(en.why_matched);
+  const chips = await page.locator('#match-grid .why-chip').allTextContents();
   expect(chips.join(' | ')).toContain('music');
   expect(chips.join(' | ')).toContain('Paris');
   expect(chips).toContain(en.why_age);
@@ -189,7 +171,7 @@ test('openers are offered from the shared signals and can be copied', async ({ p
   await seedMatched(page);
   await openApp(page);
   await page.locator('.nav button[data-view="matches"]').click();
-  await page.locator('.match-card [data-starters]').click();
+  await page.locator('#match-grid .match-card [data-starters]').click();
 
   const sheet = page.locator('.sheet');
   await expect(sheet.locator('.sheet-head h3')).toHaveText(en.starters_title);
@@ -228,16 +210,18 @@ test('notification categories default to on and can be switched off', async ({ p
   await page.locator('#tab-settings').click();
 
   const toggles = page.locator('#notification-list [data-notify]');
-  await expect(toggles).toHaveCount(2);
+  await expect(toggles).toHaveCount(4);
   await expect(page.locator('[data-notify="matches"]')).toBeChecked();
   await expect(page.locator('[data-notify="super_likes"]')).toBeChecked();
+  await expect(page.locator('[data-notify="profile_reminders"]')).toBeChecked();
+  await expect(page.locator('[data-notify="messages"]')).toBeChecked();
   // Transactional messages are not the user's to switch off, so no toggle offers to.
   await expect(page.locator('[data-notify="account"]')).toHaveCount(0);
 
   await page.locator('[data-notify="super_likes"]').uncheck();
   await expect(page.locator('#toast')).toContainText(en.notifications_saved);
   const saved = await (await page.request.post('/api/profile/me', { data: { initData: users.a.initData } })).json();
-  expect(saved.notifications).toEqual({ matches: true, super_likes: false });
+  expect(saved.notifications).toEqual({ matches: true, super_likes: false, profile_reminders: true, messages: true });
 
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
@@ -253,9 +237,11 @@ test('notification settings are localized in French', async ({ page }) => {
   await page.locator('.nav button[data-view="profile"]').click();
   await page.locator('#tab-settings').click();
   await expect(page.locator('#notifications-hint')).toHaveText(fr.notifications_hint);
-  await expect(page.locator('.notify-row').first().locator('b')).toHaveText(fr.notify_matches);
-  await expect(page.locator('.notify-row').nth(1).locator('b')).toHaveText(fr.notify_super_likes);
-  await expect(page.locator('.notify-row').nth(1).locator('small')).toHaveText(fr.notify_super_likes_note);
+  // The discoverable toggle in the Edit tab also uses the notify-row class; the settings
+  // list is the one under #notification-list.
+  await expect(page.locator('#notification-list .notify-row').first().locator('b')).toHaveText(fr.notify_matches);
+  await expect(page.locator('#notification-list .notify-row').nth(1).locator('b')).toHaveText(fr.notify_super_likes);
+  await expect(page.locator('#notification-list .notify-row').nth(1).locator('small')).toHaveText(fr.notify_super_likes_note);
 });
 
 // ------------------------------------------------------------------ languages (P1-3)
@@ -266,7 +252,7 @@ test('languages are chosen as chips and reach the other person\'s deck', async (
   await page.locator('.nav button[data-view="profile"]').click();
 
   const chips = page.locator('#languages-list [data-language-chip]');
-  await expect(chips).toHaveCount(10);
+  await expect(chips).toHaveCount(17);
   await expect(page.locator('#languages-list [data-language-chip="en"]')).toHaveAttribute('aria-pressed', 'false');
   await page.locator('#languages-list [data-language-chip="en"]').click();
   await page.locator('#languages-list [data-language-chip="fr"]').click();
@@ -306,7 +292,7 @@ test('the language filter narrows the deck and is available without Premium', as
   await expect(page.locator('.profile-card')).toBeVisible();
 
   await page.locator('#filterBtn').click();
-  await expect(page.locator('#filter-languages [data-language-chip]')).toHaveCount(10);
+  await expect(page.locator('#filter-languages [data-language-chip]')).toHaveCount(17);
   await page.locator('#filter-languages [data-language-chip="en"]').click();
   await page.locator('#filter-apply').click();
   await expect(page.locator('#toast')).toContainText(en.filters_applied);
@@ -325,7 +311,12 @@ test('language chips are localized in French', async ({ page }) => {
   await page.locator('.nav button[data-view="profile"]').click();
   await expect(page.locator('#languages-label')).toHaveText(fr.languages_label);
   await expect(page.locator('#languages-hint')).toHaveText(fr.languages_hint);
-  await expect(page.locator('#languages-list [data-language-chip="es"]')).toHaveText(fr.language_es);
+  // The chip label is the catalogue name, never the stored code. (The chip also carries a
+  // decorative checkmark glyph for the selected state.)
+  await expect(page.locator('#languages-list [data-language-chip="es"]')).toContainText(fr.language_es);
+  await expect(page.locator('#languages-list [data-language-chip="es"]')).not.toContainText('"es"');
+  // The filter sheet lives in the Discover view.
+  await page.locator('.nav button[data-view="discover"]').click();
   await page.locator('#filterBtn').click();
   await expect(page.locator('#filter-languages-label')).toHaveText(fr.filter_languages);
 });
@@ -338,6 +329,7 @@ test('processing can be paused and resumed from the data controls sheet', async 
   await page.locator('.nav button[data-view="profile"]').click();
   await expect(page.locator('#restriction-notice .restricted-notice')).toHaveCount(0);
 
+  await page.locator('#tab-settings').click();
   await page.locator('#data-controls-btn').click();
   await expect(page.locator('#controls-restrict')).toHaveText(en.restrict_action);
   await page.locator('#controls-restrict').click();
@@ -389,6 +381,7 @@ test('restriction of processing is localized in French', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('bezy-language', 'fr'));
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   await page.locator('#data-controls-btn').click();
   await expect(page.locator('#controls-restrict')).toHaveText(fr.restrict_action);
   await page.locator('#controls-restrict').click();
@@ -409,6 +402,7 @@ test('processing can be objected to and the objection withdrawn from the data co
   await page.locator('.nav button[data-view="profile"]').click();
   await expect(page.locator('#objection-notice .restricted-notice')).toHaveCount(0);
 
+  await page.locator('#tab-settings').click();
   await page.locator('#data-controls-btn').click();
   await expect(page.locator('#controls-object')).toHaveText(en.object_action);
   await page.locator('#controls-object').click();
@@ -450,6 +444,7 @@ test('objection to processing is localized in French', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('bezy-language', 'fr'));
   await openApp(page);
   await page.locator('.nav button[data-view="profile"]').click();
+  await page.locator('#tab-settings').click();
   await page.locator('#data-controls-btn').click();
   await expect(page.locator('#controls-object')).toHaveText(fr.object_action);
   await page.locator('#controls-object').click();
@@ -486,9 +481,11 @@ test('prompts, preview, explanations and openers are all localized in French', a
   await page.locator('[data-sheet-close]').click();
 
   await page.locator('.nav button[data-view="matches"]').click();
-  await expect(page.locator('.why-label')).toHaveText(fr.why_matched);
-  await expect(page.locator('.match-card [data-starters]')).toHaveText(fr.starters_title);
-  await page.locator('.match-card [data-starters]').click();
-  await expect(page.locator('.sheet .starter button').first()).toHaveText(fr.starter_copy);
+  await expect(page.locator('#match-grid .why-label')).toHaveText(fr.why_matched);
+  await expect(page.locator('#match-grid .match-card [data-starters]')).toHaveText(fr.starters_title);
+  await page.locator('#match-grid .match-card [data-starters]').click();
+  // Each starter row offers "Use this message" and a copy action; the copy button is the
+  // data-starter one.
+  await expect(page.locator('.sheet .starter [data-starter]').first()).toHaveText(fr.starter_copy);
   await expect(page.locator('.sheet')).toContainText(fr.starters_hint);
 });

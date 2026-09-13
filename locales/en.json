@@ -333,7 +333,11 @@
     "interests_limit": "Up to 12 interests.",
     "quota_likes_left": "{n} likes left today",
     "quota_super_likes_left": "{n} Super Likes left",
-    "check_payment_status": "Check payment status"
+    "check_payment_status": "Check payment status",
+    "home_screen_title": "Add Bezy to Home Screen",
+    "home_screen_body": "Keep Bezy one tap away — add it to your phone’s home screen for quicker access.",
+    "home_screen_add": "Add Bezy to Home Screen",
+    "home_screen_added": "Bezy is on your home screen ✓"
   },
   "profile": {
     "edit": "Edit profile",

@@ -333,7 +333,11 @@
     "interests_limit": "Ọ̀pọ̀lọpọ̀ ìfẹ́ méjìlá (12).",
     "quota_likes_left": "{n} like ló kù lónìí",
     "quota_super_likes_left": "Súpà Like {n} ló kù",
-    "check_payment_status": "Ṣàyẹ̀wò ipò ìsanwó"
+    "check_payment_status": "Ṣàyẹ̀wò ipò ìsanwó",
+    "home_screen_title": "Fi Bezy kún sí ojú ibojú àkọ́kọ́",
+    "home_screen_body": "Jẹ́ kí Bezy wà ní ìfọwọ́kan kan — fi í kún ojú ibojú àkọ́kọ́ fóònù rẹ.",
+    "home_screen_add": "Fi Bezy kún sí ojú ibojú àkọ́kọ́",
+    "home_screen_added": "Bezy wà lórí ojú ibojú àkọ́kọ́ rẹ ✓"
   },
   "profile": {
     "edit": "Ṣàtúnṣe àkọọ́lẹ̀",

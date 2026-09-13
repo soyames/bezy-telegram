@@ -333,7 +333,11 @@
     "interests_limit": "Не более 12 интересов.",
     "quota_likes_left": "Сегодня осталось лайков: {n}",
     "quota_super_likes_left": "Осталось Super Like: {n}",
-    "check_payment_status": "Проверить статус платежа"
+    "check_payment_status": "Проверить статус платежа",
+    "home_screen_title": "Добавить Bezy на главный экран",
+    "home_screen_body": "Пусть Bezy будет в одном касании — добавь его на главный экран телефона.",
+    "home_screen_add": "Добавить Bezy на главный экран",
+    "home_screen_added": "Bezy уже на твоём главном экране ✓"
   },
   "profile": {
     "edit": "Изменить профиль",
