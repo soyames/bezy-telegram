@@ -101,7 +101,41 @@
     .chat-locked{flex:1;display:grid;place-items:center;align-content:center;padding:24px;text-align:center;gap:14px}
     .chat-locked p{color:var(--muted);font-size:13px;line-height:1.5;margin:0;max-width:280px}
     .chat-locked .save-btn{max-width:280px}
+    /* Momentum: conversation-state labels, collapsible chat context, truthful free-plan
+       filter controls. Refinements on the existing language, not a new module. */
+    .mf-state{display:block;font-size:10px;font-weight:800;letter-spacing:.3px;margin:6px 2px 0;text-transform:uppercase}
+    .mf-state.fresh{color:#7C2AD8}.mf-state.waiting{color:#0ea5e9}.mf-state.quiet{color:#94a3b8}
+    .chat-why-bar{display:flex;align-items:center;justify-content:space-between;padding:2px 0 4px}
+    .chat-why-bar span{font-size:10px;font-weight:800;color:#8a8394;text-transform:uppercase;letter-spacing:.4px}
+    .chat-why-toggle{border:0;background:none;color:#8a8394;font-size:12px;padding:2px 6px;cursor:pointer}
+    .chat-why.collapsed .why-matched{display:none}
+    .chat-why.collapsed .chat-why-toggle{transform:rotate(180deg)}
+    .chat-why .why-label{display:none}
+    .field input:disabled,.check input:disabled{opacity:.55;background:#f1eef7}
+    @media(max-width:360px){.chat-menu{width:32px;height:32px}}
     @media(max-width:360px){.portrait{height:390px}.app{padding-left:12px;padding-right:12px}.hero h2{font-size:25px}.two-col{grid-template-columns:1fr}}
+    /* RTL (Arabic): the same design system mirrored through the document direction.
+       Directional CSS lives here and here only. */
+    html[dir="rtl"] .app,html[dir="rtl"] body{text-align:right}
+    html[dir="rtl"] .hero{text-align:right}
+    html[dir="rtl"] .score{right:auto;left:14px}
+    html[dir="rtl"] .sheet-close{order:-1}
+    html[dir="rtl"] .chev{transform:scaleX(-1)}
+    html[dir="rtl"] .pf-row-btn:after{content:"‹"}
+    html[dir="rtl"] .mf-head button:after{content:" ←"}
+    html[dir="rtl"] .pf-preview-link:after{content:" ‹"}
+    html[dir="rtl"] .msg.sent{align-self:flex-start;border-bottom-right-radius:16px;border-bottom-left-radius:5px}
+    html[dir="rtl"] .msg.received{align-self:flex-end;border-bottom-left-radius:16px;border-bottom-right-radius:5px}
+    html[dir="rtl"] .msg-time{text-align:left}
+    html[dir="rtl"] .chat-back,html[dir="rtl"] .chat-menu,html[dir="rtl"] .chat-starters-open{transform:scaleX(-1)}
+    html[dir="rtl"] .mf-photo-info{left:18px;right:18px;text-align:right}
+    html[dir="rtl"] .mf-city{direction:ltr;justify-content:flex-start}
+    html[dir="rtl"] .pf-hero-top,html[dir="rtl"] .menu-row .left{text-align:right}
+    html[dir="rtl"] .field input,html[dir="rtl"] .field textarea{text-align:right}
+    html[dir="rtl"] input[type="number"]{text-align:left}
+    html[dir="rtl"] .chat-title{direction:ltr}
+    html[dir="rtl"] .brand-name,html[dir="rtl"] .brand small{text-align:right}
+    html[dir="rtl"] .discover-attribution,html[dir="rtl"] .empty,html[dir="rtl"] .loading{text-align:center}
   </style>
   <!-- Discovery redesign (Stitch): overrides layered on the existing tokens. No external
        CSS or fonts — the design language is ported into the app's own stylesheet. -->
@@ -295,7 +329,7 @@
         </section>
         <section class="pf-card">
           <h2 class="pf-h2" id="language-title">Language</h2>
-          <div class="language-list"><button class="language-btn" data-language="en" type="button">🇬🇧 English</button><button class="language-btn" data-language="fr" type="button">🇫🇷 Français</button><button class="language-btn" data-language="de" type="button">🇩🇪 Deutsch</button><button class="language-btn" data-language="es" type="button">🇪🇸 Español</button><button class="language-btn" data-language="it" type="button">🇮🇹 Italiano</button></div>
+          <div class="language-list"><button class="language-btn" data-language="en" type="button">English</button><button class="language-btn" data-language="fr" type="button">Français</button><button class="language-btn" data-language="de" type="button">Deutsch</button><button class="language-btn" data-language="es" type="button">Español</button><button class="language-btn" data-language="it" type="button">Italiano</button><button class="language-btn" data-language="pt" type="button">Português</button><button class="language-btn" data-language="ru" type="button">Русский</button><button class="language-btn" data-language="pl" type="button">Polski</button><button class="language-btn" data-language="ar" type="button">العربية</button><button class="language-btn" data-language="tr" type="button">Türkçe</button><button class="language-btn" data-language="sw" type="button">Kiswahili</button><button class="language-btn" data-language="yo" type="button">Yorùbá</button><button class="language-btn" data-language="hi" type="button">हिन्दी</button><button class="language-btn" data-language="id" type="button">Bahasa Indonesia</button><button class="language-btn" data-language="zh" type="button">简体中文</button><button class="language-btn" data-language="ja" type="button">日本語</button><button class="language-btn" data-language="ko" type="button">한국어</button></div>
         </section>
         <section class="pf-card hidden" id="share-story-card">
           <button class="pf-row-btn" id="share-story-btn" type="button">Share Bezy to your story</button>
@@ -313,6 +347,7 @@
     <header class="chat-head">
       <button class="chat-back" id="chat-back" type="button" aria-label="Close">‹</button>
       <div class="chat-title"><b id="chat-name"></b><span id="chat-sub"></span></div>
+      <button class="chat-menu" id="chat-starters-open" type="button" aria-label="Ways to start">✨</button>
       <button class="chat-menu" id="chat-menu" type="button" aria-label="Safety options">⋯</button>
     </header>
     <div class="chat-why" id="chat-why"></div>

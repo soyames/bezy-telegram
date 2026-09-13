@@ -12,11 +12,10 @@ export function publicMatch(id, data) {
     interests: Array.isArray(profile.interests) ? profile.interests : [],
     prompts: Array.isArray(profile.prompts) ? profile.prompts : [],
     languages: Array.isArray(profile.languages) ? profile.languages : [],
-    photoUrl: data.photoUrl || '',
-    // The Telegram handle is released only here, after a mutual match, because it is what
-    // hands the conversation over to Telegram. It is the user's current public handle and
-    // may change or be removed; `id` remains the authoritative identity.
-    username: data.username || ''
+    photoUrl: data.photoUrl || ''
+    // The @username is deliberately NOT released anymore: conversations are Bezy-native
+    // (ADR 0009), so the handle has no product consumer, and ADR 0005 says the username
+    // is never a contact vector. `id` remains the authoritative identity.
   };
 }
 
@@ -46,6 +45,14 @@ export function sharedSignals(mine = {}, theirs = {}) {
   if (myCity && theirCity && myCity.toLowerCase() === theirCity.toLowerCase()) {
     signals.push({ type: 'city', values: [theirCity] });
   }
+
+  // A language in common is what makes a conversation possible at all, so it feeds the
+  // match explanation and the starters the same way interests do. Both profiles must
+  // have listed it; ids are machine tokens, rendered by the Mini App catalogue.
+  const myLanguages = Array.isArray(mine.languages) ? mine.languages : [];
+  const theirLanguages = Array.isArray(theirs.languages) ? theirs.languages : [];
+  const sharedLanguages = theirLanguages.filter((id) => myLanguages.includes(id));
+  if (sharedLanguages.length) signals.push({ type: 'languages', values: sharedLanguages.slice(0, 5) });
 
   const myAge = Number(mine.age);
   const theirAge = Number(theirs.age);

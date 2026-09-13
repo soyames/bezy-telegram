@@ -64,8 +64,7 @@ const valueAfter = (flag) => {
 const callerId = valueAfter('--caller');
 const friendId = valueAfter('--friend');
 
-// MIRROR of the candidate window in api/discover.js handleDiscover.
-const CANDIDATE_WINDOW = 100;
+// MIRROR of the candidate scan in api/discover.js handleDiscover.
 
 function ts(value) {
   const ms = value?.toMillis?.() ?? (value instanceof Date ? value.getTime() : Number(value) || 0);
@@ -115,17 +114,21 @@ async function overview() {
   console.log(`\n=== Pool overview: ${usersSnap.size} user document(s) ===\n`);
   for (const doc of usersSnap.docs) printUser(doc.id, doc.data());
 
-  console.log('\n=== Candidate query (users where discoverable == true, newest 100) ===\n');
+  console.log('\n=== Candidate query (users where discoverable == true — MIRROR of production) ===\n');
+  // Production scans ALL discoverable users with a plain equality query and sorts
+  // newest-first in memory (`api/discover.js`): a composite where+orderBy index is
+  // deliberately not required, and missing createdAt is treated as oldest rather than
+  // dropping the document. This diagnostic mirrors that exactly.
   const candidatesSnap = await firestore.collection('users')
     .where('discoverable', '==', true)
-    .orderBy('createdAt', 'desc')
-    .limit(CANDIDATE_WINDOW)
     .get();
-  console.log(`  ${candidatesSnap.size} discoverable candidate(s) enter the pipeline.`);
-  if (candidatesSnap.size === CANDIDATE_WINDOW) {
-    console.log(`  WINDOW FULL: any discoverable account older than ${ts(candidatesSnap.docs.at(-1).data().createdAt)} is outside the window and can never be discovered.`);
-  }
-  candidatesSnap.docs.forEach((doc, index) => {
+  const candidates = candidatesSnap.docs.slice().sort((a, b) => {
+    const aCreated = a.data()?.createdAt?.toMillis?.() ?? 0;
+    const bCreated = b.data()?.createdAt?.toMillis?.() ?? 0;
+    return bCreated - aCreated || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  });
+  console.log(`  ${candidates.length} discoverable candidate(s) enter the pipeline.`);
+  candidates.forEach((doc, index) => {
     const data = doc.data() || {};
     console.log(`  ${String(index + 1).padStart(3)}. ${doc.id}  ${profileSummary(data).name || '(no name)'}  age ${profileSummary(data).age ?? '—'}  created ${ts(data.createdAt)}`);
   });
@@ -183,18 +186,13 @@ async function diagnoseCaller() {
   try {
     candidatesSnap = await firestore.collection('users')
       .where('discoverable', '==', true)
-      .orderBy('createdAt', 'desc')
-      .limit(CANDIDATE_WINDOW)
       .get();
   } catch (error) {
     console.error(`  The candidate query FAILED: ${error.message}`);
     console.error('  If this is a missing composite index, deploy firestore.indexes.json (discoverable + createdAt).');
     process.exit(3);
   }
-  console.log(`  ${candidatesSnap.size} candidate(s) enter the pipeline (limit ${CANDIDATE_WINDOW}).`);
-  if (candidatesSnap.size === CANDIDATE_WINDOW) {
-    console.log(`  WINDOW FULL: anyone older than ${ts(candidatesSnap.docs.at(-1).data().createdAt)} never enters the pipeline.`);
-  }
+  console.log(`  ${candidatesSnap.size} candidate(s) enter the pipeline (full scan — production has no window; newest-first ordering happens in memory).`);
 
   const currentProfile = currentData.profile || {};
   const isPremium = isPremiumActive(currentData);
@@ -330,7 +328,7 @@ async function friendVerdict(currentData, preferences, isPremium, currentProfile
   const friendBlockedCaller = friendBlocks.docs.some((doc) => doc.id === String(callerId)) || friendBlockedBy.docs.some((doc) => doc.id === String(callerId));
   const friendActedOnCaller = friendActions.docs.some((doc) => doc.id === String(callerId));
   console.log(`  7. BLOCKED?         caller-side exclusion set contains friend: ${callerBlockedFriend}; friend blocks caller (mirror): ${friendBlockedCaller}; friend already decided on caller: ${friendActedOnCaller} (a pass by the friend does not hide the friend from the caller's deck, but the pair can never match)`);
-  console.log(`  8. ENTERS QUERY?    ${inWindow ? `yes — position ${candidatesSnap.docs.findIndex((doc) => doc.id === String(friendId)) + 1}/${candidatesSnap.size} in the newest-first window` : 'NO — absent from the discoverable==true window. Either discoverable is false, createdAt is missing (orderBy drops it), or the account is older than the 100th newest discoverable account.'}`);
+  console.log(`  8. ENTERS QUERY?    ${inWindow ? `yes — in the full discoverable==true scan (${candidatesSnap.size} candidates; production sorts newest-first in memory, missing createdAt counts as oldest)` : 'NO — absent from the discoverable==true scan. Either discoverable is false or the account document does not exist.'}`);
   if (inWindow && data.discoverable === true) console.log(`                      friend createdAt ${ts(data.createdAt)}`);
 
   const row = { passed: false, disposition: 'not in window' };

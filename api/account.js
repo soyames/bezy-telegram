@@ -58,6 +58,90 @@ function accountEventMessages(language) {
       objected: 'La tua opposizione è stata registrata. Bezy ha smesso di trattare i tuoi dati per la scoperta e i match. Ritirala in qualsiasi momento in Bezy → Profilo → Sicurezza e privacy.',
       unobjected: 'La tua opposizione è stata ritirata. Attiva «Mostra il mio profilo in Scopri» quando vuoi essere di nuovo visibile.',
       deleted: 'Il tuo account Bezy è stato eliminato. Il tuo profilo, i tuoi like, i profili scartati, i tuoi match e i tuoi blocchi non ci sono più. Le registrazioni dei pagamenti vengono conservate a fini contabili. Arrivederci 💜'
+    },
+    pt: {
+      restricted: 'O tratamento está agora pausado. A Bezy guarda os teus dados e não usa nenhum. Retoma quando quiseres na Bezy → Perfil → Segurança e privacidade.',
+      unrestricted: 'O tratamento foi retomado. Ativa «Mostrar o meu perfil no Descobrir» quando quiseres voltar a ser visto.',
+      objected: 'A tua oposição ficou registada. A Bezy deixou de tratar os teus dados para a descoberta e os matches. Retira-a quando quiseres na Bezy → Perfil → Segurança e privacidade.',
+      unobjected: 'A tua oposição foi retirada. Ativa «Mostrar o meu perfil no Descobrir» quando quiseres voltar a ser visto.',
+      deleted: 'A tua conta Bezy foi eliminada. O teu perfil, os teus likes, os perfis que passaste, os teus matches e os teus bloqueios desapareceram. Os registos de pagamento são guardados para a contabilidade. Adeus 💜'
+    },
+    ru: {
+      restricted: 'Обработка теперь приостановлена. Bezy хранит твои данные и не использует их. Возобнови в любой момент в Bezy → Профиль → Безопасность и конфиденциальность.',
+      unrestricted: 'Обработка возобновлена. Включи «Показывать мой профиль в „Знакомствах“», когда захочешь снова быть видимым.',
+      objected: 'Твоё возражение зарегистрировано. Bezy прекратил обработку твоих данных для знакомств и мэтчей. Отзови его в любой момент в Bezy → Профиль → Безопасность и конфиденциальность.',
+      unobjected: 'Твоё возражение отозвано. Включи «Показывать мой профиль в „Знакомствах“», когда захочешь снова быть видимым.',
+      deleted: 'Твой аккаунт Bezy удалён. Твой профиль, лайки, пропуски, мэтчи и блокировки исчезли. Записи о платежах хранятся для бухгалтерии. До свидания 💜'
+    },
+    pl: {
+      restricted: 'Przetwarzanie jest teraz wstrzymane. Bezy przechowuje twoje dane i nie używa żadnych. Wznów w każdej chwili w Bezy → Profil → Bezpieczeństwo i prywatność.',
+      unrestricted: 'Przetwarzanie wznowione. Włącz «Pokazuj mój profil w Odkrywaniu», gdy zechcesz być znów widoczny.',
+      objected: 'Twój sprzeciw został zarejestrowany. Bezy przestało przetwarzać twoje dane do odkrywania i dopasowań. Cofnij go w każdej chwili w Bezy → Profil → Bezpieczeństwo i prywatność.',
+      unobjected: 'Twój sprzeciw został cofnięty. Włącz «Pokazuj mój profil w Odkrywaniu», gdy zechcesz być znów widoczny.',
+      deleted: 'Twoje konto Bezy zostało usunięte. Twój profil, polubienia, pominięcia, dopasowania i blokady zniknęły. Zapisy płatności są przechowywane do celów księgowych. Do widzenia 💜'
+    },
+    ar: {
+      restricted: 'المعالجة متوقفة الآن. تحتفظ Bezy ببياناتك ولا تستخدم أيًا منها. استأنفها في أي وقت من Bezy ← الملف الشخصي ← الأمان والخصوصية.',
+      unrestricted: 'استُؤنفت المعالجة. فعّل «إظهار ملفي في اكتشف» عندما تريد أن تكون مرئيًا مجددًا.',
+      objected: 'تم تسجيل اعتراضك. توقفت Bezy عن معالجة بياناتك للاكتشاف والمطابقات. اسحبه في أي وقت من Bezy ← الملف الشخصي ← الأمان والخصوصية.',
+      unobjected: 'تم سحب اعتراضك. فعّل «إظهار ملفي في اكتشف» عندما تريد أن تكون مرئيًا مجددًا.',
+      deleted: 'تم حذف حسابك في Bezy. ملفك وإعجاباتك وتجاوزاتك ومطابقاتك وحظوراتك لم تعد موجودة. تُحفظ سجلات الدفع للمحاسبة. وداعًا 💜'
+    },
+    tr: {
+      restricted: 'İşleme artık duraklatıldı. Bezy verilerini saklıyor ve hiçbirini kullanmıyor. İstediğin zaman Bezy → Profil → Güvenlik ve gizlilik\'ten sürdürebilirsin.',
+      unrestricted: 'İşleme devam ediyor. Yeniden görünmek istediğinde «Profilimi Keşfet\'te göster»i aç.',
+      objected: 'İtirazın kaydedildi. Bezy verilerini keşif ve eşleşme için işlemeyi bıraktı. İstediğin zaman Bezy → Profil → Güvenlik ve gizlilik\'ten geri çekebilirsin.',
+      unobjected: 'İtirazın geri çekildi. Yeniden görünmek istediğinde «Profilimi Keşfet\'te göster»i aç.',
+      deleted: 'Bezy hesabın silindi. Profilin, beğenilerin, geçtiklerin, eşleşmelerin ve engellemelerin gitti. Ödeme kayıtları muhasebe için saklanır. Hoşça kal 💜'
+    },
+    sw: {
+      restricted: 'Uchakataji sasa umesimamishwa. Bezy huhifadhi data zako na hazitumii hata moja. Uendeleze wakati wowote kwenye Bezy → Wasifu → Usalama na faragha.',
+      unrestricted: 'Uchakataji umeendelea. Washa «Onyesha wasifu wangu kwenye Gundua» unapotaka kuonekana tena.',
+      objected: 'Pingamizi lako limerekodiwa. Bezy imeacha kuchakata data zako kwa ugunduzi na mechi. Liondoe wakati wowote kwenye Bezy → Wasifu → Usalama na faragha.',
+      unobjected: 'Pingamizi lako limeondolewa. Washa «Onyesha wasifu wangu kwenye Gundua» unapotaka kuonekana tena.',
+      deleted: 'Akaunti yako ya Bezy imefutwa. Wasifu wako, kupenda kwako, kupita kwako, mechi zako na vizuizi vyako vimeondoka. Rekodi za malipo huhifadhiwa kwa uhasibu. Kwaheri 💜'
+    },
+    yo: {
+      restricted: 'Ìlò ti dá dúró báyìí. Bezy ń tọ́jú àwọn dátà rẹ, kò sì lo ìkankan nínú wọn. Tún un bẹ̀rẹ̀ nígbàkigbà nínú Bezy → Àkọọ́lẹ̀ → Ààbò àti àṣírí.',
+      unrestricted: 'Ìlò ti tún bẹ̀rẹ̀. Tan «Fi àkọọ́lẹ̀ mi hàn nínú Ṣàwárí» nígbà tí o bá fẹ́ hàn lẹ́ẹ̀kan sí i.',
+      objected: 'A ti gba ìtako rẹ sílẹ̀. Bezy ti dá lílo àwọn dátà rẹ fún ìṣàwárí àti mátìsì dúró. Yọ ọ́ kúrò nígbàkigbà nínú Bezy → Àkọọ́lẹ̀ → Ààbò àti àṣírí.',
+      unobjected: 'A ti yọ ìtako rẹ kúrò. Tan «Fi àkọọ́lẹ̀ mi hàn nínú Ṣàwárí» nígbà tí o bá fẹ́ hàn lẹ́ẹ̀kan sí i.',
+      deleted: 'A ti pa àkọọ́lẹ̀ Bezy rẹ rẹ́. Àkọọ́lẹ̀ rẹ, àwọn like rẹ, àwọn pass rẹ, àwọn mátìsì rẹ àti àwọn ìdínà rẹ ti lọ. Wọ́n ń tọ́jú àwọn àkọsílẹ̀ ìsanwó fún iṣirò. Ó dìgbà 💜'
+    },
+    hi: {
+      restricted: 'प्रोसेसिंग अब रुकी हुई है। Bezy आपका डेटा रखता है और कुछ भी उपयोग नहीं करता। कभी भी Bezy → प्रोफ़ाइल → सुरक्षा और गोपनीयता में फिर शुरू करें।',
+      unrestricted: 'प्रोसेसिंग फिर शुरू हुई। जब फिर दिखना चाहें तो «मेरी प्रोफ़ाइल खोजें में दिखाएँ» चालू करें।',
+      objected: 'आपकी आपत्ति दर्ज हो गई। Bezy ने खोज और मैच के लिए आपका डेटा प्रोसेस करना बंद कर दिया। कभी भी Bezy → प्रोफ़ाइल → सुरक्षा और गोपनीयता में वापस लें।',
+      unobjected: 'आपकी आपत्ति वापस ली गई। जब फिर दिखना चाहें तो «मेरी प्रोफ़ाइल खोजें में दिखाएँ» चालू करें।',
+      deleted: 'आपका Bezy खाता हटा दिया गया। आपकी प्रोफ़ाइल, लाइक, छोड़े गए, मैच और ब्लॉक हट गए। भुगतान रिकॉर्ड लेखा-जोखा के लिए रखे जाते हैं। अलविदा 💜'
+    },
+    id: {
+      restricted: 'Pemrosesan sekarang dijeda. Bezy menyimpan datamu dan tidak memakai satu pun. Lanjutkan kapan saja di Bezy → Profil → Keamanan dan privasi.',
+      unrestricted: 'Pemrosesan dilanjutkan. Aktifkan «Tampilkan profilku di Jelajahi» saat kamu ingin terlihat lagi.',
+      objected: 'Keberatanmu tercatat. Bezy berhenti memproses datamu untuk penjelajahan dan kecocokan. Tarik kapan saja di Bezy → Profil → Keamanan dan privasi.',
+      unobjected: 'Keberatanmu ditarik. Aktifkan «Tampilkan profilku di Jelajahi» saat kamu ingin terlihat lagi.',
+      deleted: 'Akun Bezy-mu dihapus. Profil, suka, lewatan, kecocokan, dan blokiranmu hilang. Catatan pembayaran disimpan untuk pembukuan. Selamat tinggal 💜'
+    },
+    zh: {
+      restricted: '处理现已暂停。Bezy 保存你的数据且不使用其中任何内容。随时可在 Bezy → 个人资料 → 安全与隐私中恢复。',
+      unrestricted: '处理已恢复。想再次被看到时，打开「在发现中展示我的资料」。',
+      objected: '你的反对已记录。Bezy 已停止将你的数据用于发现和配对。随时可在 Bezy → 个人资料 → 安全与隐私中撤回。',
+      unobjected: '你的反对已撤回。想再次被看到时，打开「在发现中展示我的资料」。',
+      deleted: '你的 Bezy 账户已删除。你的资料、喜欢、跳过、配对和屏蔽已不复存在。付款记录为会计目的保留。再见 💜'
+    },
+    ja: {
+      restricted: '処理は現在停止中です。Bezy はデータを保管するだけで使用しません。Bezy → プロフィール → 安全とプライバシーからいつでも再開できます。',
+      unrestricted: '処理を再開しました。再び表示されたいときは「プロフィールを発見に表示」をオンにしてください。',
+      objected: '異議を記録しました。Bezy は発見とマッチのためのデータ処理を停止しました。Bezy → プロフィール → 安全とプライバシーからいつでも取り下げられます。',
+      unobjected: '異議を取り下げました。再び表示されたいときは「プロフィールを発見に表示」をオンにしてください。',
+      deleted: 'Bezy アカウントを削除しました。プロフィール、いいね、スキップ、マッチ、ブロックは削除されました。支払い記録は会計のために保管されます。さようなら 💜'
+    },
+    ko: {
+      restricted: '처리가 일시 중지되었습니다. Bezy는 데이터를 보관만 하고 사용하지 않습니다. Bezy → 프로필 → 안전 및 개인정보에서 언제든 재개하세요.',
+      unrestricted: '처리가 재개되었습니다. 다시 보이길 원할 때 «프로필을 발견에 표시»를 켜세요.',
+      objected: '이의가 기록되었습니다. Bezy가 발견과 매치를 위한 데이터 처리를 중단했습니다. Bezy → 프로필 → 안전 및 개인정보에서 언제든 철회하세요.',
+      unobjected: '이의를 철회했습니다. 다시 보이길 원할 때 «프로필을 발견에 표시»를 켜세요.',
+      deleted: 'Bezy 계정이 삭제되었습니다. 프로필, 좋아요, 넘김, 매치, 차단이 사라졌습니다. 결제 기록은 회계 목적으로 보관됩니다. 안녕히 가세요 💜'
     }
   });
 }

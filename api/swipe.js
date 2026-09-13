@@ -13,19 +13,35 @@ function matchId(a, b) {
 
 // The match notification points at the Bezy conversation (ADR 0009): Bezy owns messaging
 // between matched users, and the button opens the Mini App where the conversation lives.
+const YOUR_MATCH = { en: 'your match', fr: 'votre match', de: 'dein Match', es: 'tu match', it: 'il tuo match', pt: 'o teu match', ru: 'твой мэтч', pl: 'twoje dopasowanie', ar: 'مطابقتك', tr: 'eşleşmen', sw: 'mechi yako', yo: 'mátìsì rẹ', hi: 'आपका मैच', id: 'kecocokanmu', zh: '你的配对', ja: 'あなたのマッチ', ko: '내 매치' };
+const START_CHATTING = { en: '💬 Start chatting', fr: '💬 Commencer la conversation', de: '💬 Unterhaltung starten', es: '💬 Empezar a chatear', it: '💬 Inizia a chattare', pt: '💬 Começar a conversar', ru: '💬 Начать общение', pl: '💬 Zacznij rozmawiać', ar: '💬 ابدأ المحادثة', tr: '💬 Sohbete başla', sw: '💬 Anza kuongea', yo: '💬 Bẹ̀rẹ̀ ìbánisọ̀rọ̀', hi: '💬 बातचीत शुरू करें', id: '💬 Mulai mengobrol', zh: '💬 开始聊天', ja: '💬 チャットを始める', ko: '💬 대화 시작하기' };
+const OPEN_BEZY_BTN = { en: '💜 Open Bezy', fr: '💜 Ouvrir Bezy', de: '💜 Bezy öffnen', es: '💜 Abrir Bezy', it: '💜 Apri Bezy', pt: '💜 Abrir o Bezy', ru: '💜 Открыть Bezy', pl: '💜 Otwórz Bezy', ar: '💜 افتح Bezy', tr: '💜 Bezy\'yi aç', sw: '💜 Fungua Bezy', yo: '💜 Ṣí Bezy', hi: '💜 Bezy खोलें', id: '💜 Buka Bezy', zh: '💜 打开 Bezy', ja: '💜 Bezy を開く', ko: '💜 Bezy 열기' };
+
 function matchMessage(language, name) {
   return localized(language, {
     en: `💜 You matched with ${name}! You both liked each other.\n\nYour conversation is waiting for you inside Bezy.`,
     fr: `💜 Match avec ${name} ! Vous vous êtes tous les deux appréciés.\n\nVotre conversation vous attend dans Bezy.`,
     de: `💜 Match mit ${name}! Ihr habt euch gegenseitig geliked.\n\nEure Unterhaltung wartet in Bezy auf euch.`,
     es: `💜 ¡Match con ${name}! Se han gustado mutuamente.\n\nSu conversación los espera dentro de Bezy.`,
-    it: `💜 Match con ${name}! Vi siete piaciuti a vicenda.\n\nLa vostra conversazione vi aspetta su Bezy.`
+    it: `💜 Match con ${name}! Vi siete piaciuti a vicenda.\n\nLa vostra conversazione vi aspetta su Bezy.`,
+    pt: `💜 Match com ${name}! Gostaram um do outro.\n\nA vossa conversa espera por vocês dentro da Bezy.`,
+    ru: `💜 Мэтч с ${name}! Вы понравились друг другу.\n\nВаш разговор ждёт вас внутри Bezy.`,
+    pl: `💜 Dopasowanie z ${name}! Polubiliście się nawzajem.\n\nWasza rozmowa czeka w Bezy.`,
+    ar: `💜 مطابقة مع ${name}! أعجبتما ببعضكما.\n\nمحادثتكما بانتظاركما داخل Bezy.`,
+    tr: `💜 ${name} ile eşleştin! Birbirinizi beğendiniz.\n\nSohbetiniz sizi Bezy içinde bekliyor.`,
+    sw: `💜 Mmepatana na ${name}! Mmependana.\n\nMazungumzo yenu yanawasubiri ndani ya Bezy.`,
+    yo: `💜 Mátìsì pẹ̀lú ${name}! Ẹ fẹ́ràn ara yín.\n\nÌbánisọ̀rọ̀ yín ń dúró de ẹ nínú Bezy.`,
+    hi: `💜 आपका ${name} के साथ मैच हुआ! आपने एक-दूसरे को पसंद किया।\n\nआपकी बातचीत Bezy में आपका इंतज़ार कर रही है।`,
+    id: `💜 Kamu cocok dengan ${name}! Kalian saling menyukai.\n\nPercakapan kalian menunggu di dalam Bezy.`,
+    zh: `💜 你和 ${name} 配对成功！你们互相喜欢。\n\n你们的对话在 Bezy 里等着你们。`,
+    ja: `💜 ${name} さんとマッチしました！お互いをいいねしました。\n\n会話は Bezy の中で待っています。`,
+    ko: `💜 ${name} 님과 매치되었습니다! 서로 좋아했습니다.\n\n대화가 Bezy 안에서 기다리고 있습니다.`
   });
 }
 
 export async function notifyMatch(firestore, user, other, language) {
-  const otherName = other.profile?.displayName || other.firstName || localized(language, { en: 'your match', fr: 'votre match', de: 'dein Match', es: 'tu match', it: 'il tuo match' });
-  const openChatText = localized(language, { en: '💬 Start chatting', fr: '💬 Commencer la conversation', de: '💬 Unterhaltung starten', es: '💬 Empezar a chatear', it: '💬 Inizia a chattare' });
+  const otherName = other.profile?.displayName || other.firstName || localized(language, YOUR_MATCH);
+  const openChatText = localized(language, START_CHATTING);
   const buttons = [[{ text: openChatText, web_app: { url: miniAppUrl('messages') } }]];
   return deliverNotification(firestore, user, 'matches', {
     text: matchMessage(language, otherName),
@@ -50,7 +66,19 @@ function superLikeMessage(language) {
     fr: '⭐ Quelqu’un vous a envoyé un Super Like sur Bezy.\n\nContinuez à découvrir — si vous l’aimez en retour, c’est un match.',
     de: '⭐ Jemand hat dir auf Bezy einen Super Like geschickt.\n\nEntdecke weiter — wenn du zurücklikst, ist es ein Match.',
     es: '⭐ Alguien te ha enviado un Super Like en Bezy.\n\nSigue descubriendo: si le devuelves el like, es un match.',
-    it: '⭐ Qualcuno ti ha inviato un Super Like su Bezy.\n\nContinua a scoprire: se ricambi il like, è un match.'
+    it: '⭐ Qualcuno ti ha inviato un Super Like su Bezy.\n\nContinua a scoprire: se ricambi il like, è un match.',
+    pt: '⭐ Alguém te enviou um Super Like na Bezy.\n\nContinua a descobrir — se gostares de volta, é um match.',
+    ru: '⭐ Кто-то отправил тебе Супер Лайк в Bezy.\n\nПродолжай знакомиться — если ответишь взаимностью, будет мэтч.',
+    pl: '⭐ Ktoś wysłał ci Super Polubienie w Bezy.\n\nOdkrywaj dalej — jeśli odwzajemnisz, będzie dopasowanie.',
+    ar: '⭐ أرسل لك شخص إعجاب سوبر في Bezy.\n\nواصل الاكتشاف — إذا أعجبت به أيضًا، ستكون مطابقة.',
+    tr: '⭐ Biri sana Bezy\'de Süper Beğeni gönderdi.\n\nKeşfetmeye devam et — sen de beğenirsen bu bir eşleşme olur.',
+    sw: '⭐ Mtu amekutumia Super Like kwenye Bezy.\n\nEndelea kugundua — ukimpenda naye, ni mechi.',
+    yo: '⭐ Ẹnìkan fi Súpà Like ránṣẹ́ sí ẹ lórí Bezy.\n\nMáa ṣàwárí lọ — tí o bá fẹ́ràn rẹ̀ pa dà, mátìsì ni.',
+    hi: '⭐ किसी ने आपको Bezy पर सुपर लाइक भेजा है।\n\nखोजते रहें — अगर आप भी उन्हें पसंद करें, तो यह मैच है।',
+    id: '⭐ Seseorang mengirim Super Like padamu di Bezy.\n\nTerus jelajahi — jika kamu menyukainya balik, itu kecocokan.',
+    zh: '⭐ 有人在 Bezy 上给你发了超级喜欢。\n\n继续发现——如果你也喜欢对方，就是配对。',
+    ja: '⭐ 誰かが Bezy でスーパーいいねを送りました。\n\n発見を続けましょう——相手をいいねし返せばマッチです。',
+    ko: '⭐ 누군가 Bezy에서 슈퍼 좋아요를 보냈습니다.\n\n계속 발견하세요 — 서로 좋아하면 매치가 됩니다.'
   });
 }
 
@@ -58,7 +86,7 @@ async function notifySuperLike(firestore, recipient) {
   // The recipient's explicit Bezy choice wins over their Telegram language, so a user who
   // picked French never receives an English Super Like notification.
   const language = normalizedLanguage(recipient.locale || recipient.languageCode);
-  const openBezyText = localized(language, { en: '💜 Open Bezy', fr: '💜 Ouvrir Bezy', de: '💜 Bezy öffnen', es: '💜 Abrir Bezy', it: '💜 Apri Bezy' });
+  const openBezyText = localized(language, OPEN_BEZY_BTN);
   return deliverNotification(firestore, recipient, 'super_likes', {
     text: superLikeMessage(language),
     reply_markup: { inline_keyboard: [[{ text: openBezyText, web_app: { url: miniAppUrl('discover') } }]] }

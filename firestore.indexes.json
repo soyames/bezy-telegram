@@ -1,13 +1,4 @@
 {
-  "indexes": [
-    {
-      "collectionGroup": "supportRequests",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "telegramUserId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    }
-  ],
+  "indexes": [],
   "fieldOverrides": []
 }

@@ -47,6 +47,54 @@ export function reminderMessage(languageCode) {
     it: {
       text: 'Il tuo profilo Bezy è quasi pronto 💜 Basta una visita veloce per completarlo.',
       button: 'Completa il profilo'
+    },
+    pt: {
+      text: 'O teu perfil Bezy está quase pronto 💜 Uma visita rápida chega para o terminares.',
+      button: 'Terminar o meu perfil'
+    },
+    ru: {
+      text: 'Твой профиль Bezy почти готов 💜 Один быстрый заход — и он готов.',
+      button: 'Завершить мой профиль'
+    },
+    pl: {
+      text: 'Twój profil Bezy jest prawie gotowy 💜 Wystarczy szybka wizyta, aby go ukończyć.',
+      button: 'Dokończ mój profil'
+    },
+    ar: {
+      text: 'ملفك في Bezy شبه مكتمل 💜 زيارة سريعة تكفي لإكماله.',
+      button: 'أكمل ملفي'
+    },
+    tr: {
+      text: 'Bezy profilin neredeyse hazır 💜 Bitirmek için kısa bir ziyaret yeterli.',
+      button: 'Profilimi tamamla'
+    },
+    sw: {
+      text: 'Wasifu wako wa Bezy uko karibu kukamilika 💜 Ziara fupi inatosha kuukamilisha.',
+      button: 'Kamilisha wasifu wangu'
+    },
+    yo: {
+      text: 'Àkọọ́lẹ̀ Bezy rẹ ti fẹ́rẹ̀ẹ́ pé 💜 Ìbẹ̀wò kúkúrú kan ló tó láti parí rẹ̀.',
+      button: 'Parí àkọọ́lẹ̀ mi'
+    },
+    hi: {
+      text: 'आपकी Bezy प्रोफ़ाइल लगभग तैयार है 💜 इसे पूरा करने के लिए एक छोटी सी यात्रा काफ़ी है।',
+      button: 'मेरी प्रोफ़ाइल पूरी करें'
+    },
+    id: {
+      text: 'Profil Bezy-mu hampir siap 💜 Kunjungan singkat cukup untuk menyelesaikannya.',
+      button: 'Selesaikan profilku'
+    },
+    zh: {
+      text: '你的 Bezy 资料快完成了 💜 快速访问一次就能完成。',
+      button: '完成我的资料'
+    },
+    ja: {
+      text: 'Bezy プロフィールはほぼ完成です 💜 短い訪問で仕上げられます。',
+      button: 'プロフィールを仕上げる'
+    },
+    ko: {
+      text: 'Bezy 프로필이 거의 완성되었습니다 💜 잠깐 방문하면 끝낼 수 있어요.',
+      button: '내 프로필 완성하기'
     }
   });
 }

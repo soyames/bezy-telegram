@@ -17,7 +17,7 @@ const PROMPT_ANSWER_MAX = 200;
 // Languages spoken. ISO 639-1 codes, stored as machine tokens and never translated — the
 // display name lives in `language_<id>` in both catalogues. A closed list rather than free
 // text so the same language always matches itself and can be filtered on reliably.
-export const LANGUAGE_IDS = ['en', 'fr', 'es', 'pt', 'ar', 'de', 'it', 'ru', 'sw', 'yo'];
+export const LANGUAGE_IDS = ['en', 'fr', 'es', 'pt', 'ar', 'de', 'it', 'ru', 'sw', 'yo', 'pl', 'tr', 'hi', 'id', 'zh', 'ja', 'ko'];
 const MAX_LANGUAGES = 5;
 
 function normalizeLanguages(input) {

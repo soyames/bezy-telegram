@@ -38,7 +38,7 @@ const SHAPES = {
   deckCard: ['id', 'displayName', 'age', 'city', 'bio', 'interests', 'prompts', 'languages', 'photoUrl', 'compatibility', 'isNew'],
   deckCardBase: ['id', 'displayName', 'age', 'city', 'bio', 'interests', 'prompts', 'languages', 'photoUrl'],
   liker: ['id', 'displayName', 'age', 'city', 'bio', 'interests', 'photoUrl', 'action', 'likedAt', 'likedAtMs'],
-  matchCard: ['id', 'displayName', 'age', 'city', 'bio', 'interests', 'prompts', 'languages', 'photoUrl', 'username'],
+  matchCard: ['id', 'displayName', 'age', 'city', 'bio', 'interests', 'prompts', 'languages', 'photoUrl'],
   matchCardEnvelope: ['sharedSignals', 'matchId', 'matchedAtMs', 'matchedAt'],
   signal: ['type', 'values'],
   profileStored: ['displayName', 'age', 'city', 'gender', 'seeking', 'interests', 'bio', 'prompts', 'languages', 'discoverable', 'profileComplete'],
@@ -93,21 +93,23 @@ section('Match card (version 1)');
   check('the match card carries exactly the documented fields',
     JSON.stringify(keys(card)) === JSON.stringify([...SHAPES.matchCard].sort()),
     keys(card).join(','));
-  check('the handle is released only on a match', typeof card.username === 'string' && card.username === 'ada_bezy_test');
+  // ADR 0009 + ADR 0005: conversations are Bezy-native, so the @username has no product
+  // consumer anymore — the match card must not release it (data minimization).
+  check('the match card no longer releases the @username', card.username === undefined && !('username' in card));
   check('the match card still never exposes gender or seeking', !('gender' in card) && !('seeking' in card));
 
   const signals = sharedSignals(ADA_DOC.profile, { interests: ['music', 'travel'], city: 'Paris', age: 27 });
   check('shared signals carry exactly the documented fields',
     signals.every((s) => JSON.stringify(keys(s)) === JSON.stringify(SHAPES.signal)));
   check('shared signals name only the documented types',
-    signals.every((s) => ['interests', 'city', 'age'].includes(s.type)), JSON.stringify(signals));
+    signals.every((s) => ['interests', 'city', 'age', 'languages'].includes(s.type)), JSON.stringify(signals));
   check('shared signals expose values the counterpart already published',
     signals.find((s) => s.type === 'interests')?.values.join(',') === 'music');
   check('gender and seeking never appear as a shared signal',
     !JSON.stringify(signals).includes('gender') && !JSON.stringify(signals).includes('seeking'));
 }
 
-// --------------------------------------------- conversation hand-off (match -> Telegram)
+// --------------------------------------------- match -> Bezy conversation (ADR 0009)
 section('Bezy conversations (ADR 0009)');
 {
   // The conversation lives inside the Mini App now — there is no Telegram chat handoff.
@@ -144,8 +146,9 @@ section('Bezy conversations (ADR 0009)');
     appSource.includes("suggestions.push(t('app.starter_generic'))"),
     'starter_generic fallback missing from starterSuggestions');
   // The deck card carries the numeric target id by documented design (the client must be
-  // able to name who it is swiping on); the @username remains the match-gated handle and is
-  // pinned by the match-card checks above.
+  // able to name who it is swiping on); the @username is never released at all anymore —
+  // conversations are Bezy-native (ADR 0009) and the handle is not a contact vector
+  // (ADR 0005), pinned by the match-card checks above.
 }
 
 // --------------------------------------------- mutual-like matching invariant

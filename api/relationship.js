@@ -29,7 +29,19 @@ function reportAcknowledgment(language) {
     fr: 'Nous avons bien reçu votre signalement et nous allons l’examiner. En cas de danger immédiat, contactez les autorités locales.',
     de: 'Wir haben deine Meldung erhalten und werden sie prüfen. Bei akuter Gefahr kontaktiere die örtlichen Behörden.',
     es: 'Hemos recibido tu denuncia y la examinaremos. Si alguien está en peligro inmediato, contacta con las autoridades locales.',
-    it: 'Abbiamo ricevuto la tua segnalazione e la esamineremo. Se qualcuno è in pericolo immediato, contatta le autorità locali.'
+    it: 'Abbiamo ricevuto la tua segnalazione e la esamineremo. Se qualcuno è in pericolo immediato, contatta le autorità locali.',
+    pt: 'Recebemos a tua denúncia e vamos analisá-la. Se alguém estiver em perigo imediato, contacta as autoridades locais.',
+    ru: 'Мы получили твою жалобу и рассмотрим её. Если кто-то в непосредственной опасности, обратись в местные органы.',
+    pl: 'Otrzymaliśmy twoje zgłoszenie i rozpatrzymy je. Jeśli ktoś jest w bezpośrednim niebezpieczeństwie, skontaktuj się z lokalnymi władzami.',
+    ar: 'استلمنا بلاغك وسننظر فيه. إذا كان أحدهم في خطر مباشر، تواصل مع السلطات المحلية.',
+    tr: 'Şikâyetini aldık ve inceleyeceğiz. Biri acil tehlike altındaysa yerel yetkililerle iletişime geç.',
+    sw: 'Tumepokea ripoti yako na tutaichunguza. Ikiwa mtu yuko hatarini mara moja, wasiliana na mamlaka za eneo lako.',
+    yo: 'A ti gba ìjábọ̀ rẹ, a ó sì ṣàyẹ̀wò rẹ̀. Tí ẹnìkan bá wà nínú ewu lẹ́sẹ̀kẹsẹ̀, kàn sí àwọn aláṣẹ àdúgbò rẹ.',
+    hi: 'हमें आपकी रिपोर्ट मिल गई है और हम इसकी जाँच करेंगे। अगर कोई तुरंत खतरे में है, तो स्थानीय अधिकारियों से संपर्क करें।',
+    id: 'Kami menerima laporanmu dan akan meninjaunya. Jika seseorang dalam bahaya langsung, hubungi otoritas setempat.',
+    zh: '我们已收到你的举报并将进行调查。如果有人处于即时危险中，请联系当地有关部门。',
+    ja: '通報を受け取りました。確認します。誰かが差し迫った危険にある場合は、現地の当局に連絡してください。',
+    ko: '신고를 접수했으며 검토하겠습니다. 누군가 즉각적인 위험에 처해 있다면 현지 당국에 연락하세요.'
   });
 }
 

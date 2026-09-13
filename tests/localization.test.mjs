@@ -36,8 +36,20 @@ const fr = JSON.parse(read('locales/fr.json')).app;
 const de = JSON.parse(read('locales/de.json')).app;
 const es = JSON.parse(read('locales/es.json')).app;
 const it = JSON.parse(read('locales/it.json')).app;
-const LOCALES = { en, fr, de, es, it };
-const LOCALE_NAMES = { fr: 'French', de: 'German', es: 'Spanish', it: 'Italian' };
+const pt = JSON.parse(read('locales/pt.json')).app;
+const ru = JSON.parse(read('locales/ru.json')).app;
+const pl = JSON.parse(read('locales/pl.json')).app;
+const ar = JSON.parse(read('locales/ar.json')).app;
+const tr = JSON.parse(read('locales/tr.json')).app;
+const sw = JSON.parse(read('locales/sw.json')).app;
+const yo = JSON.parse(read('locales/yo.json')).app;
+const hi = JSON.parse(read('locales/hi.json')).app;
+const id = JSON.parse(read('locales/id.json')).app;
+const zh = JSON.parse(read('locales/zh.json')).app;
+const ja = JSON.parse(read('locales/ja.json')).app;
+const ko = JSON.parse(read('locales/ko.json')).app;
+const LOCALES = { en, fr, de, es, it, pt, ru, pl, ar, tr, sw, yo, hi, id, zh, ja, ko };
+const LOCALE_NAMES = { fr: 'French', de: 'German', es: 'Spanish', it: 'Italian', pt: 'Portuguese', ru: 'Russian', pl: 'Polish', ar: 'Arabic', tr: 'Turkish', sw: 'Swahili', yo: 'Yoruba', hi: 'Hindi', id: 'Indonesian', zh: 'Chinese', ja: 'Japanese', ko: 'Korean' };
 const EN_KEYS = Object.keys(en).sort();
 const keyDelta = (cat) => ({
   onlyInEn: EN_KEYS.filter((k) => !(k in cat)),
@@ -46,7 +58,7 @@ const keyDelta = (cat) => ({
 
 // ---------------------------------------------------------------- catalogue health
 section('Catalogue integrity');
-for (const lang of ['fr', 'de', 'es', 'it']) {
+for (const lang of Object.keys(LOCALE_NAMES)) {
   const delta = keyDelta(LOCALES[lang]);
   check(`English and ${LOCALE_NAMES[lang]} define exactly the same keys`,
     delta.onlyInEn.length === 0 && delta.onlyInCat.length === 0,
@@ -60,25 +72,30 @@ for (const [lang, cat] of Object.entries(LOCALES)) {
 
 // A catalogue that simply copies the English string is a silent fallback, not a translation.
 // Each language gets its own whitelist of words that are legitimately spelled identically.
+const SHARED_LOANWORDS = ['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo'];
 const ALLOWED_IDENTICAL = {
   fr: new Set(['messages', 'super', 'premium_title', 'plan', 'language_name', 'reason_spam', 'notifications_title',
-    // Language names that are spelled the same in French.
-    'language_sw', 'language_yo']),
+    'language_sw', 'language_yo', 'language_hi']),
   de: new Set(['super', 'plan', 'matches', 'like', 'support_cat_likes_matches', 'premium_title', 'reason_spam', 'support_cat_premium',
-    // Language names that are spelled the same in German.
-    'language_yo']),
+    'language_yo', 'language_hi']),
   es: new Set(['super', 'plan', 'matches', 'like', 'match_score', 'premium_title', 'reason_spam',
-    // "Legal" is the natural Spanish UI word for this label.
-    'legal_privacy',
-    // Language names that are spelled the same in Spanish.
-    'language_yo']),
+    'legal_privacy', 'language_yo', 'language_hi']),
   it: new Set(['super', 'like', 'match_score', 'premium_title', 'reason_spam', 'support_cat_premium',
-    // "Privacy" is the standard Italian loanword in app UIs.
-    'privacy',
-    // Language names that are spelled the same in Italian.
-    'language_sw', 'language_yo'])
+    'privacy', 'language_sw', 'language_yo', 'language_hi']),
+  pt: new Set(['super', 'like', 'match_score', 'matches', 'legal_privacy', 'premium_title', 'reason_spam', 'support_cat_premium', ...SHARED_LOANWORDS]),
+  ru: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
+  pl: new Set(['super', 'plan', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
+  ar: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
+  tr: new Set(['super', 'plan', 'non_binary', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
+  sw: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
+  yo: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo', 'language_sw']),
+  hi: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
+  id: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo', 'language_sw']),
+  zh: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
+  ja: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo']),
+  ko: new Set(['super', 'premium_title', 'reason_spam', 'support_cat_premium', 'language_hi', 'language_yo'])
 };
-for (const lang of ['fr', 'de', 'es', 'it']) {
+for (const lang of Object.keys(LOCALE_NAMES)) {
   const identical = Object.keys(en).filter((k) => en[k] === LOCALES[lang][k]);
   const suspicious = identical.filter((k) => !ALLOWED_IDENTICAL[lang].has(k));
   check(`no ${LOCALE_NAMES[lang]} string silently duplicates the English one`, suspicious.length === 0,
@@ -88,7 +105,7 @@ for (const lang of ['fr', 'de', 'es', 'it']) {
 // ---------------------------------------------------------------- usage coverage
 section('Every referenced key exists in every language');
 const staticKeys = [...app.matchAll(/t\('app\.([a-z0-9_]+)'\)/g)].map((m) => m[1]);
-const missing = { en: [], fr: [], de: [], es: [], it: [] };
+const missing = Object.fromEntries(Object.keys(LOCALES).map((lang) => [lang, []]));
 for (const key of new Set(staticKeys)) {
   for (const lang of Object.keys(LOCALES)) if (!(key in LOCALES[lang])) missing[lang].push(key);
 }
@@ -233,9 +250,13 @@ check('every language id has a display name in every language',
 check('language ids are never themselves used as a translated value',
   Object.values(LOCALES).flatMap(Object.values).every((value) => !apiLanguageIds.includes(value)));
 // The catalogue must name the language, not echo the code — "fr" as a display name would be
-// a machine token leaking into the interface.
+// a machine token leaking into the interface. CJK names like 中文 are two characters long
+// but are words, not codes, so a bare two-letter lowercase ASCII code is what is banned.
 check('language display names are real words, not codes',
-  apiLanguageIds.every((id) => Object.values(LOCALES).every((cat) => cat[`language_${id}`].length > 2)));
+  apiLanguageIds.every((id) => Object.values(LOCALES).every((cat) => {
+    const name = cat[`language_${id}`];
+    return name.length >= 2 && !/^[a-z]{2}$/.test(name);
+  })));
 for (const [key, token] of [['why_interests', '{values}'], ['why_city', '{values}'], ['starter_interest', '{value}'], ['starter_city', '{value}']]) {
   check(`"${key}" keeps its ${token} placeholder in every language`,
     Object.values(LOCALES).every((cat) => cat[key]?.includes(token)),
@@ -435,7 +456,7 @@ section('Locale plumbing rides the existing mechanisms');
 // Locale resolution: the Mini App mirrors the API's normalize/resolve pair (pinned here and
 // unit-tested in the resolution section below), so the same priority applies everywhere.
 check('the Mini App resolves every locale through the shared normalize/resolve pair',
-  app.includes("const SUPPORTED_LOCALES = ['en', 'fr', 'de', 'es', 'it']")
+  app.includes("const SUPPORTED_LOCALES = ['en', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'pl', 'ar', 'tr', 'sw', 'yo', 'hi', 'id', 'zh', 'ja', 'ko']")
     && /function normalizeLanguageTag\(code\)/.test(app)
     && /function resolveAppLocale\(\)/.test(app)
     && /function browserLanguages\(\)/.test(app),
@@ -449,10 +470,23 @@ check('Mini App resolution order: explicit → Telegram → browser → English'
   'the resolution tiers are out of order');
 for (const [code, label] of [['de', 'German'], ['es', 'Spanish'], ['it', 'Italian']]) {
   check(`the outside-Telegram gate follows the browser language into ${label}`,
-    app.includes(`browserCode.startsWith('${code}')`), `the gate has no ${code} branch`);
+    app.includes('gateLanguage = normalizeLanguageTag(browserCode)') && app.includes(`${code}: { tagline:`),
+    `the gate has no ${code} copy`);
   check(`the Mini App offers a ${label} selector on the existing mechanism`,
     read('index.html').includes(`data-language="${code}"`), `no ${code} language button in index.html`);
 }
+for (const [code, label] of [['pt', 'Portuguese'], ['ru', 'Russian'], ['pl', 'Polish'], ['ar', 'Arabic'], ['tr', 'Turkish'], ['sw', 'Swahili'], ['yo', 'Yoruba'], ['hi', 'Hindi'], ['id', 'Indonesian'], ['zh', 'Chinese'], ['ja', 'Japanese'], ['ko', 'Korean']]) {
+  check(`the Mini App offers a ${label} selector on the existing mechanism`,
+    read('index.html').includes(`data-language="${code}"`), `no ${code} language button in index.html`);
+  check(`the gate carries ${label} copy`,
+    app.includes(`${code}: { tagline:`), `the gate has no ${code} copy`);
+  check(`the global command descriptions define ${code} exactly once`,
+    (read('api/_telegram.js').match(new RegExp(`^ {4}${code}: \\{ start: `, 'm')) || []).length === 1, `${code} description entry off`);
+}
+check('the global command descriptions cover every new locale',
+  ['pt', 'ru', 'pl', 'ar', 'tr', 'sw', 'yo', 'hi', 'id', 'zh', 'ja', 'ko'].every((code) => read('api/_telegram.js').includes(`${code}: { start: `))
+    && read('api/_telegram.js').includes('Object.entries(GLOBAL_DESCRIPTIONS).map'),
+  'GLOBAL_DESCRIPTIONS missing a locale');
 check('message timestamps render in every time locale',
   ['de: \'de-DE\'', 'es: \'es-ES\'', 'it: \'it-IT\''].every((mapping) => app.includes(mapping)),
   'chat time formatting is missing a locale mapping');
@@ -523,7 +557,7 @@ check('Italian bot commands resolve to their views in the webhook',
     'a French-or-English ternary still exists in api/ (the localized() helper itself is exempt)');
   check('every bot surface carries an explicit branch for every language',
     ['api/telegram/webhook.js', 'api/swipe.js', 'api/messages.js', 'api/account.js', 'api/relationship.js', 'api/_reminders.js', 'api/premium.js']
-      .every((f) => ['de', 'es', 'it'].every((lang) => new RegExp(`${lang}:\\s*['{]`).test(read(f)))),
+      .every((f) => ['fr', 'de', 'es', 'it', 'pt', 'ru', 'pl', 'ar', 'tr', 'sw', 'yo', 'hi', 'id', 'zh', 'ja', 'ko'].every((lang) => new RegExp(`${lang}:\\s*['{(\`]`).test(read(f)))),
     'a bot file is missing a language branch');
 
   // Pre-checkout rejection texts are shown verbatim by Telegram to the buyer, so every
@@ -550,11 +584,59 @@ check('Italian bot commands resolve to their views in the webhook',
     'INVOICE_DESCRIPTION is missing a language entry');
 }
 
+// ---------------------------------------------------------------- bot completeness
+section('No partial locale: every language-carrying object holds all seventeen');
+{
+  // Every object literal in the API and the Mini App that carries `en:` and `fr:` entries
+  // must carry all seventeen — a site that silently falls back to English is a partial
+  // locale, not a complete one. Top-level keys are identified by their common indentation,
+  // so nested maps (CHECKOUT_ERRORS, DISCOVERY_FINDINGS, GLOBAL_DESCRIPTIONS…) are checked
+  // at their own level.
+  const apiFiles = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.name.endsWith('.js')) apiFiles.push(rel);
+    }
+  })('api');
+  const source = apiFiles.map((f) => read(f)).join('\n') + '\n' + app;
+  const literals = [];
+  let i = 0;
+  while (i < source.length) {
+    if (source[i] !== '{') { i++; continue; }
+    let depth = 0, j = i;
+    while (j < source.length) {
+      const c = source[j];
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth === 0) { literals.push(source.slice(i + 1, j)); break; } }
+      j++;
+    }
+    i = j + 1;
+  }
+  const ALL17 = ['en', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'pl', 'ar', 'tr', 'sw', 'yo', 'hi', 'id', 'zh', 'ja', 'ko'];
+  let checked = 0;
+  const bad = [];
+  for (const inner of literals) {
+    const matches = [...inner.matchAll(/^([ \t]*)([a-z]{2}):/gm)].map((m) => ({ key: m[2], indent: m[1].length }));
+    if (!matches.length) continue;
+    const keysAt = (indent) => new Set(matches.filter((m) => m.indent === indent).map((m) => m.key));
+    const minIndent = Math.min(...matches.map((m) => m.indent));
+    const topKeys = keysAt(minIndent);
+    if (!topKeys.has('en') || !topKeys.has('fr')) continue;
+    checked++;
+    const missing = ALL17.filter((k) => !topKeys.has(k));
+    if (missing.length) bad.push(`object #${checked} missing: ${missing.join(',')}`);
+  }
+  check('every language-carrying object holds all seventeen locales',
+    bad.length === 0 && checked > 20, `checked=${checked} | ${bad.join(' | ')}`);
+}
+
 // ---------------------------------------------------------------- resolution behaviour
 section('Language resolution priority (pure, shared with the API)');
 {
-  check('the supported locale set is exactly the five canonical locales',
-    JSON.stringify([...SUPPORTED_LOCALES]) === JSON.stringify(['en', 'fr', 'de', 'es', 'it']),
+  check('the supported locale set is exactly the seventeen canonical locales',
+    JSON.stringify([...SUPPORTED_LOCALES]) === JSON.stringify(['en', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'pl', 'ar', 'tr', 'sw', 'yo', 'hi', 'id', 'zh', 'ja', 'ko']),
     SUPPORTED_LOCALES.join(','));
 
   const NORMALIZE = [
@@ -563,7 +645,11 @@ section('Language resolution priority (pure, shared with the API)');
     ['de', 'de'], ['de-DE', 'de'], ['de-AT', 'de'], ['de-CH', 'de'],
     ['es', 'es'], ['es-ES', 'es'], ['es-419', 'es'],
     ['it', 'it'], ['it-IT', 'it'],
-    ['pt', ''], ['pt-BR', ''], ['zh-Hans', ''], ['', ''], [null, ''], [undefined, ''], ['123', ''], ['en_US_POSIX', 'en']
+    ['pt', 'pt'], ['pt-BR', 'pt'], ['pt-PT', 'pt'],
+    ['ru', 'ru'], ['pl', 'pl'], ['ar', 'ar'], ['ar-EG', 'ar'], ['tr', 'tr'],
+    ['sw', 'sw'], ['yo', 'yo'], ['hi', 'hi'], ['id', 'id'], ['id-ID', 'id'],
+    ['zh', 'zh'], ['zh-CN', 'zh'], ['zh-Hans', 'zh'], ['ja', 'ja'], ['ko', 'ko'],
+    ['nl', ''], ['vi', ''], ['', ''], [null, ''], [undefined, ''], ['123', ''], ['en_US_POSIX', 'en']
   ];
   for (const [input, expected] of NORMALIZE) {
     check(`normalizeLanguageTag(${JSON.stringify(input)}) -> ${JSON.stringify(expected)}`,
@@ -574,10 +660,12 @@ section('Language resolution priority (pure, shared with the API)');
     ['explicit de beats Telegram fr and browser es', { explicit: 'de', telegram: 'fr', browser: ['es'] }, 'de'],
     ['explicit regional es-419 normalizes and beats Telegram it', { explicit: 'es-419', telegram: 'it', browser: ['fr'] }, 'es'],
     ['Telegram it beats browser fr', { telegram: 'it', browser: ['fr'] }, 'it'],
-    ['unsupported Telegram falls to the browser (pt → es)', { telegram: 'pt', browser: ['es', 'pt'] }, 'es'],
-    ['unsupported Telegram and browser fall to English', { telegram: 'pt', browser: ['pt-BR', 'zh'] }, 'en'],
-    ['the browser list uses its first supported entry', { browser: ['zh', 'de-AT', 'fr'] }, 'de'],
+    ['unsupported Telegram falls to the browser (nl → es)', { telegram: 'nl', browser: ['es', 'nl'] }, 'es'],
+    ['unsupported Telegram and browser fall to English', { telegram: 'nl', browser: ['vi', 'af'] }, 'en'],
+    ['the browser list uses its first supported entry', { browser: ['af', 'de-AT', 'fr'] }, 'de'],
     ['regional Telegram tag normalizes', { telegram: 'de-CH', browser: ['fr'] }, 'de'],
+    ['zh-CN Telegram normalizes to zh', { telegram: 'zh-CN', browser: ['en'] }, 'zh'],
+    ['pt Telegram beats es browser', { telegram: 'pt', browser: ['es'] }, 'pt'],
     ['no signal resolves to English', {}, 'en']
   ];
   for (const [name, input, expected] of RESOLVE) {
@@ -588,7 +676,7 @@ section('Language resolution priority (pure, shared with the API)');
     ['explicit locale beats the Telegram language on the account', { locale: 'es', languageCode: 'de' }, 'es'],
     ['the Telegram language is used when no explicit locale is stored', { languageCode: 'it' }, 'it'],
     ['an empty document resolves to English', {}, 'en'],
-    ['an invalid stored locale falls through to the Telegram language', { locale: 'pt', languageCode: 'fr' }, 'fr']
+    ['an invalid stored locale falls through to the Telegram language', { locale: 'nl', languageCode: 'fr' }, 'fr']
   ];
   for (const [name, userData, expected] of USERS) {
     check(name, resolveUserLanguage(userData) === expected, `got ${JSON.stringify(resolveUserLanguage(userData))}`);
@@ -666,7 +754,7 @@ section('Formal legal documents are deliberately not translated by this work');
 {
   const privacy = read('privacy/index.html');
   const terms = read('terms/index.html');
-  for (const [code, label] of [['de', 'German'], ['es', 'Spanish'], ['it', 'Italian']]) {
+  for (const [code, label] of [['de', 'German'], ['es', 'Spanish'], ['it', 'Italian'], ['pt', 'Portuguese'], ['ru', 'Russian'], ['pl', 'Polish'], ['ar', 'Arabic'], ['tr', 'Turkish'], ['sw', 'Swahili'], ['yo', 'Yoruba'], ['hi', 'Hindi'], ['id', 'Indonesian'], ['zh', 'Chinese'], ['ja', 'Japanese'], ['ko', 'Korean']]) {
     check(`no ${label} legal translation was invented in the Privacy Policy`,
       !privacy.includes(`const ${code}=`) && !privacy.includes(`lang=${code}`), `a ${code} privacy dictionary exists`);
     check(`no ${label} legal translation was invented in the Terms`,

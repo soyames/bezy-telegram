@@ -90,15 +90,30 @@ async function authorize(firestore, user, conversationId) {
   return { me, otherId, meData, otherData: otherSnap.exists ? otherSnap.data() : null };
 }
 
+const OPEN_BEZY_BTN = { en: '💜 Open Bezy', fr: '💜 Ouvrir Bezy', de: '💜 Bezy öffnen', es: '💜 Abrir Bezy', it: '💜 Apri Bezy', pt: '💜 Abrir o Bezy', ru: '💜 Открыть Bezy', pl: '💜 Otwórz Bezy', ar: '💜 افتح Bezy', tr: '💜 Bezy\'yi aç', sw: '💜 Fungua Bezy', yo: '💜 Ṣí Bezy', hi: '💜 Bezy खोलें', id: '💜 Buka Bezy', zh: '💜 打开 Bezy', ja: '💜 Bezy を開く', ko: '💜 Bezy 열기' };
+const YOUR_MATCH = { en: 'your match', fr: 'votre match', de: 'dein Match', es: 'tu match', it: 'il tuo match', pt: 'o teu match', ru: 'твой мэтч', pl: 'twoje dopasowanie', ar: 'مطابقتك', tr: 'eşleşmen', sw: 'mechi yako', yo: 'mátìsì rẹ', hi: 'आपका मैच', id: 'kecocokanmu', zh: '你的配对', ja: 'あなたのマッチ', ko: '내 매치' };
+
 function messageNotification(language, senderName) {
   const text = localized(language, {
     en: `💬 New message on Bezy\n\n${senderName} sent you a message. Open Bezy to reply.`,
     fr: `💬 Nouveau message sur Bezy\n\n${senderName} vous a écrit. Ouvrez Bezy pour répondre.`,
     de: `💬 Neue Nachricht auf Bezy\n\n${senderName} hat dir geschrieben. Öffne Bezy, um zu antworten.`,
     es: `💬 Nuevo mensaje en Bezy\n\n${senderName} te ha enviado un mensaje. Abre Bezy para responder.`,
-    it: `💬 Nuovo messaggio su Bezy\n\n${senderName} ti ha inviato un messaggio. Apri Bezy per rispondere.`
+    it: `💬 Nuovo messaggio su Bezy\n\n${senderName} ti ha inviato un messaggio. Apri Bezy per rispondere.`,
+    pt: `💬 Nova mensagem na Bezy\n\n${senderName} enviou-te uma mensagem. Abre a Bezy para responder.`,
+    ru: `💬 Новое сообщение в Bezy\n\n${senderName} отправил(а) тебе сообщение. Открой Bezy, чтобы ответить.`,
+    pl: `💬 Nowa wiadomość w Bezy\n\n${senderName} wysłał(a) ci wiadomość. Otwórz Bezy, aby odpowiedzieć.`,
+    ar: `💬 رسالة جديدة في Bezy\n\nأرسل لك ${senderName} رسالة. افتح Bezy للرد.`,
+    tr: `💬 Bezy\'de yeni mesaj\n\n${senderName} sana mesaj gönderdi. Yanıtlamak için Bezy\'yi aç.`,
+    sw: `💬 Ujumbe mpya kwenye Bezy\n\n${senderName} amekutumia ujumbe. Fungua Bezy ili kujibu.`,
+    yo: `💬 Ìfiránṣẹ́ tuntun lórí Bezy\n\n${senderName} fi ìfiránṣẹ́ ránṣẹ́ sí ẹ. Ṣí Bezy láti dáhùn.`,
+    hi: `💬 Bezy पर नया संदेश\n\n${senderName} ने आपको संदेश भेजा। जवाब देने के लिए Bezy खोलें।`,
+    id: `💬 Pesan baru di Bezy\n\n${senderName} mengirimimu pesan. Buka Bezy untuk membalas.`,
+    zh: `💬 Bezy 新消息\n\n${senderName} 给你发了消息。打开 Bezy 回复。`,
+    ja: `💬 Bezy に新しいメッセージ\n\n${senderName} さんからメッセージが届きました。Bezy を開いて返信しましょう。`,
+    ko: `💬 Bezy 새 메시지\n\n${senderName} 님이 메시지를 보냈습니다. Bezy를 열어 답장하세요.`
   });
-  const openBezyText = localized(language, { en: '💜 Open Bezy', fr: '💜 Ouvrir Bezy', de: '💜 Bezy öffnen', es: '💜 Abrir Bezy', it: '💜 Apri Bezy' });
+  const openBezyText = localized(language, OPEN_BEZY_BTN);
   return {
     text,
     reply_markup: { inline_keyboard: [[{ text: openBezyText, web_app: { url: miniAppUrl('messages') } }]] }
@@ -172,7 +187,7 @@ async function sendMessage(req, res, user) {
   // The recipient's explicit Bezy choice wins over their Telegram language.
   const otherLanguage = normalizedLanguage(other.locale || other.languageCode);
   await deliverNotification(firestore, other, 'messages', messageNotification(
-    otherLanguage, context.meData?.profile?.displayName || context.meData?.firstName || localized(otherLanguage, { en: 'your match', fr: 'votre match', de: 'dein Match', es: 'tu match', it: 'il tuo match' })
+    otherLanguage, context.meData?.profile?.displayName || context.meData?.firstName || localized(otherLanguage, YOUR_MATCH)
   ));
 
   return res.status(200).json({ ok: true, message: publicMessage(clientId, { senderId: context.me, text, createdAt: now }) });
