@@ -266,6 +266,50 @@ for (const [key, token] of [['why_interests', '{values}'], ['why_city', '{values
     Object.entries(LOCALES).map(([lang, cat]) => `${lang}="${cat[key]}"`).join(' | '));
 }
 
+// THIS OR THAT — the question bank is a list of MACHINE IDENTIFIERS in api/_thisorthat.js.
+// Both option labels live in the catalogues under tot_q_<id>_a / _b, which is what lets two
+// participants reading Bezy in different languages take part in the same canonical round.
+// A question added to the bank without seventeen translations fails here rather than
+// rendering a raw token to someone.
+section('This or That: every canonical question is playable in every language');
+{
+  const bank = read('api/_thisorthat.js');
+  const bankIds = [...bank.matchAll(/\{ id: '([a-z0-9_]+)', category: '([a-z_]+)' \}/g)].map((m) => m[1]);
+  check('the question bank parses and is the curated 30', bankIds.length === 30, String(bankIds.length));
+  for (const option of ['a', 'b']) {
+    const gaps = bankIds.filter((id) => Object.values(LOCALES).some((cat) => !cat[`tot_q_${id}_${option}`]));
+    check(`every question has option ${option} in all seventeen languages`, gaps.length === 0, gaps.join(','));
+  }
+  check('no catalogue holds a label for a question that is not in the bank',
+    Object.entries(LOCALES).every(([, cat]) => Object.keys(cat).filter((k) => k.startsWith('tot_q_'))
+      .every((k) => bankIds.includes(k.replace(/^tot_q_/, '').replace(/_[ab]$/, '')))),
+    Object.keys(en).filter((k) => k.startsWith('tot_q_') && !bankIds.includes(k.replace(/^tot_q_/, '').replace(/_[ab]$/, ''))).join(','));
+  check('the two options of a question are never the same string',
+    bankIds.every((id) => Object.values(LOCALES).every((cat) => cat[`tot_q_${id}_a`] !== cat[`tot_q_${id}_b`])),
+    bankIds.filter((id) => Object.values(LOCALES).some((cat) => cat[`tot_q_${id}_a`] === cat[`tot_q_${id}_b`])).join(','));
+  check('no question id leaked into a catalogue as a translatable value',
+    Object.values(LOCALES).flatMap(Object.values).every((value) => !bankIds.includes(value)));
+  // v1 deliberately avoids sensitive territory. The English bank is the reference: a
+  // question that names any of these would have to be a deliberate product decision.
+  const SENSITIVE = /\b(religio|politic|ethnic|race|salary|income|trauma|immigration|visa|criminal|illness|disease|therapy|sex|alcohol|beer|wine|drug)/i;
+  const sensitive = bankIds.filter((id) => SENSITIVE.test(`${en[`tot_q_${id}_a`]} ${en[`tot_q_${id}_b`]}`));
+  check('the v1 bank stays out of sensitive territory', sensitive.length === 0, sensitive.join(','));
+  // Placeholders the game copy interpolates at render time.
+  for (const [key, tokens] of [['tot_state_waiting', ['{name}']], ['tot_progress', ['{n}', '{total}']],
+    ['tot_same', ['{choice}']], ['tot_different', ['{mine}', '{name}', '{theirs}']],
+    ['tot_summary_same', ['{n}']], ['tot_summary_different', ['{n}']],
+    ['tot_waiting_body', ['{name}']], ['tot_waiting_question', ['{name}']], ['tot_talk_message', ['{a}', '{b}']]]) {
+    check(`"${key}" keeps its placeholders in every language`,
+      Object.values(LOCALES).every((cat) => tokens.every((token) => cat[key]?.includes(token))),
+      Object.entries(LOCALES).filter(([, cat]) => !tokens.every((token) => cat[key]?.includes(token))).map(([lang]) => lang).join(','));
+  }
+  // No score, no percentage, no ranking language anywhere in the game copy — in any language.
+  const gameCopy = Object.values(LOCALES).flatMap((cat) => Object.entries(cat).filter(([k]) => k.startsWith('tot_')).map(([, v]) => v));
+  check('the game copy never claims a score or a percentage',
+    gameCopy.every((value) => !/%|\bscore\b|\bpoints?\b|\bxp\b|\bstreak\b/i.test(value)),
+    gameCopy.filter((value) => /%|\bscore\b|\bpoints?\b|\bxp\b|\bstreak\b/i.test(value)).join(' | '));
+}
+
 // ---------------------------------------------------------------- feature coverage
 section('Feature areas are covered in every language');
 const AREAS = {
@@ -282,6 +326,7 @@ const AREAS = {
   'profile preview': ['preview_profile', 'preview_title', 'preview_hint', 'preview_incomplete'],
   'why you matched': ['why_matched', 'why_interests', 'why_city', 'why_age', 'why_languages', 'why_none'],
   'conversation starters': ['starters_title', 'starters_hint', 'starter_interest', 'starter_city', 'starter_languages', 'starter_generic', 'starter_copy', 'starter_copied', 'starter_universal_1', 'starter_universal_2', 'starter_universal_3'],
+  'this or that': ['tot_title', 'tot_play', 'tot_intro', 'tot_optional_note', 'tot_start', 'tot_new_round', 'tot_state_your_turn', 'tot_state_waiting', 'tot_state_results', 'tot_state_completed', 'tot_answer', 'tot_see_results', 'tot_view', 'tot_progress', 'tot_final_note', 'tot_waiting_body', 'tot_waiting_question', 'tot_same', 'tot_different', 'tot_different_note', 'tot_summary_same', 'tot_summary_different', 'tot_talk_about', 'tot_talk_message', 'tot_error_round', 'tot_error_final'],
   'profile-content translation': ['translated_from', 'show_original', 'original_label', 'show_translation'],
   'notification preferences': ['notifications_title', 'notifications_hint', 'notify_matches', 'notify_super_likes', 'notify_super_likes_note', 'notify_profile_reminders', 'notify_profile_reminders_note', 'notifications_saved'],
   languages: ['languages_label', 'languages_hint', 'filter_languages', 'filter_languages_hint'],
@@ -324,7 +369,7 @@ section('No hardcoded copy in runtime-populated elements');
     'discover-loading', 'premium-loading', 'people-label', 'match-label', 'new-label',
     'my-name', 'profile-status', 'my-avatar', 'prompts-hint', 'prompts-list',
     'notifications-hint', 'notification-list', 'restriction-notice', 'objection-notice', 'support-intro', 'support-formal', 'support-expectation', 'privacy-by-design',
-    'chat-name', 'chat-sub', 'chat-status', 'chat-messages', 'chat-why', 'chat-locked',
+    'chat-name', 'chat-sub', 'chat-status', 'chat-messages', 'chat-why', 'chat-locked', 'chat-game',
     // The brand tagline ships empty and renders from the active catalogue, so the header
     // never flashes English before the resolved locale paints.
     'tagline',
@@ -338,7 +383,7 @@ section('No hardcoded copy in runtime-populated elements');
   }
   // And each must actually be populated at runtime, or emptying it would leave a blank.
   const populated = new Set([...app.matchAll(/setText\('([^']+)'/g)].map((m) => m[1]));
-  const byRender = ['my-name', 'profile-status', 'my-avatar', 'prompts-list', 'notification-list', 'restriction-notice', 'objection-notice', 'chat-why', 'chat-messages', 'chat-locked'];
+  const byRender = ['my-name', 'profile-status', 'my-avatar', 'prompts-list', 'notification-list', 'restriction-notice', 'objection-notice', 'chat-why', 'chat-messages', 'chat-locked', 'chat-game'];
   for (const id of RUNTIME_FILLED) {
     check(`#${id} is populated at runtime`, populated.has(id) || byRender.includes(id),
       'neither setText nor a render function fills it');

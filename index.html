@@ -111,6 +111,35 @@
     .chat-why.collapsed .why-matched{display:none}
     .chat-why.collapsed .chat-why-toggle{transform:rotate(180deg)}
     .chat-why .why-label{display:none}
+    /* THIS OR THAT — the optional post-match conversation game.
+       One compact card above the messages (never five system messages), and the round
+       itself in the app's existing sheet. Tap targets are deliberately large: this is a
+       Telegram Mini App on a phone, and both options must be comfortable one-handed.
+       Every label is catalogue copy, so the styles size from the text rather than pinning
+       widths — long German strings, CJK and Arabic all wrap instead of overflowing. */
+    .chat-game{padding:10px 14px 0}
+    .tot-card{display:flex;align-items:center;gap:10px;background:#faf7ff;border:1px solid #e4d5fb;border-radius:16px;padding:10px 12px}
+    .tot-card-copy{min-width:0;flex:1;display:grid;gap:2px}
+    .tot-card-title{font-size:12px;font-weight:800;color:#6d28d9;overflow-wrap:anywhere}
+    .tot-card-state{font-size:10px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;color:#8a8394;overflow-wrap:anywhere}
+    .tot-card-state.your_turn{color:#7C2AD8}.tot-card-state.waiting{color:#0ea5e9}.tot-card-state.results{color:#0f9d58}
+    .tot-card-action{flex:0 0 auto;border:0;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;border-radius:12px;padding:10px 14px;font-size:12px;font-weight:800;min-height:40px;cursor:pointer}
+    .tot-entry{margin-top:10px}
+    .tot-intro{font-size:13px;color:var(--text);line-height:1.5;margin:0 2px 14px}
+    .tot-progress{font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#8a8394;margin:2px 2px 8px}
+    .tot-options{display:grid;gap:10px;margin-bottom:8px}
+    .tot-option{min-height:56px;border:1px solid #e4d5fb;background:var(--soft);color:#4c1d95;border-radius:16px;padding:14px 16px;font-size:15px;font-weight:700;line-height:1.35;cursor:pointer;overflow-wrap:anywhere}
+    .tot-option:active{transform:scale(.98)}
+    .tot-list{display:grid;gap:10px;margin:14px 0 4px}
+    .tot-item{background:#f6f4fa;border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+    .tot-item-q{margin:0;font-size:11px;font-weight:800;color:#8a8394;overflow-wrap:anywhere}
+    .tot-reveal{margin:5px 0 0;font-size:13px;line-height:1.45;color:var(--text);overflow-wrap:anywhere}
+    .tot-reveal.same{color:#6d28d9;font-weight:700}
+    .tot-reveal.pending{color:var(--muted);font-size:12px}
+    .tot-reveal-note{margin:3px 0 0;font-size:11px;color:var(--muted)}
+    .tot-summary{display:grid;gap:3px;background:#faf7ff;border:1px solid #e4d5fb;border-radius:16px;padding:12px 14px;margin:4px 0 10px}
+    .tot-summary-title{font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#8a8394}
+    .tot-summary-line{font-size:15px;font-weight:800;color:#4c1d95;overflow-wrap:anywhere}
     .field input:disabled,.check input:disabled{opacity:.55;background:#f1eef7}
     /* Age & trust: a quiet factual status, never a badge of verification. */
     .trust-status{margin-top:4px}
@@ -374,6 +403,7 @@
       <button class="chat-menu" id="chat-menu" type="button" aria-label="Safety options">⋯</button>
     </header>
     <div class="chat-why" id="chat-why"></div>
+    <div class="chat-game hidden" id="chat-game"></div>
     <div class="chat-messages" id="chat-messages"></div>
     <div class="chat-status" id="chat-status"></div>
     <form class="chat-composer" id="chat-composer">

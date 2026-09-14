@@ -21,6 +21,7 @@ import { SUPPORT_CATEGORIES, SUPPORT_STATUSES, SUPPORT_DETAILS_MAX, formatSuppor
 import { REPORT_STATUSES, triageTransition, summarizeReports } from '../api/_moderation.js';
 import { RATE_LIMITS } from '../api/_ratelimit.js';
 import { summarizeOutcomes, outcomeReport } from '../api/_outcomes.js';
+import { QUESTIONS, QUESTION_IDS, ROUND_SIZE, selectQuestions, roundView } from '../api/_thisorthat.js';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -48,7 +49,10 @@ const SHAPES = {
   premiumState: ['active', 'planId', 'expiresAt', 'daysRemaining', 'revoked', 'revocationReason'],
   plan: ['id', 'stars', 'currency', 'durationMonths', 'bestValue'],
   swipeQuota: ['allowed', 'reason', 'usage', 'limits'],
-  reminderMessage: ['text', 'button']
+  reminderMessage: ['text', 'button'],
+  // The post-match conversation game. `keys()` sorts, so these are alphabetical.
+  gameRound: ['completedAt', 'createdAt', 'game', 'questions', 'roundId', 'startedByMe', 'state', 'status', 'summary'],
+  gameQuestion: ['id', 'mine', 'revealed', 'theirAnswered', 'theirs']
 };
 
 const keys = (obj) => Object.keys(obj).sort();
@@ -251,6 +255,112 @@ section('Messaging API contract');
     'notification may leak message content or the messages category is missing');
 }
 
+// ------------------------------------------- post-match conversation game (THIS OR THAT)
+section('This or That API contract');
+{
+  const gameSource = read('api/game.js');
+  const bankSource = read('api/_thisorthat.js');
+  const appSource = read('app.js');
+
+  // The game is a capability OF a conversation. It must not own a second copy of the
+  // authorization chain — one gate, reused, is what makes block/unmatch/Premium/pause
+  // behave identically for messaging and for the game.
+  check('the game enters through the conversation authorization chain',
+    gameSource.includes("from './messages.js'") && gameSource.includes('inConversation('),
+    'api/game.js does not reuse inConversation()');
+  check('the game re-implements no gate of its own',
+    !/FROM matches|FROM blocks|FROM blocked_by|isPremiumActive|processingPaused/.test(gameSource),
+    'api/game.js duplicates an authorization check instead of reusing the conversation gate');
+  check('the caller is derived from initData, never accepted from the request',
+    gameSource.includes('requireTelegramUser') && !/body\?\.(userId|senderId|participantId)/.test(gameSource),
+    'api/game.js accepts an identity from the request body');
+
+  // Anti-peeking is a SQL-level rule: the counterpart's choice is not selected at all until
+  // the caller has answered that same question. CSS and client code are never the boundary.
+  check('an unrevealed choice is redacted in the query, not in the response mapper',
+    /CASE WHEN EXISTS \(\s*SELECT 1 FROM game_answers own/.test(gameSource),
+    'the counterpart answer query is missing its reveal guard');
+  check('the round view re-applies the reveal rule as defence in depth', (() => {
+    const view = roundView(
+      { round_id: 'r', game: 'this_or_that', initiator_id: '1', questions: ['food_coffee_tea'], status: 'active', created_at: new Date(), completed_at: null },
+      '1', new Map(), new Map([['food_coffee_tea', 'a']]), new Set(['food_coffee_tea'])
+    );
+    return view.questions[0].theirs === null && view.questions[0].revealed === false;
+  })(), 'roundView published a counterpart choice the viewer has not earned');
+
+  // Exact published shapes.
+  const revealed = roundView(
+    { round_id: 'r', game: 'this_or_that', initiator_id: '1', questions: ['food_coffee_tea'], status: 'completed', created_at: new Date(), completed_at: new Date() },
+    '1', new Map([['food_coffee_tea', 'a']]), new Map([['food_coffee_tea', 'b']]), new Set(['food_coffee_tea'])
+  );
+  check('the round carries exactly the documented fields',
+    JSON.stringify(keys(revealed)) === JSON.stringify(SHAPES.gameRound), keys(revealed).join(','));
+  check('a question carries exactly the documented fields',
+    JSON.stringify(keys(revealed.questions[0])) === JSON.stringify(SHAPES.gameQuestion), keys(revealed.questions[0]).join(','));
+  check('the summary is two counts and nothing else',
+    JSON.stringify(keys(revealed.summary)) === JSON.stringify(['different', 'same']), JSON.stringify(revealed.summary));
+  check('an unfinished round publishes no summary',
+    roundView({ round_id: 'r', game: 'this_or_that', initiator_id: '1', questions: ['food_coffee_tea'], status: 'active', created_at: new Date(), completed_at: null }, '1').summary === null);
+
+  // Questions are machine identifiers. The display text lives in the locale catalogues, so
+  // two participants reading Bezy in different languages share one canonical round.
+  check('the bank is a curated 30 with stable ids', QUESTION_IDS.length === 30 && new Set(QUESTION_IDS).size === 30, String(QUESTION_IDS.length));
+  check('question ids are machine tokens', QUESTION_IDS.every((id) => /^[a-z][a-z0-9_]{4,60}$/.test(id)));
+  check('a round is five questions', ROUND_SIZE === 5 && selectQuestions().length === 5);
+  check('the bank stores no display text', QUESTIONS.every((q) => JSON.stringify(Object.keys(q).sort()) === '["category","id"]'),
+    'a question carries something other than its id and category');
+  check('categories are content tags, never published to the client',
+    !gameSource.includes('category') && !/category/.test(JSON.stringify(revealed)),
+    'a question category reached the API surface');
+  check('only option ids are ever stored as an answer',
+    bankSource.includes("CHOICES = ['a', 'b']") && gameSource.includes('isChoice('), 'the choice vocabulary is not pinned');
+
+  // Idempotency and finality are database-level, not handler-level, guarantees.
+  check('an answer insert is idempotent',
+    /ON CONFLICT \(round_id, question_id, user_id\) DO NOTHING/.test(gameSource), 'the answer insert can duplicate or overwrite');
+  check('a finalized answer is refused rather than rewritten',
+    gameSource.includes("'ANSWER_FINAL'") && !/UPDATE game_answers/.test(gameSource), 'an answer can be changed after the fact');
+  check('round completion is a guarded, exactly-once transition',
+    /UPDATE game_rounds SET status = 'completed'[\s\S]{0,120}AND status = 'active'/.test(gameSource),
+    'completion is not guarded against running twice');
+  check('round creation is idempotent',
+    gameSource.includes("current.status === 'active'") && gameSource.includes('ON CONFLICT DO NOTHING'),
+    'a second round could be created for the same conversation');
+
+  // The game is deterministic by design: no model, no provider, no user text leaves Bezy.
+  // These checks read the CODE, not the prose: the comments in those files exist precisely
+  // to say which mechanics Bezy refuses to build, and naming them there is the point.
+  const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const gameCode = withoutComments(gameSource) + withoutComments(bankSource);
+  check('no AI or translation provider is in the game path',
+    !/_profileText|BEZY_TRANSLATE|fetch\(/.test(gameCode), 'the game reaches an external service');
+  check('the game introduces no gamification vocabulary',
+    !/\b(points|xp|streak|leaderboard|badge|coins|rank(ing)?|compatibility)\b/i.test(gameCode),
+    'a gamification concept entered the game module');
+  check('answers never become a metric',
+    !/analytics|track\(|metric/i.test(gameCode), 'the game module records an answer as a metric');
+
+  // Mini App wiring: the game extends Ways to start and never replaces the starters.
+  check('Ways to start offers the game alongside the existing starters',
+    appSource.includes("t('app.tot_play')") && appSource.includes('openGame(match)') && appSource.includes("'app.starter_universal_1'"),
+    'the game entry point is missing from the starters sheet');
+  check('the conversation shows one compact round card, not system messages',
+    appSource.includes("$('chat-game')") && appSource.includes('renderGameCard'), 'the round card is missing from the conversation');
+  check('the round card states are functional labels',
+    ['tot_state_your_turn', 'tot_state_waiting', 'tot_state_results', 'tot_state_completed'].every((key) => appSource.includes(`app.${key}`)),
+    'a round state label is missing');
+  check('"Talk about one" fills the composer and never sends',
+    appSource.includes('function talkAboutRound') && /talkAboutRound\(round, match\)/.test(appSource) && appSource.includes('useStarter(match, t(\'app.tot_talk_message\')'),
+    'the talk-about action does not reuse the composer hand-off');
+  check('the Mini App never claims a compatibility result',
+    !/tot_(score|percent|compatib)/.test(appSource) && !/percent/i.test(read('locales/en.json').match(/"tot_[^"]*": "[^"]*"/g)?.join(' ') || ''),
+    'a score-like claim entered the game copy');
+  check('the game has its own rate-limit buckets rather than spending the messaging ones',
+    read('api/_ratelimit.js').includes('game: [{ limit: 20') && read('api/_ratelimit.js').includes('game_read:')
+      && gameSource.includes("'game_read' : 'game'"),
+    'the game shares a bucket with messaging');
+}
+
 // ---------------------------------------------------------------- premium insight (PR-8)
 section('Compatibility breakdown (contract version 1.1)');
 {
@@ -405,7 +515,9 @@ section('Error catalogue (version 1)');
   // documented code must still be mapped — an unmapped code renders as a raw token.
   const app = read('app.js');
   const mapped = [...app.matchAll(/^\s{2}([A-Z][A-Z_]{3,}): 'app\./gm)].map((m) => m[1]).sort();
-  const DOCUMENTED = ['AGE_CONFIRMATION_REQUIRED', 'CONVERSATION_UNAVAILABLE', 'DATABASE_UNAVAILABLE', 'DISCOVERY_LIMIT_REACHED', 'INVALID_SESSION', 'PREMIUM_REQUIRED', 'PREMIUM_UNAVAILABLE', 'PROCESSING_RESTRICTED', 'PROFILE_NOT_FOUND', 'RATE_LIMITED', 'SUPER_LIKE_LIMIT_REACHED', 'TARGET_NOT_FOUND'];
+  // ANSWER_FINAL and GAME_UNAVAILABLE are the two codes the post-match conversation game
+  // adds: an answer that was already stored, and a round that has been superseded.
+  const DOCUMENTED = ['AGE_CONFIRMATION_REQUIRED', 'ANSWER_FINAL', 'CONVERSATION_UNAVAILABLE', 'DATABASE_UNAVAILABLE', 'DISCOVERY_LIMIT_REACHED', 'GAME_UNAVAILABLE', 'INVALID_SESSION', 'PREMIUM_REQUIRED', 'PREMIUM_UNAVAILABLE', 'PROCESSING_RESTRICTED', 'PROFILE_NOT_FOUND', 'RATE_LIMITED', 'SUPER_LIKE_LIMIT_REACHED', 'TARGET_NOT_FOUND'];
   check('every documented error code is mapped in the Mini App',
     DOCUMENTED.every((code) => mapped.includes(code)), DOCUMENTED.filter((code) => !mapped.includes(code)).join(','));
   check('every mapped error code is documented in the contract',

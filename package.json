@@ -28,6 +28,7 @@
     "test:backend": "node tests/run.mjs backend",
     "test:translation": "node tests/run.mjs profileText",
     "test:db": "node tests/run.mjs db",
+    "test:game": "node tests/run.mjs game",
     "db:health": "node scripts/db-health.mjs",
     "funnel": "node scripts/funnel.mjs"
   },

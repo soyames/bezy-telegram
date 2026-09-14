@@ -235,6 +235,20 @@ async function exportData(storage, userId) {
       'SELECT client_id, sender_id, text, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC',
       [String(conv.conversation_id)]
     );
+    // Post-match conversation games are conversation content too, so the caller's OWN picks
+    // travel with the conversation they were made in. The counterpart's picks are their
+    // personal data and are deliberately absent — including the ones already revealed in the
+    // app, which the caller has seen but does not hold a copy of.
+    const games = await query(
+      `SELECT r.round_id, r.game, r.initiator_id, r.status, r.created_at, r.completed_at,
+              COALESCE(json_agg(json_build_object('questionId', a.question_id, 'choice', a.choice, 'at', a.created_at)
+                       ORDER BY a.created_at) FILTER (WHERE a.question_id IS NOT NULL), '[]') AS answers
+         FROM game_rounds r
+         LEFT JOIN game_answers a ON a.round_id = r.round_id AND a.user_id = $2
+        WHERE r.conversation_id = $1
+        GROUP BY r.round_id ORDER BY r.created_at ASC`,
+      [String(conv.conversation_id), userId]
+    );
     const otherId = String(conv.participant_a) === userId ? String(conv.participant_b) : String(conv.participant_a);
     conversations.push({
       conversationId: String(conv.conversation_id),
@@ -246,6 +260,16 @@ async function exportData(storage, userId) {
         senderId: String(m.sender_id),
         text: String(m.text || ''),
         createdAt: iso(m.created_at)
+      })),
+      games: games.rows.map((g) => ({
+        roundId: String(g.round_id),
+        game: String(g.game),
+        startedByYou: String(g.initiator_id) === userId,
+        status: String(g.status),
+        createdAt: iso(g.created_at),
+        completedAt: iso(g.completed_at),
+        // Canonical question ids and option ids — the same machine tokens Bezy stores.
+        yourAnswers: (g.answers || []).map((a) => ({ questionId: String(a.questionId), choice: String(a.choice), at: iso(a.at) }))
       }))
     });
   }
@@ -310,6 +334,7 @@ async function exportData(storage, userId) {
     })),
     notes: [
       'Bezy conversations are stored by Bezy (see "conversations" above) and are deleted when you delete your account.',
+      'Conversation games include your own picks only: the other person\'s picks are their data, not yours.',
       'Reports filed about you are not included: disclosing them would identify the reporter.',
       'Payment records are retained for accounting purposes after account deletion.'
     ]

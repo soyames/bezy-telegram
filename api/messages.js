@@ -137,7 +137,14 @@ export function publicMessage(docId, data) {
 
 // Serialize against closure on the match row; account and entitlement row locks
 // ensure a pause, deletion, or refund cannot commit between authorization and use.
-async function inConversation(user, conversationId, callback) {
+//
+// Exported because every conversation capability must enter through the SAME gate: the
+// post-match game (api/game.js) reuses this authorization chain rather than re-implementing
+// it, so a block, an unmatch, a paused account, an expired membership or a closed
+// conversation shuts the game down exactly as it shuts messaging down. The match-row lock
+// also serializes concurrent game writes for the pair, which is what makes round creation
+// idempotent and round completion happen exactly once.
+export async function inConversation(user, conversationId, callback) {
   const otherId = counterpart(String(user.id), conversationId);
   if (!otherId) throw new ApiError('CONVERSATION_UNAVAILABLE', 404);
   return tx(async q => {
@@ -147,6 +154,15 @@ async function inConversation(user, conversationId, callback) {
     const context = await authorize(user, conversationId, q);
     return callback(q, context);
   });
+}
+
+// The conversation row is created lazily by the first thing that needs it — a message, a
+// read watermark, or a game round. The id is the canonical pair, so the participants are
+// derivable from it and no caller can name a conversation that is not its own.
+export function ensureConversation(q, conversationId) {
+  return q(`INSERT INTO conversations(conversation_id,participant_a,participant_b,match_id,status,created_at,updated_at)
+    VALUES ($1,$2,$3,$1,'open',now(),now()) ON CONFLICT(conversation_id) DO NOTHING`,
+    [conversationId, ...String(conversationId).split('_')]);
 }
 
 async function listMessages(req, res, user) {
@@ -168,9 +184,7 @@ async function markRead(req, res, user) {
   await inConversation(user, conversationId, async (q, context) => {
     const claimed = new Date(req.body?.lastMessageAt || 0).getTime();
     const watermark = new Date(Math.max(0, Math.min(Date.now(), Number.isFinite(claimed) ? claimed : 0)));
-    await q(`INSERT INTO conversations(conversation_id,participant_a,participant_b,match_id,status,created_at,updated_at)
-      VALUES ($1,$2,$3,$1,'open',now(),now()) ON CONFLICT(conversation_id) DO NOTHING`,
-      [conversationId,...conversationId.split('_')]);
+    await ensureConversation(q, conversationId);
     await q(`INSERT INTO conversation_reads(conversation_id,user_id,last_read_at) VALUES($1,$2,$3)
       ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_read_at=GREATEST(conversation_reads.last_read_at,EXCLUDED.last_read_at)`,
       [conversationId,context.me,watermark]);
@@ -189,8 +203,7 @@ async function sendMessage(req, res, user) {
       if (String(existing.rows[0].sender_id) !== context.me) throw new ApiError('INVALID_ACTION',409);
       return { message: messageView(existing.rows[0]), duplicate: true, context };
     }
-    await q(`INSERT INTO conversations(conversation_id,participant_a,participant_b,match_id,status,created_at,updated_at)
-      VALUES($1,$2,$3,$1,'open',now(),now()) ON CONFLICT(conversation_id) DO NOTHING`, [conversationId,...conversationId.split('_')]);
+    await ensureConversation(q, conversationId);
     const inserted = await q(`INSERT INTO messages(conversation_id,client_id,sender_id,text,created_at)
       SELECT $1,$2,$3,$4,GREATEST(clock_timestamp(),COALESCE(last_message_at + interval '1 millisecond',clock_timestamp()))
       FROM conversations WHERE conversation_id=$1 RETURNING client_id,sender_id,text,created_at`, [conversationId,clientId,context.me,text]);

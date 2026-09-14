@@ -47,7 +47,13 @@ export const RATE_LIMITS = {
   // Message reads come from the Mini App's polling loop (~4s while a conversation is open).
   // The client now marks read only when there is something unread, but a conversation left
   // open all day still polls: the hourly ceiling must be above the poll loop's consumption.
-  messages_read: [{ limit: 30, windowSeconds: 30 }, { limit: 3600, windowSeconds: 3600 }]
+  messages_read: [{ limit: 30, windowSeconds: 30 }, { limit: 3600, windowSeconds: 3600 }],
+  // The post-match conversation game. Writes are a round start or one of five answers, so a
+  // whole round is six calls; the ceiling stops a script, never two people playing. The game
+  // deliberately does NOT share the messaging buckets: polling a round must never consume
+  // someone's ability to send a message.
+  game: [{ limit: 20, windowSeconds: 60 }, { limit: 200, windowSeconds: 3600 }],
+  game_read: [{ limit: 30, windowSeconds: 30 }, { limit: 3600, windowSeconds: 3600 }]
 };
 
 export class RateLimitError extends Error {

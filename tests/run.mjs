@@ -6,7 +6,7 @@ await testSql('SELECT 1');
 process.env.BEZY_TEST_SERIALIZED = '1';
 const kind = process.argv[2] || 'all';
 const suites = kind === 'e2e' ? [] : kind === 'all'
-  ? ['contract', 'profileText', 'localization', 'discovery', 'backend', 'security', 'db'] : [kind];
+  ? ['contract', 'profileText', 'localization', 'discovery', 'backend', 'security', 'game', 'db'] : [kind];
 let failed = false;
 async function run(args) {
   const code = await new Promise(resolve => {
