@@ -5,6 +5,7 @@ import { isPremiumActive } from './_premium.js';
 import { rateLimit } from './_ratelimit.js';
 import { deliverNotification } from './_notify.js';
 import { processingPaused } from './_privacy.js';
+import { GAME_ACTIONS, gameRateLimitBucket, handleGameAction } from './_game.js';
 
 // Bezy-native conversations between matched users (ADR 0009). Telegram keeps identity and
 // notifications; Bezy stores and delivers the messages inside the Mini App.
@@ -227,13 +228,19 @@ export default async function handler(req, res) {
   if (!user) return;
 
   const action = String(req.body?.action || '');
-  if (!['list', 'send', 'read'].includes(action)) return res.status(400).json({ error: 'INVALID_ACTION' });
+  // The post-match game is a capability of the conversation, so it is served by the
+  // conversation's own route: same authorization chain, same typed errors, same handler —
+  // and no second serverless function (the platform ceiling is 12 per deployment).
+  const isGame = GAME_ACTIONS.includes(action);
+  if (!isGame && !['list', 'send', 'read'].includes(action)) return res.status(400).json({ error: 'INVALID_ACTION' });
 
   // Sends and reads share the conversation quota surface; sends are additionally capped by
-  // the tighter messages bucket inside the same limiter.
-  if (!(await rateLimit(null, res, user.id, action === 'send' ? 'messages' : 'messages_read'))) return;
+  // the tighter messages bucket inside the same limiter. The game keeps its own buckets.
+  const bucket = isGame ? gameRateLimitBucket(action) : (action === 'send' ? 'messages' : 'messages_read');
+  if (!(await rateLimit(null, res, user.id, bucket))) return;
 
   try {
+    if (isGame) return await handleGameAction(action, req, res, user, { inConversation, ensureConversation });
     if (action === 'list') return await listMessages(req, res, user);
     if (action === 'read') return await markRead(req, res, user);
     return await sendMessage(req, res, user);

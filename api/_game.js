@@ -1,20 +1,22 @@
 import crypto from 'node:crypto';
 import { ApiError } from './_db.js';
-import { requirePost, requireTelegramUser } from './_telegram.js';
-import { rateLimit } from './_ratelimit.js';
-import { inConversation, ensureConversation } from './messages.js';
 import { GAME_ID, isQuestionId, isChoice, selectQuestions, roundView } from './_thisorthat.js';
 
 // Bezy — post-match conversation game (THIS OR THAT).
 //
-// The game is a capability OF a conversation, not a separate product. Every route enters
-// through `inConversation()` from api/messages.js, which is the one authorization chain the
-// product has: the caller comes from validated Telegram initData, the counterpart is derived
-// from the conversation id, and the match, the block mirrors, the reciprocal likes, the
-// processing-restriction state, the age declaration and the Premium entitlement are all
-// re-verified inside a transaction that holds the match row. Nothing about the game can
-// outlive a block, an unmatch, a closed conversation or a lapsed membership, because none of
-// it is checked here — it is checked there, once, for messaging and the game alike.
+// The game is a capability OF a conversation, not a separate product — and it is served by
+// the conversation's own route rather than one of its own. api/messages.js dispatches the
+// `game_*` actions here and hands in the conversation gate, which is the one authorization
+// chain the product has: the caller comes from validated Telegram initData, the counterpart
+// is derived from the conversation id, and the match, the block mirrors, the reciprocal
+// likes, the processing-restriction state, the age declaration and the Premium entitlement
+// are all re-verified inside a transaction that holds the match row. Nothing about the game
+// can outlive a block, an unmatch, a closed conversation or a lapsed membership, because
+// none of it is checked here — it is checked there, once, for messaging and the game alike.
+//
+// The gate is injected rather than imported so that this module and api/messages.js do not
+// import each other. That also keeps the game off the route table: an `_`-prefixed module is
+// not a serverless function, and the deployment has a hard 12-function ceiling.
 //
 // Three rules the code below exists to enforce:
 //
@@ -80,7 +82,7 @@ function conversationIdOf(req) {
 }
 
 /** The current round of a conversation, or null when there has never been one. */
-async function readState(req, res, user) {
+async function readState(req, res, user, { inConversation }) {
   const conversationId = conversationIdOf(req);
   const round = await inConversation(user, conversationId, async (q, context) => {
     const current = await readRound(q, conversationId);
@@ -95,7 +97,7 @@ async function readState(req, res, user) {
  * starting at once) resolve to the same single active round; the partial unique index
  * `game_rounds_active_idx` is the database's own guarantee of the same invariant.
  */
-async function startRound(req, res, user) {
+async function startRound(req, res, user, { inConversation, ensureConversation }) {
   const conversationId = conversationIdOf(req);
   const round = await inConversation(user, conversationId, async (q, context) => {
     const current = await readRound(q, conversationId);
@@ -126,7 +128,7 @@ async function startRound(req, res, user) {
  * choice is an idempotent retry, a different choice is refused with ANSWER_FINAL and the
  * stored answer is returned untouched, so no one can revise a pick after seeing the reveal.
  */
-async function submitAnswer(req, res, user) {
+async function submitAnswer(req, res, user, { inConversation }) {
   const conversationId = conversationIdOf(req);
   const roundId = String(req.body?.roundId || '');
   const questionId = String(req.body?.questionId || '');
@@ -170,28 +172,31 @@ async function submitAnswer(req, res, user) {
   return res.status(200).json({ ok: true, conversationId, game: GAME_ID, round: result.round });
 }
 
-export default async function handler(req, res) {
-  if (!requirePost(req, res)) return;
-  const user = requireTelegramUser(req, res);
-  if (!user) return;
+/**
+ * The game actions of the conversation route. They are namespaced rather than plain
+ * (`game_start`, not `start`) so they can never collide with a messaging action.
+ */
+export const GAME_ACTIONS = ['game_state', 'game_start', 'game_answer'];
 
-  const action = String(req.body?.action || '');
-  if (!['state', 'start', 'answer'].includes(action)) return res.status(400).json({ error: 'INVALID_ACTION' });
+/**
+ * Reads ride the conversation polling loop, so they get the looser bucket; starting a round
+ * and answering write rows and get the tighter one. The game keeps its own buckets: polling
+ * a round must never consume someone's ability to send a message.
+ */
+export function gameRateLimitBucket(action) {
+  return action === 'game_state' ? 'game_read' : 'game';
+}
 
-  // Reads ride the conversation polling loop, so they get the looser bucket; starting a
-  // round and answering write rows and get the tighter one.
-  if (!(await rateLimit(null, res, user.id, action === 'state' ? 'game_read' : 'game'))) return;
-
-  try {
-    if (action === 'state') return await readState(req, res, user);
-    if (action === 'start') return await startRound(req, res, user);
-    return await submitAnswer(req, res, user);
-  } catch (error) {
-    // Typed codes only: the Mini App renders them from its locale catalogue and a database
-    // or driver detail never reaches the browser.
-    if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
-    if (error.status) return res.status(error.status).json({ error: error.message });
-    console.error('Game request failed:', error);
-    return res.status(500).json({ error: 'DATABASE_UNAVAILABLE' });
-  }
+/**
+ * Dispatches one game action. `gate` carries the conversation authorization chain
+ * (`inConversation`, `ensureConversation`) from api/messages.js — injected, so the two
+ * modules never import each other, and so there is visibly only ONE gate.
+ *
+ * Throws typed errors; api/messages.js's handler maps them, exactly as it does for
+ * messaging, so a database or driver detail never reaches the browser.
+ */
+export function handleGameAction(action, req, res, user, gate) {
+  if (action === 'game_state') return readState(req, res, user, gate);
+  if (action === 'game_start') return startRound(req, res, user, gate);
+  return submitAnswer(req, res, user, gate);
 }

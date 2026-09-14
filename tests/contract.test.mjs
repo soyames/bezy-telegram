@@ -258,7 +258,8 @@ section('Messaging API contract');
 // ------------------------------------------- post-match conversation game (THIS OR THAT)
 section('This or That API contract');
 {
-  const gameSource = read('api/game.js');
+  const gameSource = read('api/_game.js');
+  const conversationSource = read('api/messages.js');
   const bankSource = read('api/_thisorthat.js');
   const appSource = read('app.js');
 
@@ -266,14 +267,15 @@ section('This or That API contract');
   // authorization chain — one gate, reused, is what makes block/unmatch/Premium/pause
   // behave identically for messaging and for the game.
   check('the game enters through the conversation authorization chain',
-    gameSource.includes("from './messages.js'") && gameSource.includes('inConversation('),
-    'api/game.js does not reuse inConversation()');
+    conversationSource.includes("from './_game.js'") && conversationSource.includes('handleGameAction(action, req, res, user, { inConversation, ensureConversation })')
+      && gameSource.includes('inConversation('),
+    'the game does not run through the conversation gate');
   check('the game re-implements no gate of its own',
     !/FROM matches|FROM blocks|FROM blocked_by|isPremiumActive|processingPaused/.test(gameSource),
-    'api/game.js duplicates an authorization check instead of reusing the conversation gate');
+    'api/_game.js duplicates an authorization check instead of reusing the conversation gate');
   check('the caller is derived from initData, never accepted from the request',
-    gameSource.includes('requireTelegramUser') && !/body\?\.(userId|senderId|participantId)/.test(gameSource),
-    'api/game.js accepts an identity from the request body');
+    conversationSource.includes('requireTelegramUser') && !/body\?\.(userId|senderId|participantId)/.test(gameSource + conversationSource),
+    'an identity is accepted from the request body');
 
   // Anti-peeking is a SQL-level rule: the counterpart's choice is not selected at all until
   // the caller has answered that same question. CSS and client code are never the boundary.
@@ -357,8 +359,28 @@ section('This or That API contract');
     'a score-like claim entered the game copy');
   check('the game has its own rate-limit buckets rather than spending the messaging ones',
     read('api/_ratelimit.js').includes('game: [{ limit: 20') && read('api/_ratelimit.js').includes('game_read:')
-      && gameSource.includes("'game_read' : 'game'"),
+      && gameSource.includes("'game_read' : 'game'") && conversationSource.includes('gameRateLimitBucket(action)'),
     'the game shares a bucket with messaging');
+
+  // The deployment ceiling is a platform fact, not a style preference: the hosting plan
+  // refuses a deployment with more than 12 Serverless Functions, and the 13th does not fail
+  // on its own — it fails the WHOLE deploy, leaving the previous build live. That is exactly
+  // how the game's first production deploy failed, so the count is pinned here. Files and
+  // directories under api/ whose name starts with `_` are private modules, not routes.
+  const routable = [];
+  (function walkApi(dir) {
+    for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      if (entry.name.startsWith('_')) continue;
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walkApi(rel);
+      else if (entry.name.endsWith('.js')) routable.push(rel);
+    }
+  })('api');
+  check('the deployment stays within the 12-function platform ceiling',
+    routable.length <= 12, `${routable.length} functions: ${routable.join(', ')}`);
+  check('the game is served by the conversation route, not a function of its own',
+    !routable.includes('api/game.js') && fs.existsSync(path.join(root, 'api/_game.js')),
+    routable.join(', '));
 }
 
 // ---------------------------------------------------------------- premium insight (PR-8)

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 // THIS OR THAT — the optional post-match conversation game, driven through the real Mini App.
 //
-// PostgreSQL-free: the API is stubbed by a small in-memory model of the real /api/game
+// PostgreSQL-free: the API is stubbed by a small in-memory model of the real game actions
 // contract, including its anti-peeking rule (an unrevealed answer is simply not in the
 // payload). The server-side enforcement of that rule — plus idempotency, finality,
 // authorization and the block/unmatch lifecycle — is proved against the real database in
@@ -33,7 +33,7 @@ const ME = '900000001';
 const THEM = '900000002';
 
 /**
- * A faithful miniature of api/game.js: the same states, the same redaction. `theirs` is
+ * A faithful miniature of api/_game.js: the same states, the same redaction. `theirs` is
  * populated only for a question the viewer has already answered — exactly like the server,
  * where the counterpart's choice is not even SELECTed before that.
  */
@@ -78,22 +78,20 @@ async function stubApi(page, options = {}) {
     if (url.pathname === '/api/matches') return route.fulfill({ json: { ok: true, matches } });
     if (url.pathname === '/api/discover') return route.fulfill({ json: { ok: true, profiles: [], stats: null, preferences: null } });
     if (url.pathname === '/api/premium') return route.fulfill({ json: { ok: true, premium: { active: true }, plans: [] } });
+    // The game rides the conversation route: same endpoint, same Premium gate, namespaced
+    // `game_*` actions. There is no separate game function to stub.
     if (url.pathname === '/api/messages') {
+      if (String(body.action || '').startsWith('game_')) calls.push(body.action);
       if (premiumRequired) return route.fulfill({ status: 403, json: { error: 'PREMIUM_REQUIRED' } });
       if (body.action === 'send') { messages.push({ id: body.clientId, senderId: ME, text: body.text, createdAt: new Date().toISOString() }); return route.fulfill({ json: { ok: true, message: messages.at(-1) } }); }
       if (body.action === 'list') return route.fulfill({ json: { ok: true, conversationId: body.conversationId, messages } });
-      return route.fulfill({ json: { ok: true } });
-    }
-    if (url.pathname === '/api/game') {
-      calls.push(body.action);
-      if (premiumRequired) return route.fulfill({ status: 403, json: { error: 'PREMIUM_REQUIRED' } });
-      if (body.action === 'state') return route.fulfill({ json: { ok: true, round: exists ? model.viewFor(ME) : null } });
-      if (body.action === 'start') {
+      if (body.action === 'game_state') return route.fulfill({ json: { ok: true, round: exists ? model.viewFor(ME) : null } });
+      if (body.action === 'game_start') {
         if (failStart) return route.fulfill({ status: 500, json: { error: 'DATABASE_UNAVAILABLE' } });
         exists = true; // idempotent: the same round comes back however often this is called
         return route.fulfill({ json: { ok: true, round: model.viewFor(ME) } });
       }
-      if (body.action === 'answer') {
+      if (body.action === 'game_answer') {
         const key = `${body.questionId}:${ME}`;
         if (model.round.answers[key] && model.round.answers[key] !== body.choice) {
           return route.fulfill({ status: 409, json: { error: 'ANSWER_FINAL', round: model.viewFor(ME) } });
@@ -101,7 +99,7 @@ async function stubApi(page, options = {}) {
         model.round.answers[key] ||= body.choice;
         return route.fulfill({ json: { ok: true, round: model.viewFor(ME) } });
       }
-      return route.fulfill({ status: 400, json: { error: 'INVALID_ACTION' } });
+      return route.fulfill({ json: { ok: true } });
     }
     return route.fulfill({ json: { ok: true } });
   });
@@ -169,7 +167,7 @@ test('B cannot see A’s picks before answering, then the reveal arrives questio
 
   // Nothing about the counterpart's picks is on the page — or in the payload behind it.
   const payload = await page.evaluate(async () => {
-    const response = await fetch('/api/game', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'state', conversationId: '900000001_900000002' }) });
+    const response = await fetch('/api/messages', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'game_state', conversationId: '900000001_900000002' }) });
     return response.json();
   });
   expect(payload.round.questions.every((q) => q.theirs === null && q.revealed === false)).toBe(true);
@@ -238,7 +236,7 @@ test('a double tap on Start never produces two rounds', async ({ page }) => {
 
   await expect(page.locator('.tot-options')).toHaveCount(1);
   await expect(page.locator('.tot-progress')).toHaveText(en.tot_progress.replace('{n}', '1').replace('{total}', '5'));
-  const starts = (await page.evaluate(() => window.__gameCalls())).filter((action) => action === 'start');
+  const starts = (await page.evaluate(() => window.__gameCalls())).filter((action) => action === 'game_start');
   expect(starts).toHaveLength(1);
   expect(stub.model.round.roundId).toBe('round-1');
 });

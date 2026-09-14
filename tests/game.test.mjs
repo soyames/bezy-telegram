@@ -1,6 +1,6 @@
 // Bezy — THIS OR THAT: database, API, authorization and privacy suite.
 //
-// Drives the REAL /api/game handler through the harness against the ISOLATED bezy_test
+// Drives the REAL game actions of /api/messages through the harness against the ISOLATED bezy_test
 // database, and asserts DATABASE STATE with direct SQL wherever the claim is about the
 // database rather than about a response. The point of this suite is that the invariants hold
 // in PostgreSQL — one active round per conversation, one answer per participant per
@@ -60,9 +60,9 @@ async function matchedPair() {
 
 const rounds = () => sql('SELECT * FROM game_rounds ORDER BY created_at, round_id').then((r) => r.rows);
 const answers = (roundId) => sql('SELECT * FROM game_answers WHERE round_id = $1 ORDER BY question_id, user_id', [roundId]).then((r) => r.rows);
-const start = (who) => call('/api/game', who, { action: 'start', conversationId: CID });
-const state = (who, lang) => call('/api/game', who, { action: 'state', conversationId: CID, ...(lang ? { lang } : {}) });
-const answer = (who, roundId, questionId, choice) => call('/api/game', who, { action: 'answer', conversationId: CID, roundId, questionId, choice });
+const start = (who) => call('/api/messages', who, { action: 'game_start', conversationId: CID });
+const state = (who, lang) => call('/api/messages', who, { action: 'game_state', conversationId: CID, ...(lang ? { lang } : {}) });
+const answer = (who, roundId, questionId, choice) => call('/api/messages', who, { action: 'game_answer', conversationId: CID, roundId, questionId, choice });
 
 /** Answers every question of a round for one participant. */
 async function answerAll(who, round, choose = () => 'a') {
@@ -261,22 +261,22 @@ try {
 
   // ------------------------------------------------------------------ K
   section('K — authorization: only the two participants may touch a round');
-  r = await call('/api/game', 'c', { action: 'state', conversationId: CID });
+  r = await call('/api/messages', 'c', { action: 'game_state', conversationId: CID });
   check('a stranger cannot read the round', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE', JSON.stringify(r.data));
-  r = await call('/api/game', 'c', { action: 'start', conversationId: CID });
+  r = await call('/api/messages', 'c', { action: 'game_start', conversationId: CID });
   check('a stranger cannot start a round in someone else’s conversation', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
-  r = await call('/api/game', 'c', { action: 'answer', conversationId: CID, roundId: second.roundId, questionId: second.questions[0].id, choice: 'a' });
+  r = await call('/api/messages', 'c', { action: 'game_answer', conversationId: CID, roundId: second.roundId, questionId: second.questions[0].id, choice: 'a' });
   check('a stranger cannot answer someone else’s round', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
   check('the stranger wrote nothing', (await answers(second.roundId)).length === 0);
-  r = await call('/api/game', 'c', { action: 'state', conversationId: '900000003_900000001' });
+  r = await call('/api/messages', 'c', { action: 'game_state', conversationId: '900000003_900000001' });
   check('an unmatched pair has no game', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
-  r = await call('/api/game', 'a', { action: 'state', conversationId: '900000002_900000003' });
+  r = await call('/api/messages', 'a', { action: 'game_state', conversationId: '900000002_900000003' });
   check('a participant cannot read a conversation they are not in', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
-  r = await call('/api/game', 'a', { action: 'state', conversationId: '900000001_900000002/x' });
+  r = await call('/api/messages', 'a', { action: 'game_state', conversationId: '900000001_900000002/x' });
   check('a malformed conversation id is a 404, never a database error', r.status === 404 && r.data.error === 'CONVERSATION_UNAVAILABLE');
-  r = await call('/api/game', 'user=%7B%22id%22%3A1%7D&hash=deadbeef', { action: 'state', conversationId: CID });
+  r = await call('/api/messages', 'user=%7B%22id%22%3A1%7D&hash=deadbeef', { action: 'game_state', conversationId: CID });
   check('forged initData is rejected', r.status === 401 && r.data.error === 'INVALID_SESSION');
-  r = await call('/api/game', 'a', { action: 'answer', conversationId: CID, roundId: second.roundId, questionId: second.questions[0].id, choice: 'a', userId: '900000002' });
+  r = await call('/api/messages', 'a', { action: 'game_answer', conversationId: CID, roundId: second.roundId, questionId: second.questions[0].id, choice: 'a', userId: '900000002' });
   check('a forged userId is ignored — the authenticated caller answers', r.status === 200 && r.data.round.questions[0].mine === 'a');
   check('the answer was attributed to the authenticated caller',
     (await answers(second.roundId)).every((row) => String(row.user_id) === '900000001'));
@@ -304,10 +304,14 @@ try {
   check('an unknown choice is rejected', r.status === 400 && r.data.error === 'INVALID_ACTION');
   r = await answer('a', mine.roundId, QUESTION_IDS.find((id) => !mine.questions.some((q) => q.id === id)), 'a');
   check('a valid question outside this round is refused', r.status === 404 && r.data.error === 'GAME_UNAVAILABLE');
-  r = await call('/api/game', 'a', { action: 'destroy', conversationId: CID });
+  r = await call('/api/messages', 'a', { action: 'destroy', conversationId: CID });
   check('an unknown action is rejected', r.status === 400 && r.data.error === 'INVALID_ACTION');
-  const getRes = await fetch(`${BASE}/api/game`, { method: 'GET' });
+  const getRes = await fetch(`${BASE}/api/messages`, { method: 'GET' });
   check('GET is not allowed', getRes.status === 405);
+  // The game is served by the conversation route and is NOT a serverless function of its
+  // own: the deployment ceiling is 12, and a 13th function fails the whole deploy.
+  const gameRoute = await fetch(`${BASE}/api/game`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  check('there is no separate game route', gameRoute.status === 404, String(gameRoute.status));
 
   // ------------------------------------------------------------------ Premium
   section('The game follows the conversation’s Premium rule — it never routes around it');
@@ -387,8 +391,8 @@ try {
   await seedRow('users', ['900000001'], { locale: 'fr' });
   await seedRow('users', ['900000002'], { locale: 'de' });
   const shared = (await start('a')).data.round;
-  const frenchView = await call('/api/game', 'a', { action: 'state', conversationId: CID, lang: 'fr' });
-  const germanView = await call('/api/game', 'b', { action: 'state', conversationId: CID, lang: 'de' });
+  const frenchView = await call('/api/messages', 'a', { action: 'game_state', conversationId: CID, lang: 'fr' });
+  const germanView = await call('/api/messages', 'b', { action: 'game_state', conversationId: CID, lang: 'de' });
   check('both participants are in the same round', frenchView.data.round.roundId === germanView.data.round.roundId);
   check('both see the same canonical question ids in the same order',
     JSON.stringify(frenchView.data.round.questions.map((q) => q.id)) === JSON.stringify(germanView.data.round.questions.map((q) => q.id)),

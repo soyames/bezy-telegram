@@ -1,5 +1,5 @@
 const tg = window.Telegram?.WebApp;
-const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account', support: '/api/support', messages: '/api/messages', game: '/api/game' };
+const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account', support: '/api/support', messages: '/api/messages' };
 const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null, chatPollTick: 0, chatCache: new Map(), swipeInFlight: false, matchesError: false, likesError: false, premiumCheckPending: false, quota: null, totSheetRound: false };
 const $ = (id) => document.getElementById(id);
 
@@ -985,7 +985,7 @@ async function loadGameState() {
   const chat = state.chat;
   if (!chat || chat.locked || chat.unavailable) return;
   try {
-    const data = await api(API.game, { body: { action: 'state', conversationId: chat.match.matchId } });
+    const data = await api(API.messages, { body: { action: 'game_state', conversationId: chat.match.matchId } });
     if (state.chat !== chat) return;
     chat.game = { ...(chat.game || {}), round: data.round || null };
     renderGameCard();
@@ -1116,7 +1116,7 @@ async function startGameRound() {
   if (!chat || chat.game?.inFlight) return;
   chat.game = { ...(chat.game || {}), inFlight: true };
   try {
-    const data = await api(API.game, { body: { action: 'start', conversationId: chat.match.matchId } });
+    const data = await api(API.messages, { body: { action: 'game_start', conversationId: chat.match.matchId } });
     if (state.chat !== chat) return;
     chat.game = { round: data.round || null, inFlight: false };
     renderGameCard();
@@ -1135,7 +1135,7 @@ async function answerGameQuestion(questionId, choice) {
   if (!chat || !chat.game?.round || chat.game.inFlight) return;
   chat.game = { ...(chat.game || {}), inFlight: true };
   try {
-    const data = await api(API.game, { body: { action: 'answer', conversationId: chat.match.matchId, roundId: chat.game.round.roundId, questionId, choice } });
+    const data = await api(API.messages, { body: { action: 'game_answer', conversationId: chat.match.matchId, roundId: chat.game.round.roundId, questionId, choice } });
     if (state.chat !== chat) return;
     chat.game = { round: data.round || null, inFlight: false };
     if (chat.game.round?.state === 'completed') markTotSeen(chat.game.round.roundId);
