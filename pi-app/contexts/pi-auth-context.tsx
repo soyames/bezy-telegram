@@ -219,12 +219,24 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
     setRestoredPurchases(null);
     try {
       // Probe for parent credentials (App Studio iframe environment).
-      // When running inside App Studio's restore-preview iframe, SDKLite.login()
-      // cannot complete outside the Pi CDN wrapper and would hang indefinitely.
+      // SDKLite.login() cannot complete inside that iframe — it hangs outside the Pi CDN
+      // wrapper — so the payment SDK is skipped here. The shared `pi` client must still be
+      // logged in, because it owns user state: without it `user` stays null, the load
+      // effect in bezy-context (gated on user.uid) never runs, and every save is rejected
+      // with "Pi SDK is not available". The app then looks wiped on each open.
       const parentCredentials = await requestParentCredentials();
-      if (parentCredentials) {
-        setIsAuthenticated(true);
-        return;
+      if (parentCredentials && typeof pi.auth.loginWithAccessToken === "function") {
+        try {
+          setAuthMessage("Logging in...");
+          const piUser = await pi.auth.loginWithAccessToken(parentCredentials.accessToken);
+          setUser(piUser);
+          setIsAuthenticated(true);
+          return;
+        } catch (err) {
+          // Fall through to the full initialization below rather than trapping the user
+          // on a dead screen; that path re-runs the same exchange from a fresh session.
+          console.error("App Studio iframe login failed, falling back to the Pi SDK:", err);
+        }
       }
 
       setAuthMessage("Loading Pi SDK...");

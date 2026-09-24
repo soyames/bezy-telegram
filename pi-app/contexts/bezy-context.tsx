@@ -274,21 +274,38 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     configurePhotoAccount(user.uid);
     let cancelled = false;
     (async () => {
+      // One retry per key, then surface it. These reads are independent, and the previous
+      // Promise.all threw the whole session away if any single one rejected: every key
+      // reset to its default at once, the app looked freshly installed, and onboarding
+      // then wrote those defaults over real data.
+      const readKey = async (key: string) => {
+        try {
+          return await pi.userState.get(key);
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          return pi.userState.get(key);
+        }
+      };
+
       try {
-        const [c, p, pr, dec, m, th, rep, bl, ml, sf, pm] = await Promise.all([
-          pi.userState.get(KEYS.consent),
-          pi.userState.get(KEYS.profile),
-          pi.userState.get(KEYS.prefs),
-          pi.userState.get(KEYS.decisions),
-          pi.userState.get(KEYS.matches),
-          pi.userState.get(KEYS.threads),
-          pi.userState.get(KEYS.reports),
-          pi.userState.get(KEYS.blocks),
-          pi.userState.get(KEYS.modlog),
-          pi.userState.get(KEYS.safety),
-          pi.userState.get(KEYS.premium),
-        ]);
+        const settled = await Promise.allSettled([
+          KEYS.consent,
+          KEYS.profile,
+          KEYS.prefs,
+          KEYS.decisions,
+          KEYS.matches,
+          KEYS.threads,
+          KEYS.reports,
+          KEYS.blocks,
+          KEYS.modlog,
+          KEYS.safety,
+          KEYS.premium,
+        ].map(readKey));
         if (cancelled) return;
+        if (settled.some((r) => r.status === "rejected")) setStorageTrouble(true);
+        const [c, p, pr, dec, m, th, rep, bl, ml, sf, pm] = settled.map((r) =>
+          r.status === "fulfilled" ? r.value : null,
+        );
         setConsent(sanitizeConsent(c));
         setProfile(sanitizeProfile(p));
         setPrefs(sanitizePrefs(pr));

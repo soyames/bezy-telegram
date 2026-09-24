@@ -20,6 +20,12 @@ export type PiUser = PiAuthResult["user"];
 export interface PiAuthApi {
   /** Logs in through Pi and the App Studio backend. Returns the cached user after the first call. */
   login: () => Promise<PiUser>;
+  /**
+   * Same exchange as login(), but for a caller that already holds a Pi access token —
+   * App Studio's iframe hands one to the page, and that environment cannot run
+   * `Pi.authenticate`. Returns the cached user after the first call.
+   */
+  loginWithAccessToken: (accessToken: string) => Promise<PiUser>;
   getUser: () => PiUser | null;
   isLoggedIn: () => boolean;
   /** Forgets the cached user and token so the next login() authenticates again. */
@@ -121,14 +127,7 @@ function createAuth(): AuthSession {
     }
 
     const result = await window.Pi.authenticate(AUTH_SCOPES, onIncompletePaymentFound);
-    const response = await request<LoginResponse>(`${AUTH_BASE_PATH}/login`, {
-      method: "POST",
-      body: JSON.stringify({ accessToken: result.accessToken }),
-    });
-
-    sessionToken = response.sessionToken;
-    user = response.user;
-    return user;
+    return exchange(result.accessToken);
   }
 
   function login(): Promise<PiUser> {
@@ -136,6 +135,26 @@ function createAuth(): AuthSession {
     if (inflight) return inflight;
 
     inflight = authenticate().finally(() => {
+      inflight = null;
+    });
+    return inflight;
+  }
+
+  async function exchange(accessToken: string): Promise<PiUser> {
+    const response = await request<LoginResponse>(`${AUTH_BASE_PATH}/login`, {
+      method: "POST",
+      body: JSON.stringify({ accessToken }),
+    });
+    sessionToken = response.sessionToken;
+    user = response.user;
+    return user;
+  }
+
+  function loginWithAccessToken(accessToken: string): Promise<PiUser> {
+    if (user) return Promise.resolve(user);
+    if (inflight) return inflight;
+
+    inflight = exchange(accessToken).finally(() => {
       inflight = null;
     });
     return inflight;
@@ -158,6 +177,7 @@ function createAuth(): AuthSession {
   return {
     api: {
       login,
+      loginWithAccessToken,
       getUser: () => user,
       isLoggedIn: () => user !== null,
       reset,
