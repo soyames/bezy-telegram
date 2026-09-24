@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { PersonPhoto, ProviderBadge } from "@/components/bezy/pieces";
+import { PersonPhoto } from "@/components/bezy/pieces";
 import {
   Button,
   IconHeartFilled,
@@ -124,7 +124,6 @@ export function DiscoverScreen() {
                 <h2 className="font-display text-2xl font-bold text-white">
                   {person.name} <span className="text-white/85">{person.age}</span>
                 </h2>
-                <ProviderBadge provider={person.provider} />
               </div>
               <p className="mt-0.5 flex items-center gap-1.5 text-sm text-white/85">
                 <IconPin className="h-4 w-4" />

@@ -14,7 +14,8 @@ function t(key) { return key.split('.').reduce((value, part) => value?.[part], s
 // NEW, so most catalogues do not hold it yet. t() answers with the dotted key when a
 // catalogue is missing one; st() keeps that fallback English instead. The values below are
 // the English wording — the same wording locales/en.json carries under `shared_<key>`.
-const SHARED_COPY = { pi_badge: 'Pi Network', shared_matches: 'Pi Network', shared_matches_note: 'People you match with from the Pi Network appear here.', shared_deck_note: 'from the Pi Network', shared_offline: 'Community service is unavailable right now.', social_loading: 'Loading…', you_prefix: 'You: ' };
+// One community, so none of this copy names a network.
+const SHARED_COPY = { shared_offline: 'Community service is unavailable right now.', social_loading: 'Loading…', you_prefix: 'You: ' };
 function st(key) { const value = t('app.shared_' + key); return value === 'app.shared_' + key ? (SHARED_COPY[key] || key) : value; }
 
 // Locale resolution mirrors api/_telegram.js (normalizeLanguageTag/resolveLanguage), pinned
@@ -296,6 +297,9 @@ async function refreshDatingPhotos() {
   }
   const input = $('dating-photo-upload');
   if (input) input.disabled = photos.length >= 6;
+  // The hero reads datingPhotoUrls, so it has to repaint once the bytes have landed —
+  // otherwise a fresh open shows the Telegram avatar until something else triggers a render.
+  renderAccount();
 }
 async function syncTelegramMedia() {
   await media('member', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -324,7 +328,8 @@ function showView(view) {
   if (state.view === 'discover') loadDiscover();
   if (state.view === 'matches') loadMatches();
   if (state.view === 'messages') loadMatches(true);
-  if (state.view === 'profile') renderAccount();
+  // The hero shows the member's own dating photo, which has to be fetched before it can.
+  if (state.view === 'profile') { renderAccount(); void refreshDatingPhotos().catch(() => {}); }
   if (state.view === 'premium') loadPremium();
   window.scrollTo?.({ top: 0, behavior: 'smooth' });
 }
@@ -572,7 +577,9 @@ function setProfileTab(tab) {
 function renderAccount() {
   const account = state.account || {}, profile = account.profile || {};
   const name = profile.displayName || account.firstName || state.telegramUser?.first_name || t('app.bezy_member');
-  const photo = account.photoUrl || state.telegramUser?.photo_url || '';
+  // The member's own uploaded dating photo comes first: it is the one they chose to be seen
+  // with, and the one other members see. The Telegram avatar is only the fallback.
+  const photo = datingPhotoUrls[0] || account.photoUrl || state.telegramUser?.photo_url || '';
   if ($('my-name')) $('my-name').textContent = name;
   if ($('profile-status')) {
     $('profile-status').textContent = !account.profileComplete ? t('app.complete_profile')
@@ -687,11 +694,8 @@ function profileCardHtml(profile, { actions = false } = {}) {
   const bioTranslation = profile.translations?.bio;
   const meta = [profile.city, bioTranslation ? bioTranslation.text : profile.bio].filter(Boolean).map(escapeHtml).join(' · ');
   const isNewChip = profile.isNew ? `<span class="tag tag-new">🆕 ${escapeHtml(t('app.new_today'))}</span>` : '';
-  // A shared card says where it came from: the same deck now carries two communities, and
-  // "Pi Network" is the only thing that distinguishes them. Everything else on the card is
-  // the same card, so nothing about the legacy rendering changes.
-  const sharedChip = profile.isShared && profile.provider === 'pi' ? `<span class="tag tag-new">${escapeHtml(st('pi_badge'))}</span>` : '';
-  const tags = languageTags(profile.languages) + isNewChip + sharedChip
+  // One deck, one community: a card never says which network the person joined from.
+  const tags = languageTags(profile.languages) + isNewChip
     + (profile.interests || []).slice(0, 5).map((interest) => `<span class="tag">${escapeHtml(interest)}</span>`).join('');
   // "Why this person?" for everyone, computed only from facts the card already shows —
   // shared interests, shared languages, same city. Premium viewers get the richer numeric
@@ -1973,9 +1977,9 @@ function renderSocialMatches() {
   if (signature === state.socialSignature) return;
   state.socialSignature = signature;
   clearSocialPhotoUrls();
-  host.innerHTML = `<div class="section-head"><h3>${escapeHtml(st('shared_matches'))}</h3></div>
-    <p class="mf-note">${escapeHtml(st('shared_matches_note'))}</p>
-    ${matches.map(socialMatchRowHtml).join('')}`;
+  // No section header and no source label: Bezy is one community, and a match from one
+  // network is not a different kind of match from a match on the other.
+  host.innerHTML = matches.map(socialMatchRowHtml).join('');
   host.querySelectorAll('[data-shared-chat]').forEach((row) => {
     row.onclick = () => {
       const match = state.social.matches.find((m) => m.id === row.dataset.sharedChat);

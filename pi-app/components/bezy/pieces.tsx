@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { BezyMark, cx, IconClose, Pill, Spinner } from "@/components/bezy/ui";
+import { BezyMark, cx, IconClose, Spinner } from "@/components/bezy/ui";
 import { getPhotoUrl, loadPhotoUrl, subscribePhotos, viewedPhotoUrl } from "@/lib/bezy/photos";
 import { initialsOf, type PhotoRef } from "@/lib/bezy/data";
 import { useBezy } from "@/contexts/bezy-context";
@@ -292,15 +292,6 @@ export function PersonPhoto({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={name} className="h-full w-full object-cover" />
     </div>
-  );
-}
-
-/** Which network someone came from — one Bezy community, two ways in. */
-export function ProviderBadge({ provider }: { provider: "pi" | "telegram" }) {
-  return (
-    <Pill tone={provider === "telegram" ? "neutral" : "peach"}>
-      {provider === "telegram" ? "Telegram" : "Pi"}
-    </Pill>
   );
 }
 

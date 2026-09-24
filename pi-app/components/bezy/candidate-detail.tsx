@@ -2,7 +2,7 @@
 
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { ConfirmButton, Overlay, OverlayHeader, PersonPhoto, ProviderBadge } from "@/components/bezy/pieces";
+import { ConfirmButton, Overlay, OverlayHeader, PersonPhoto } from "@/components/bezy/pieces";
 import {
   Button,
   IconBan,
@@ -29,11 +29,10 @@ export function CandidateDetail() {
 
   const shared = sharedInterests(profile?.interests ?? [], seed.interests);
   const mine = new Set(profile?.interests ?? []);
-  // getSeed keeps its seed signature; people from the community service carry photos and a
-  // provider on top of it.
+  // getSeed keeps its seed signature; people from the community service carry photos on
+  // top of it. Which network they came from is never shown — one community, one profile.
   const serverPerson = seed as Partial<SharedPerson>;
   const photoIds = serverPerson.photoIds ?? [];
-  const provider = serverPerson.provider;
 
   return (
     <Overlay onClose={closeCandidate}>
@@ -76,7 +75,6 @@ export function CandidateDetail() {
             <div className="mt-3 flex flex-wrap gap-2">
               <Pill tone="rose">{lookingForLabel(seed.lookingFor)}</Pill>
               <Pill tone="plum">{genderLabel(seed.gender)}</Pill>
-              {provider ? <ProviderBadge provider={provider} /> : null}
               {shared > 0 ? (
                 <Pill tone="peach">
                   <IconSpark className="h-3.5 w-3.5" />

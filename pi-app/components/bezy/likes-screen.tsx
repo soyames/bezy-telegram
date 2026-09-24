@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { Overlay, OverlayHeader, PersonPhoto, ProviderBadge } from "@/components/bezy/pieces";
+import { Overlay, OverlayHeader, PersonPhoto } from "@/components/bezy/pieces";
 import {
   Button,
   IconHeartFilled,
@@ -155,7 +155,6 @@ export function LikesScreen() {
                       {person.name}{" "}
                       <span className="font-normal text-bz-muted">{person.age}</span>
                     </span>
-                    <ProviderBadge provider={person.provider} />
                   </div>
                   <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-bz-muted">
                     <IconPin className="h-3.5 w-3.5 shrink-0" />
