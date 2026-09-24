@@ -15,7 +15,7 @@ import {
 
 // The backend holds private Vercel Blob objects. Authentication stays on Pi;
 // each Vercel request is bound to a Pi token verified again by /v2/me.
-const API = process.env.NEXT_PUBLIC_BEZY_API_URL || "https://bezy-telegram.vercel.app";
+const API = process.env.NEXT_PUBLIC_BEZY_API_URL || "https://bezy-api.vercel.app";
 let tokenPromise: Promise<string> | null = null;
 
 /** A discoverable person from the shared Bezy community (Pi or Telegram). */

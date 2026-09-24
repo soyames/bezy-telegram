@@ -70,6 +70,11 @@ explicitly enabled.
   production branch still needs to be set to `BezyPiNetwork` in the
   dashboard (Settings → Git → Production Branch) — until then main pushes
   would attempt a root-pi-app build that cannot exist on main.
+- The `bezy-api` Vercel project hosts `shared-api/` (the moved
+  `api/media` + `api/social` code) at `https://bezy-api.vercel.app`, with
+  both database secrets, the Blob store and origins configured. The
+  `TELEGRAM_BOT_TOKEN` secret still needs to be copied onto it (only
+  Telegram-side shared auth depends on it; Pi auth does not).
 
 ## Setup steps
 
@@ -133,12 +138,27 @@ explicitly enabled.
 
 ## Deployment separation
 
-The root app and Next.js export have different builds. Deploy `pi-app/` as a
-separate Vercel project or use a Pi-supported code import, then connect it to
-the shared API. Do not put `DATABASE_URL`, Pi API keys or wallet secrets in
-the frontend or repo. The generated `pi-app/lib/pi.ts` is marked locked by
-App Studio; verify its upload rules before import. The My Apps icon is
-configured separately in Pi App Studio and is unaffected by in-app branding
-changes. The shared API adds 7 route files to the media 3 (10 total) —
-inside the 12-serverless-function ceiling for the shared project; the
-Telegram project's own routes are untouched.
+Three Vercel projects, each under the Hobby ceiling of 12 serverless
+functions per deployment:
+
+- **`bezy-telegram`** (root `./`) — the Telegram mini app and its legacy API:
+  12 route files exactly (`api/*.js` minus the shared layer). Never deploy
+  more routes here.
+- **`bezy-api`** (root `shared-api/`) — the shared community API: 3 media +
+  7 social route files. Env: `DATABASE_URL` (Telegram DB, read-only for the
+  profile mirror), `BEZY_MEDIA_DATABASE_URL` (bezy-db), `TELEGRAM_BOT_TOKEN`,
+  `BEZY_PI_ORIGINS` (must include `https://bezy-telegram.vercel.app` for the
+  mini app's cross-origin calls, plus the Pi origins), `BEZY_MINI_APP_URL`,
+  and the `bezy-media` Blob store's `BLOB_READ_WRITE_TOKEN`.
+- **`bezy-pi-app`** (root `pi-app/`) — the Pi frontend, with
+  `NEXT_PUBLIC_BEZY_API_URL=https://bezy-api.vercel.app`.
+
+The mini app calls the shared API at `https://bezy-api.vercel.app` (absolute,
+cross-origin, CORS-allowlisted); the Pi frontend defaults to the same origin
+when `NEXT_PUBLIC_BEZY_API_URL` is absent (App Studio builds). Do not put
+`DATABASE_URL`, Pi API keys or wallet secrets in any frontend or the repo.
+The generated `pi-app/lib/pi.ts` is marked locked by App Studio; verify its
+upload rules before import. The My Apps icon is configured separately in Pi
+App Studio and is unaffected by in-app branding changes. CLI deploys of
+projects with a `rootDirectory` must run from the repo root with
+`--project <name>` so the root directory resolves inside the upload.

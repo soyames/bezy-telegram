@@ -1,5 +1,8 @@
 const tg = window.Telegram?.WebApp;
 const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account', support: '/api/support', messages: '/api/messages' };
+// The shared Pi/Telegram community API (photos + discovery/matching/messaging) is
+// hosted on its own project so each deployment stays under Vercel's function ceiling.
+const SHARED_API = 'https://bezy-api.vercel.app';
 const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null, chatPollTick: 0, chatCache: new Map(), swipeInFlight: false, matchesError: false, likesError: false, premiumCheckPending: false, quota: null, totSheetRound: false, social: { candidates: [], matches: [], trouble: false }, socialLoaded: false, socialPhotoUrls: [], socialSignature: '' };
 const $ = (id) => document.getElementById(id);
 
@@ -234,7 +237,7 @@ async function api(path, options = {}) {
 // User-added photos travel through authenticated Vercel endpoints. Telegram
 // continues to serve the existing profile avatar directly.
 async function media(path, options = {}) {
-  const response = await fetch(`/api/media/${path}`, {
+  const response = await fetch(`${SHARED_API}/api/media/${path}`, {
     ...options,
     headers: { ...(options.headers || {}), 'X-Telegram-Init-Data': tg?.initData || '' }
   });
@@ -249,7 +252,7 @@ async function media(path, options = {}) {
 // Reads omit the method; every write names it, because a GET carrying a body is refused by
 // the fetch spec rather than being sent.
 async function social(path, options = {}) {
-  const response = await fetch(`/api/social/${path}`, {
+  const response = await fetch(`${SHARED_API}/api/social/${path}`, {
     method: options.method || 'GET',
     headers: { 'content-type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
     body: options.body ? JSON.stringify(options.body) : undefined
