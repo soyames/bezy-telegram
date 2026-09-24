@@ -5,12 +5,21 @@ import { cors, mediaIdentity } from '../media/_auth.js';
 // every step is verified against Pi's own API with the app's server-side key, and the
 // entitlement is read back from bezy_pi_payments. A client callback cannot mint Premium.
 //
+// The amount is chosen by the browser, so this table is the authority. Pi's own API reports
+// what was actually paid, and approve/complete refuse any payment that does not match the
+// plan it claims to be — otherwise a member could pay 0.01 Pi for a year.
+//
 // Until PI_API_KEY is set on this project, Pi answers 401 and checkout reports itself
 // unavailable — it never half-works and never takes money it cannot honour.
 
 const PI_API = 'https://api.minepi.com/v2';
-const PRODUCT_ID = '6ab4ec72c8d845bd3f689671';
-const PREMIUM_DAYS = 30;
+
+/** Mirrors the Telegram mini app's monthly / quarterly / yearly structure. */
+export const PLANS = {
+  monthly: { months: 1, pi: 89 },
+  quarterly: { months: 3, pi: 214 },
+  yearly: { months: 12, pi: 676 },
+};
 
 function apiKey() {
   return process.env.PI_API_KEY || '';
@@ -25,17 +34,25 @@ async function pi(path, init = {}) {
   return { ok: response.ok, status: response.status, body };
 }
 
+/** Months from a start date, the way the Telegram backend adds them. */
+function addMonths(date, months) {
+  const result = new Date(date.getTime());
+  result.setUTCMonth(result.getUTCMonth() + months);
+  return result;
+}
+
 /** Premium runs from the newest completed payment, so it survives any client state loss. */
 async function entitlementOf(viewer) {
   const { rows } = await query(
-    `SELECT completed_at FROM bezy_pi_payments
+    `SELECT completed_at, product_id FROM bezy_pi_payments
       WHERE provider=$1 AND subject=$2 AND status='completed'
       ORDER BY completed_at DESC LIMIT 1`,
     [viewer.provider, viewer.subject]);
-  const completedAt = rows[0]?.completed_at;
-  if (!completedAt) return { active: false, expiresAt: 0 };
-  const expiresAt = new Date(completedAt).getTime() + PREMIUM_DAYS * 24 * 60 * 60 * 1000;
-  return { active: expiresAt > Date.now(), expiresAt };
+  const row = rows[0];
+  const plan = row ? PLANS[row.product_id] : null;
+  if (!row || !plan) return { active: false, expiresAt: 0, plan: null };
+  const expiresAt = addMonths(new Date(row.completed_at), plan.months).getTime();
+  return { active: expiresAt > Date.now(), expiresAt, plan: row.product_id };
 }
 
 export default async function handler(req, res) {
@@ -49,12 +66,16 @@ export default async function handler(req, res) {
     // Payments exist only on Pi; a Telegram member is authenticated but has no Pi uid.
     if (viewer.provider !== 'pi') return res.status(403).json({ error: 'NOT_PI_MEMBER' });
 
-    if (!apiKey()) return res.status(503).json({ error: 'PAYMENTS_UNAVAILABLE' });
-
     if (req.method === 'GET') {
       const entitlement = await entitlementOf(viewer);
-      return res.status(200).json({ productId: PRODUCT_ID, days: PREMIUM_DAYS, ...entitlement });
+      return res.status(200).json({
+        configured: Boolean(apiKey()),
+        plans: Object.entries(PLANS).map(([id, plan]) => ({ id, pi: plan.pi, months: plan.months })),
+        ...entitlement,
+      });
     }
+
+    if (!apiKey()) return res.status(503).json({ error: 'PAYMENTS_UNAVAILABLE' });
 
     const action = req.body?.action;
     const paymentId = typeof req.body?.paymentId === 'string' ? req.body.paymentId : '';
@@ -68,12 +89,16 @@ export default async function handler(req, res) {
     if (String(payment.user_uid) !== String(viewer.subject))
       return res.status(403).json({ error: 'PAYMENT_NOT_YOURS' });
 
+    const planId = String(payment.metadata?.plan || '');
+    const plan = PLANS[planId];
+    // The amount must be the plan's price, to Pi's own reported figure, not the browser's.
+    if (!plan || Number(payment.amount) !== plan.pi)
+      return res.status(409).json({ error: 'AMOUNT_MISMATCH' });
+
     if (action === 'approve') {
-      if (payment.status?.developer_approved && !payment.status?.cancelled) {
-        // Already approved on a retry: idempotent, nothing to do at Pi.
-      } else if (payment.status?.cancelled || payment.status?.user_cancelled) {
+      if (payment.status?.cancelled || payment.status?.user_cancelled)
         return res.status(409).json({ error: 'PAYMENT_CANCELLED' });
-      } else {
+      if (!payment.status?.developer_approved) {
         const approved = await pi(`/payments/${encodeURIComponent(paymentId)}/approve`, { method: 'POST' });
         if (!approved.ok) return res.status(502).json({ error: 'APPROVE_FAILED' });
       }
@@ -81,8 +106,7 @@ export default async function handler(req, res) {
         `INSERT INTO bezy_pi_payments (payment_id,provider,subject,product_id,amount,status)
          VALUES ($1,$2,$3,$4,$5,'approved')
          ON CONFLICT (payment_id) DO NOTHING`,
-        [paymentId, viewer.provider, viewer.subject, String(payment.metadata?.productId || PRODUCT_ID),
-          Number(payment.amount) || 0]);
+        [paymentId, viewer.provider, viewer.subject, planId, plan.pi]);
       return res.status(200).json({ ok: true });
     }
 
@@ -106,7 +130,7 @@ export default async function handler(req, res) {
         `INSERT INTO bezy_pi_payments (payment_id,provider,subject,product_id,amount,status)
          VALUES ($1,$2,$3,$4,$5,'cancelled')
          ON CONFLICT (payment_id) DO UPDATE SET status='cancelled'`,
-        [paymentId, viewer.provider, viewer.subject, PRODUCT_ID, Number(payment.amount) || 0]);
+        [paymentId, viewer.provider, viewer.subject, planId, plan.pi]);
       return res.status(200).json({ ok: true });
     }
 

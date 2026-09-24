@@ -152,14 +152,25 @@ export default async function handler(req, res) {
     if (!viewer) return res.status(401).json({ error: 'INVALID_SESSION' });
 
     if (req.method === 'GET') {
+      // Everything a frontend needs to put the member back exactly where they left off.
+      // This is the durable copy: a client that loses its own storage re-reads it here and
+      // never has to send anyone through registration twice.
       const { rows } = await query(
-        `SELECT display_name, age, gender, area, bio, interests, looking_for, visibility, paused
-           FROM bezy_social_profiles WHERE provider=$1 AND subject=$2`,
+        `SELECT p.display_name, p.age, p.gender, p.area, p.bio, p.interests, p.looking_for,
+                p.visibility, p.paused, p.interested_in, p.age_min, p.age_max, p.widen_area,
+                p.who_can_message, m.photo_consent
+           FROM bezy_social_profiles p
+           LEFT JOIN bezy_media_members m
+             ON m.provider = p.provider AND m.subject = p.subject
+          WHERE p.provider=$1 AND p.subject=$2`,
         [viewer.provider, viewer.subject]);
       const row = rows[0];
       return res.status(200).json({ profile: row ? { name: row.display_name, age: row.age,
         gender: row.gender, area: row.area, bio: row.bio, interests: row.interests || [],
-        lookingFor: row.looking_for, visibility: row.visibility, paused: row.paused } : null });
+        lookingFor: row.looking_for, visibility: row.visibility, paused: row.paused,
+        photoConsent: row.photo_consent === true,
+        prefs: { interestedIn: row.interested_in || [], ageMin: row.age_min, ageMax: row.age_max,
+          widenArea: row.widen_area === true, whoCanMessage: row.who_can_message } } : null });
     }
 
     if (req.method === 'DELETE') {

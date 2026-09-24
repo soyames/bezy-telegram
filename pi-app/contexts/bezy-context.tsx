@@ -14,6 +14,7 @@ import { pi } from "@/lib/pi";
 import { configurePhotoAccount, clearAccountPhotos } from "@/lib/bezy/photos";
 import {
   blockSocial,
+  fetchOwnSocialProfile,
   fetchSocialDiscovery,
   fetchSocialLikes,
   fetchSocialMatches,
@@ -40,8 +41,10 @@ import {
   emptyConsent,
   emptyPremium,
   emptyProfile,
+  GENDERS,
   idsToBlob,
   isPremiumActive as computeIsPremiumActive,
+  LOOKING_FOR,
   makeId,
   matchesToBlob,
   modLogToBlob,
@@ -68,6 +71,7 @@ import {
   type ConsentState,
   type DatingPrefs,
   type DatingProfile,
+  type Gender,
   type LastMessage,
   type Match,
   type MatchSummary,
@@ -268,6 +272,63 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     }, 3200);
   }
 
+  /**
+   * Bezy's own database is the durable copy of a member. Pi user state is the fragile one —
+   * inside App Studio it is unreachable, so a member who registered there is handed a blank
+   * slate on the next open and is walked through registration again. Restore from the
+   * backend instead: if it holds a profile and this device does not, that profile wins.
+   */
+  async function restoreFromServer(loaded: DatingProfile | null): Promise<void> {
+    const server = await fetchOwnSocialProfile();
+    if (!server) return;
+    const current = loaded ?? profileRef.current;
+    // Never clobber a usable local profile with the server's older copy.
+    if (current && profileComplete(current)) return;
+
+    const now = Date.now();
+    const createdAt = current?.createdAt || now;
+    const gender = GENDERS.find((g) => g.id === server.gender)?.id ?? "";
+    const lookingFor = LOOKING_FOR.find((l) => l.id === server.lookingFor)?.id ?? "open";
+    const profile: DatingProfile = {
+      displayName: server.name || "",
+      age: server.age || 0,
+      gender,
+      bio: server.bio || "",
+      interests: Array.isArray(server.interests) ? server.interests : [],
+      lookingFor,
+      area: server.area || "",
+      photos: current?.photos ?? [],
+      photoConsent: server.photoConsent === true,
+      createdAt,
+      updatedAt: now,
+    };
+    profileRef.current = profile;
+    setProfile(profile);
+
+    const interestedIn = (server.prefs?.interestedIn ?? []).filter(
+      (g): g is Gender => GENDERS.some((entry) => entry.id === g),
+    );
+    const prefs: DatingPrefs = {
+      ...prefsRef.current,
+      interestedIn: interestedIn.length ? interestedIn : prefsRef.current.interestedIn,
+      ageMin: server.prefs?.ageMin ?? prefsRef.current.ageMin,
+      ageMax: server.prefs?.ageMax ?? prefsRef.current.ageMax,
+      widenArea: server.prefs?.widenArea ?? prefsRef.current.widenArea,
+      visibility: server.visibility === "hidden" || server.visibility === "matches_only"
+        ? server.visibility
+        : "everyone",
+      whoCanMessage: server.prefs?.whoCanMessage === "everyone" ? "everyone" : "matches",
+      paused: server.paused === true,
+    };
+    prefsRef.current = prefs;
+    setPrefs(prefs);
+
+    // Registering them is exactly what publishing to the backend already meant.
+    const consent: ConsentState = { adult: true, agreed: true, onboarded: true, at: createdAt };
+    consentRef.current = consent;
+    setConsent(consent);
+  }
+
   // ---- load ----
   useEffect(() => {
     if (!isAuthenticated || !user?.uid) return;
@@ -306,8 +367,9 @@ export function BezyProvider({ children }: { children: ReactNode }) {
         const [c, p, pr, dec, m, th, rep, bl, ml, sf, pm] = settled.map((r) =>
           r.status === "fulfilled" ? r.value : null,
         );
+        const localProfile = sanitizeProfile(p);
         setConsent(sanitizeConsent(c));
-        setProfile(sanitizeProfile(p));
+        setProfile(localProfile);
         setPrefs(sanitizePrefs(pr));
         const decisions = sanitizeDecisions(dec);
         setLikes(decisions.likes);
@@ -319,6 +381,13 @@ export function BezyProvider({ children }: { children: ReactNode }) {
         setModLog(sanitizeModLog(ml));
         setSafety(sanitizeSafety(sf));
         setPremium(sanitizePremium(pm));
+        // Bezy's database outranks local state: it is the copy that survives, so a member
+        // who is already registered there is never shown registration again.
+        try {
+          await restoreFromServer(localProfile);
+        } catch {
+          // Keep whatever we loaded locally; never block the app on this.
+        }
       } catch {
         // Fresh start on load error; nothing is overwritten until a save happens.
       } finally {

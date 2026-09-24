@@ -5,14 +5,16 @@ import {
   cancelPiPayment,
   completePiPayment,
   type PiEntitlement,
+  type PiPlan,
 } from "@/lib/bezy/media";
-import { PREMIUM_DAYS } from "@/lib/bezy/data";
 
 /**
  * Buy Premium. Pi drives the sheet; Bezy's server approves and completes it against Pi's
  * API and returns the entitlement it recorded, so the result reflects a durable server
- * record rather than anything this browser claimed. Until the server has a Pi API key it
- * answers 503 and the caller shows Premium as unavailable — it never half-charges.
+ * record rather than anything this browser claimed. The amount comes from the plan the
+ * server published — the server rejects any payment that does not match it. Until it has a
+ * Pi API key it answers 503 and the caller shows Premium as unavailable; it never
+ * half-charges.
  */
 export interface PiPurchase {
   paymentId: string;
@@ -20,7 +22,7 @@ export interface PiPurchase {
   entitlement: PiEntitlement;
 }
 
-export function buyPremium(product: { id: string; price_in_pi: number }): Promise<PiPurchase> {
+export function buyPlan(plan: PiPlan): Promise<PiPurchase> {
   const pi = typeof window !== "undefined" ? window.Pi : undefined;
   if (!pi?.createPayment) {
     return Promise.reject(new Error("Open Bezy in Pi Browser to buy Premium."));
@@ -29,9 +31,10 @@ export function buyPremium(product: { id: string; price_in_pi: number }): Promis
   return new Promise<PiPurchase>((resolve, reject) => {
     pi.createPayment(
       {
-        amount: product.price_in_pi,
-        memo: `Bezy Premium — ${PREMIUM_DAYS} days`,
-        metadata: { productId: product.id, days: PREMIUM_DAYS },
+        amount: plan.pi,
+        memo: `Bezy Premium — ${plan.months} month${plan.months === 1 ? "" : "s"}`,
+        // The server reads the plan back off the payment and prices it itself.
+        metadata: { plan: plan.id },
       },
       {
         onReadyForServerApproval: (paymentId) => {

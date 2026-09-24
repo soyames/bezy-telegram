@@ -149,21 +149,33 @@ export async function removeAllDatingPhotos(): Promise<void> {
 
 /* ---------- Pi payments (/api/pi) ---------- */
 
+/** One purchasable plan, priced by the server so the browser cannot choose the amount. */
+export interface PiPlan {
+  id: string;
+  pi: number;
+  months: number;
+}
+
 /** What the server says this member owns. Premium is read from there, never asserted here. */
 export interface PiEntitlement {
   active: boolean;
   expiresAt: number;
-  days?: number;
-  productId?: string;
+  plan: string | null;
+}
+
+export interface PiCheckout extends PiEntitlement {
+  configured: boolean;
+  plans: PiPlan[];
 }
 
 function paymentRequest(init: RequestInit = {}): Promise<Response> {
   return request("api/pi/payment", init, "Payments are unavailable right now");
 }
 
-export async function fetchPiEntitlement(): Promise<PiEntitlement> {
+/** Plans and the entitlement the server holds, in one call. */
+export async function fetchPiCheckout(): Promise<PiCheckout> {
   const response = await paymentRequest();
-  return (await response.json()) as PiEntitlement;
+  return (await response.json()) as PiCheckout;
 }
 
 export async function approvePiPayment(paymentId: string): Promise<void> {
@@ -221,6 +233,40 @@ export async function syncSocialProfile(profile: DatingProfile, prefs: DatingPre
 /** Account deletion: removes the shared profile, decisions and matches on the backend. */
 export async function removeSocialProfile(): Promise<void> {
   await socialRequest("profile", { method: "DELETE" });
+}
+
+/** The member's own profile as the backend holds it — the durable copy of who they are. */
+export interface ServerSelfProfile {
+  name: string;
+  age: number;
+  gender: string;
+  area: string;
+  bio: string;
+  interests: string[];
+  lookingFor: string;
+  visibility: string;
+  paused: boolean;
+  photoConsent: boolean;
+  prefs?: {
+    interestedIn?: string[];
+    ageMin?: number;
+    ageMax?: number;
+    widenArea?: boolean;
+    whoCanMessage?: string;
+  };
+}
+
+/**
+ * Read this account's own profile back from Bezy's database. The frontend treats that copy
+ * as authoritative, so a member whose device lost its storage is restored instead of being
+ * sent through registration again.
+ */
+export async function fetchOwnSocialProfile(): Promise<ServerSelfProfile | null> {
+  const response = await socialRequest("profile");
+  const body = (await response.json()) as { profile?: unknown };
+  const raw = body.profile;
+  if (!raw || typeof raw !== "object") return null;
+  return raw as ServerSelfProfile;
 }
 
 /** Real people the backend has matched to this account's filters (both sides applied). */
