@@ -242,10 +242,9 @@ export function PiAuthProvider({ children }: { children: ReactNode }) {
       setAuthMessage("Loading Pi SDK...");
       await loadPiSDK();
       setAuthMessage("Initializing Pi Network...");
-      await window.Pi.init({
-        version: "2.0",
-        sandbox: PI_NETWORK_CONFIG.SANDBOX,
-      });
+      // No `sandbox` argument: Pi detects the environment itself, and forcing false
+      // pinned development apps to production, where the token check fails.
+      await window.Pi.init({ version: "2.0" });
       setAuthMessage("Loading SDKLite...");
       await loadSDKLite();
 

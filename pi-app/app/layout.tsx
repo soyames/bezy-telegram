@@ -1,5 +1,6 @@
 import type React from "react";
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { Poppins, Manrope } from "next/font/google";
 import { GeistMono } from "geist/font/mono";
 import { AppWrapper } from "@/components/app-wrapper";
@@ -47,6 +48,9 @@ export default function RootLayout({
       className={`${display.variable} ${sans.variable} ${GeistMono.variable} bg-background`}
     >
       <body className="font-sans">
+        {/* Pi requires its SDK in the document head and loaded before any Pi call;
+            injecting it later makes every step below fail silently. */}
+        <Script src="https://sdk.minepi.com/pi-sdk.js" strategy="beforeInteractive" />
         <AppWrapper>{children}</AppWrapper>
       </body>
     </html>
