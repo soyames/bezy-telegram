@@ -11,7 +11,6 @@ import {
   IconHeartFilled,
   IconLock,
   IconPin,
-  IconSettings,
   IconShield,
   IconStar,
   Pill,
@@ -27,15 +26,10 @@ export function ProfileScreen() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="bz-safe-top flex items-center justify-between px-5 pb-2 pt-4">
-        <h1 className="font-display text-2xl font-bold text-bz-ink">You</h1>
-        <button
-          onClick={openSettings}
-          aria-label="Settings"
-          className="bz-press flex h-10 w-10 items-center justify-center rounded-full border border-bz-line bg-bz-panel text-bz-ink"
-        >
-          <IconSettings className="h-5 w-5" />
-        </button>
+      {/* No settings button here: the brand bar already carries one on every tab, and two
+          identical gears used to sit on screen together on this tab alone. */}
+      <header className="flex items-center justify-between px-5 pb-2 pt-1">
+        <h1 className="font-display text-lg font-bold text-bz-ink">My profile</h1>
       </header>
 
       <div className="flex-1 px-5 pb-6">

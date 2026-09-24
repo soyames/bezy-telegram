@@ -6,8 +6,8 @@ import { useNav } from "@/components/bezy/nav";
 import { Avatar, ConfirmButton, Overlay, Sheet } from "@/components/bezy/pieces";
 import {
   Button,
+  IconBack,
   IconBan,
-  IconClose,
   IconFlag,
   IconHeartFilled,
   IconSend,
@@ -93,9 +93,10 @@ export function ThreadView() {
         <button
           onClick={closeThread}
           aria-label="Back"
-          className="bz-press flex h-9 w-9 items-center justify-center rounded-full text-bz-ink"
+          className="bz-press flex h-11 w-11 items-center justify-center rounded-full text-bz-ink"
         >
-          <IconClose className="h-5 w-5" />
+          {/* A back chevron, as the Telegram mini app's chat header uses. */}
+          <IconBack className="h-5 w-5" />
         </button>
         <Avatar name={seed.name} hueA={seed.hueA} hueB={seed.hueB} size={40} />
         <div className="min-w-0 flex-1">
@@ -105,7 +106,7 @@ export function ThreadView() {
         <button
           onClick={() => setMenu(true)}
           aria-label="Conversation options"
-          className="bz-press flex h-9 w-9 items-center justify-center rounded-full text-bz-muted"
+          className="bz-press flex h-11 w-11 items-center justify-center rounded-full text-bz-muted"
         >
           <IconSettings className="h-5 w-5" />
         </button>
