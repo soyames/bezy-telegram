@@ -2712,11 +2712,28 @@ async function confirmAge() {
 }
 
 // Declining is terminal for the session: no profile, no discovery, no matching.
+let ageGateHtml = null;
 function denyAge() {
   const host = document.querySelector('#age-view .age-gate');
   if (!host) return;
+  // Keep the gate so it can be put back: overwriting its markup destroys the two buttons,
+  // and without a way back a mis-tap would strand the member until they restarted the
+  // Mini App.
+  if (ageGateHtml === null) ageGateHtml = host.innerHTML;
   document.body.classList.add('age-gated');
-  host.innerHTML = `<div class="age-badge">18+</div><h2>${escapeHtml(t('app.age_blocked_title'))}</h2><p>${escapeHtml(t('app.age_blocked_body'))}</p>`;
+  host.innerHTML = `<div class="age-badge">18+</div><h2>${escapeHtml(t('app.age_blocked_title'))}</h2><p>${escapeHtml(t('app.age_blocked_body'))}</p><button class="ghost-btn" id="age-back" type="button">${escapeHtml(t('app.cancel'))}</button>`;
+  $('age-back').onclick = () => {
+    document.body.classList.remove('age-gated');
+    host.innerHTML = ageGateHtml;
+    ageGateHtml = null;
+    bindAgeGate();
+  };
+}
+
+// The gate's own controls, bound once and rebound whenever the gate is restored.
+function bindAgeGate() {
+  if ($('age-confirm')) $('age-confirm').onclick = confirmAge;
+  if ($('age-deny')) $('age-deny').onclick = denyAge;
 }
 
 function bindEvents() {
@@ -2843,8 +2860,7 @@ function bindEvents() {
   if ($('data-controls-btn')) $('data-controls-btn').onclick = openDataControls;
   if ($('support-history-btn')) $('support-history-btn').onclick = openSupportHistory;
   if ($('delete-account-btn')) $('delete-account-btn').onclick = openDeleteAccount;
-  if ($('age-confirm')) $('age-confirm').onclick = confirmAge;
-  if ($('age-deny')) $('age-deny').onclick = denyAge;
+  bindAgeGate();
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeSheet(); });
   document.querySelectorAll('[data-language]').forEach((button) => button.addEventListener('click', async () => {
     try {
