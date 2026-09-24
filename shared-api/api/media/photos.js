@@ -6,14 +6,35 @@ import { cors, mediaIdentity, sameMember } from './_auth.js';
 import { photoAccess } from './_access.js';
 
 const MAX_BYTES = 3 * 1024 * 1024; // beneath Vercel Function's 4.5 MB request limit
-const TYPES = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 const UUID = /^[a-f\d]{8}-[a-f\d]{4}-[1-8][a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i;
 
-function format(bytes) {
-  if (bytes.subarray(0, 3).equals(Buffer.from([0xff,0xd8,0xff]))) return 'jpeg';
-  if (bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'png';
-  if (bytes.toString('ascii',0,4) === 'RIFF' && bytes.toString('ascii',8,12) === 'WEBP') return 'webp';
+// Members should not have to know what their camera produced, so every image format a
+// browser or phone actually produces is accepted. The bytes are the authority: the
+// declared content-type is only required to be an image, and the sniffed type is what
+// gets stored and served back. SVG is deliberately absent — it can carry script and
+// these bytes are re-served to other members.
+function sniff(bytes) {
+  if (bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'image/jpeg';
+  if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
+  if (bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (bytes.toString('ascii', 0, 3) === 'GIF') return 'image/gif';
+  if (bytes.subarray(0, 2).equals(Buffer.from([0x42, 0x4d]))) return 'image/bmp';
+  if (bytes.subarray(0, 4).equals(Buffer.from([0x49, 0x49, 0x2a, 0x00])) ||
+      bytes.subarray(0, 4).equals(Buffer.from([0x4d, 0x4d, 0x00, 0x2a]))) return 'image/tiff';
+  // ISO base media files (HEIC/HEIF/AVIF) carry a size box, then 'ftyp', then the brand.
+  if (bytes.toString('ascii', 4, 8) === 'ftyp') {
+    const brand = bytes.toString('ascii', 8, 12);
+    if (brand.startsWith('avi')) return 'image/avif';
+    if (brand.startsWith('hei') || brand.startsWith('hev') || brand === 'mif1' || brand === 'msf1')
+      return 'image/heic';
+  }
   return null;
+}
+
+/** The stored extension, so the blob path stays readable and unique per format. */
+function extensionOf(type) {
+  return { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'image/bmp': 'bmp', 'image/tiff': 'tiff', 'image/avif': 'avif', 'image/heic': 'heic' }[type];
 }
 
 async function readLimited(req) {
@@ -42,16 +63,20 @@ export default async function handler(req, res) {
         [viewer.provider,viewer.subject]);
       if (current.rows[0].count >= 6) return res.status(409).json({ error: 'PHOTO_LIMIT' });
       const bytes = await readLimited(req);
-      const kind = format(bytes);
-      if (!bytes.length || !kind || req.headers['content-type'] !== TYPES[kind])
+      const type = sniff(bytes);
+      const declared = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      // Some pickers report application/octet-stream for a perfectly good HEIC, so an
+      // empty or generic declaration is allowed as long as the bytes sniff as an image.
+      const declaredOk = !declared || declared.startsWith('image/') || declared === 'application/octet-stream';
+      if (!bytes.length || !type || !declaredOk)
         return res.status(415).json({ error: 'INVALID_IMAGE' });
       const id = crypto.randomUUID();
       const name = crypto.createHash('sha256').update(viewer.subject).digest('hex');
-      const blob = await put(`bezy/${viewer.provider}/${name}/${id}.${kind}`, bytes,
-        { access: 'private', contentType: TYPES[kind], addRandomSuffix: true });
+      const blob = await put(`bezy/${viewer.provider}/${name}/${id}.${extensionOf(type)}`, bytes,
+        { access: 'private', contentType: type, addRandomSuffix: true });
       try {
         await query(`INSERT INTO bezy_media_photos (photo_id,owner_provider,owner_subject,blob_url,content_type)
-          VALUES ($1,$2,$3,$4,$5)`, [id,viewer.provider,viewer.subject,blob.url,TYPES[kind]]);
+          VALUES ($1,$2,$3,$4,$5)`, [id,viewer.provider,viewer.subject,blob.url,type]);
       } catch (error) {
         await del(blob.url).catch(() => {});
         throw error;

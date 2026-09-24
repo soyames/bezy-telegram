@@ -2731,8 +2731,13 @@ function bindEvents() {
     const file = input.files?.[0];
     input.value = '';
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024 || !['image/jpeg','image/png','image/webp'].includes(file.type)) {
-      showToast('Choose a JPEG, PNG or WebP photo under 3 MB.'); return;
+    // The API sniffs the bytes and accepts every format a phone or browser produces, so
+    // the picker only rules out what can never be stored: a non-image, or SVG, which can
+    // carry script and is deliberately never re-served to other members.
+    const photoType = String(file.type || '').toLowerCase();
+    if (file.size > 3 * 1024 * 1024 || photoType === 'image/svg+xml'
+        || (photoType && !photoType.startsWith('image/'))) {
+      showToast('Choose an image under 3 MB.'); return;
     }
     input.disabled = true;
     try {
