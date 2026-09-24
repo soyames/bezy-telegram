@@ -54,11 +54,22 @@ explicitly enabled.
 - The `bezy-telegram` project keeps its existing Neon store
   `neon-apricot-helmet` as its `DATABASE_URL` — **never replace or unlink it**
   or Telegram members lose their data.
-- The new shared database `bezy-db` (Neon ID `withered-night-73349739`) exists
-  on the team but is **not connected** to any project yet.
-- No `BEZY_MEDIA_DATABASE_URL`, `BEZY_PI_ORIGINS` or `BLOB_READ_WRITE_TOKEN`
-  are set on `bezy-telegram` yet.
-- The Pi frontend has no Vercel project yet.
+- The new shared database `bezy-db` (Neon ID `withered-night-73349739`) is
+  connected to the **`bezy-pi-app`** project (Neon's standard variable names),
+  and migrations `001` + `002` are applied there. `BEZY_MEDIA_DATABASE_URL`
+  is set on `bezy-telegram` (production set from the dashboard, preview from
+  the connected store — verify the production value points at bezy-db, not
+  the Telegram database).
+- `BEZY_PI_ORIGINS` is set on `bezy-telegram` for the Pi Testnet app
+  (`https://bezyhv6896.pinet.com`) and the Pi Vercel app
+  (`https://bezy-pi-app.vercel.app`).
+- The private Blob store **`bezy-media`** is created and connected to
+  `bezy-telegram` (`BLOB_READ_WRITE_TOKEN` in all environments).
+- The `bezy-pi-app` Vercel project exists, is GitHub-linked with
+  `rootDirectory: pi-app`, and has `NEXT_PUBLIC_BEZY_API_URL` set. Its
+  production branch still needs to be set to `BezyPiNetwork` in the
+  dashboard (Settings → Git → Production Branch) — until then main pushes
+  would attempt a root-pi-app build that cannot exist on main.
 
 ## Setup steps
 
