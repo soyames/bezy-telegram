@@ -30,7 +30,7 @@ import {
 
 export function SettingsScreen() {
   const { settingsOpen, closeSettings, openPremium } = useNav();
-  const { prefs, savePrefs, blocked, getSeed, deleteAccount, toast, premium, isPremiumActive } = useBezy();
+  const { prefs, savePrefs, blocked, getSeed, deleteAccount, toast, premium, isPremiumActive, unblockProfile } = useBezy();
   const [deleting, setDeleting] = useState(false);
 
   if (!settingsOpen) return null;
@@ -186,7 +186,14 @@ export function SettingsScreen() {
                     <span className="flex-1 text-sm font-medium text-bz-ink">
                       {seed?.name ?? "Blocked person"}
                     </span>
-                    <span className="text-xs text-bz-faint">Blocked</span>
+                    {/* Blocking is one-way for the other member, so there has to be a way
+                        back — it is the only place an unblock can happen. */}
+                    <button
+                      onClick={() => unblockProfile(id, seed?.name ?? "Blocked person")}
+                      className="bz-press shrink-0 rounded-full border border-bz-line px-3.5 py-2 text-xs font-semibold text-bz-ink"
+                    >
+                      Unblock
+                    </button>
                   </div>
                 );
               })}

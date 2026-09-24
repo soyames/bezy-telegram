@@ -216,17 +216,18 @@ export function ThreadView() {
               <IconFlag className="h-5 w-5 text-bz-muted" />
               Report {seed.name}
             </button>
-            <button
-              onClick={() => {
+            {/* Blocking is one-way for the other member and ends the match, so it asks
+                first — which Unmatch below it already did. */}
+            <ConfirmButton
+              icon={<IconBan className="h-5 w-5" />}
+              label={`Block ${seed.name}`}
+              confirmLabel="Tap again — this ends your match"
+              onConfirm={() => {
                 blockProfile(seed.id, seed.name);
                 setMenu(false);
                 closeThread();
               }}
-              className="bz-press flex w-full items-center gap-3 rounded-2xl border border-bz-line bg-bz-panel px-4 py-3 text-sm font-semibold text-bz-ink"
-            >
-              <IconBan className="h-5 w-5 text-bz-muted" />
-              Block {seed.name}
-            </button>
+            />
             <ConfirmButton
               label="Unmatch"
               confirmLabel="Tap again to unmatch"

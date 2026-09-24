@@ -2,7 +2,7 @@
 
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { Overlay, OverlayHeader, PersonPhoto, ProviderBadge } from "@/components/bezy/pieces";
+import { ConfirmButton, Overlay, OverlayHeader, PersonPhoto, ProviderBadge } from "@/components/bezy/pieces";
 import {
   Button,
   IconBan,
@@ -109,7 +109,7 @@ export function CandidateDetail() {
             </div>
           </div>
 
-          <div className="flex gap-3 border-t border-bz-line pt-4">
+          <div className="space-y-3 border-t border-bz-line pt-4">
             <button
               onClick={() => openReport({ id: seed.id, name: seed.name })}
               className="bz-press inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-bz-muted"
@@ -117,16 +117,17 @@ export function CandidateDetail() {
               <IconFlag className="h-4 w-4" />
               Report
             </button>
-            <button
-              onClick={() => {
+            {/* Blocking is one-way for the other member and ends any match, so it asks
+                first — as Unmatch already does. */}
+            <ConfirmButton
+              icon={<IconBan className="h-4 w-4" />}
+              label="Block"
+              confirmLabel="Tap again — this ends your match"
+              onConfirm={() => {
                 blockProfile(seed.id, seed.name);
                 closeCandidate();
               }}
-              className="bz-press inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-bz-muted"
-            >
-              <IconBan className="h-4 w-4" />
-              Block
-            </button>
+            />
           </div>
         </div>
       </div>

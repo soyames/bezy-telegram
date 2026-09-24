@@ -28,6 +28,7 @@ import {
   syncMediaMember,
   syncSocialProfile,
   unmatchSocial,
+  unblockSocial,
 } from "@/lib/bezy/media";
 import { KeyWriter } from "@/lib/bezy/store";
 import {
@@ -151,6 +152,7 @@ interface BezyContextValue {
 
   // safety
   blockProfile: (id: string, name: string) => void;
+  unblockProfile: (id: string, name: string) => void;
   reportProfile: (id: string, name: string, reason: ReportReason, note: string) => void;
   moderate: (reportId: string, action: ModAction) => void;
 
@@ -938,6 +940,22 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     toast(`${name} was blocked`, "danger");
   }
 
+  /**
+   * Undo a block. The backend applies a one-directional block both ways, so lifting it
+   * restores discovery and messaging for both members — which is why the blocked list
+   * needs a way out of it.
+   */
+  function unblockProfile(id: string, name: string) {
+    if (blockedRef.current.includes(id)) {
+      const next = blockedRef.current.filter((entry) => entry !== id);
+      blockedRef.current = next;
+      setBlocked(next);
+      persistBlocked();
+    }
+    if (peopleRef.current[id]) void unblockSocial(id).catch(() => {});
+    toast(`${name} has been unblocked.`);
+  }
+
   function reportProfile(id: string, name: string, reason: ReportReason, note: string) {
     const report: Report = {
       id: makeId("rp"),
@@ -968,11 +986,19 @@ export function BezyProvider({ children }: { children: ReactNode }) {
       persistThreads(true);
     }
     // The backend keeps the report (and blocks them both ways) so moderation can act on
-    // someone who is messaging people beyond this device.
+    // someone who is messaging people beyond this device. The local blocked list has to
+    // agree with it, or they vanish from discovery but not from the list that is supposed
+    // to show everyone the member has blocked.
+    if (!blockedRef.current.includes(id)) {
+      const nextBlocked = [...blockedRef.current, id];
+      blockedRef.current = nextBlocked;
+      setBlocked(nextBlocked);
+      persistBlocked();
+    }
     if (peopleRef.current[id]) {
       void reportSocial(id, reason, note).catch(() => {});
     }
-    toast("Report sent. They're now hidden from you.", "rose");
+    toast("Report sent. This person has also been blocked.", "danger");
   }
 
   function moderate(reportId: string, action: ModAction) {
@@ -1100,6 +1126,7 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     refreshThread,
     unmatch,
     blockProfile,
+    unblockProfile,
     reportProfile,
     moderate,
     deleteAccount,
