@@ -1,0 +1,53 @@
+import type React from "react";
+import type { Metadata, Viewport } from "next";
+import { Poppins, Manrope } from "next/font/google";
+import { GeistMono } from "geist/font/mono";
+import { AppWrapper } from "@/components/app-wrapper";
+import "./globals.css";
+
+const display = Poppins({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-bz-display",
+});
+
+const sans = Manrope({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-bz-sans",
+});
+
+export const metadata: Metadata = {
+  title: "Bezy",
+  description: "Bezy — a warm, respectful dating app for adult Pioneers.",
+  icons: {
+    icon: "/images/bezy-logo.png",
+    apple: "/images/bezy-logo.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#c8446a",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${display.variable} ${sans.variable} ${GeistMono.variable} bg-background`}
+    >
+      <body className="font-sans">
+        <AppWrapper>{children}</AppWrapper>
+      </body>
+    </html>
+  );
+}

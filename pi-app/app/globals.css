@@ -1,0 +1,249 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Warm, approachable dating palette */
+  --bz-cream: oklch(0.99 0.009 60);
+  --bz-panel: oklch(1 0 0);
+  --bz-panel-2: oklch(0.975 0.012 40);
+  --bz-line: oklch(0.9 0.012 40);
+  --bz-line-soft: oklch(0.94 0.01 40);
+  --bz-ink: oklch(0.26 0.03 22);
+  --bz-muted: oklch(0.52 0.03 25);
+  --bz-faint: oklch(0.66 0.025 30);
+
+  --bz-rose: oklch(0.63 0.2 13);
+  --bz-rose-deep: oklch(0.55 0.21 12);
+  --bz-rose-soft: oklch(0.95 0.035 15);
+  --bz-peach: oklch(0.78 0.14 46);
+  --bz-peach-soft: oklch(0.95 0.045 55);
+  --bz-plum: oklch(0.5 0.13 340);
+  --bz-plum-soft: oklch(0.95 0.03 335);
+  --bz-like: oklch(0.68 0.15 150);
+  --bz-like-soft: oklch(0.95 0.05 150);
+  --bz-gold: oklch(0.8 0.13 82);
+  --bz-danger: oklch(0.58 0.21 25);
+  --bz-danger-soft: oklch(0.95 0.04 25);
+  --bz-on-rose: oklch(0.99 0.01 20);
+  --bz-brand-surface: #220947;
+
+  --background: var(--bz-cream);
+  --foreground: var(--bz-ink);
+  --card: var(--bz-panel);
+  --card-foreground: var(--bz-ink);
+  --popover: var(--bz-panel);
+  --popover-foreground: var(--bz-ink);
+  --primary: var(--bz-rose);
+  --primary-foreground: var(--bz-on-rose);
+  --secondary: var(--bz-panel-2);
+  --secondary-foreground: var(--bz-ink);
+  --muted: var(--bz-panel-2);
+  --muted-foreground: var(--bz-muted);
+  --accent: var(--bz-rose-soft);
+  --accent-foreground: var(--bz-rose-deep);
+  --destructive: var(--bz-danger);
+  --destructive-foreground: oklch(0.99 0.01 20);
+  --border: var(--bz-line);
+  --input: var(--bz-line);
+  --ring: var(--bz-rose);
+  --radius: 1.1rem;
+}
+
+@theme inline {
+  --font-sans: var(--font-bz-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bz-display), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-bz-rose: var(--bz-rose);
+  --color-bz-rose-deep: var(--bz-rose-deep);
+  --color-bz-rose-soft: var(--bz-rose-soft);
+  --color-bz-peach: var(--bz-peach);
+  --color-bz-peach-soft: var(--bz-peach-soft);
+  --color-bz-plum: var(--bz-plum);
+  --color-bz-plum-soft: var(--bz-plum-soft);
+  --color-bz-like: var(--bz-like);
+  --color-bz-like-soft: var(--bz-like-soft);
+  --color-bz-gold: var(--bz-gold);
+  --color-bz-danger: var(--bz-danger);
+  --color-bz-danger-soft: var(--bz-danger-soft);
+  --color-bz-panel: var(--bz-panel);
+  --color-bz-panel-2: var(--bz-panel-2);
+  --color-bz-line: var(--bz-line);
+  --color-bz-line-soft: var(--bz-line-soft);
+  --color-bz-ink: var(--bz-ink);
+  --color-bz-muted: var(--bz-muted);
+  --color-bz-faint: var(--bz-faint);
+  --color-bz-on-rose: var(--bz-on-rose);
+  --color-bz-brand-surface: var(--bz-brand-surface);
+
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 3px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* The source PNG has transparent margins around a purple square. These viewport
+   crops expose the original pixels without resampling or placing a tiny square
+   inside a second badge. The hero uses the full wordmark; navigation uses the B. */
+.bz-logo-art-image {
+  width: 172% !important;
+  height: 155% !important;
+  max-width: none !important;
+  left: -36% !important;
+  top: -28% !important;
+}
+.bz-mark-art-image {
+  width: 263% !important;
+  height: 263% !important;
+  max-width: none !important;
+  left: -85% !important;
+  top: -50% !important;
+}
+.bz-brand-hero {
+  background: radial-gradient(circle at 45% 30%, #59219a 0%, #30095d 52%, #1c073b 100%);
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+  .bz-app-bg {
+    background:
+      radial-gradient(120% 80% at 100% 0%, oklch(0.95 0.045 30 / 0.6), transparent 55%),
+      radial-gradient(120% 80% at 0% 0%, oklch(0.95 0.035 340 / 0.5), transparent 55%),
+      var(--bz-cream);
+  }
+  .bz-hero-grad {
+    background: linear-gradient(135deg, var(--bz-rose) 0%, var(--bz-plum) 55%, var(--bz-peach) 120%);
+  }
+  .bz-rose-grad {
+    background: linear-gradient(135deg, var(--bz-rose) 0%, var(--bz-rose-deep) 100%);
+  }
+  .bz-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  .bz-press {
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+  }
+  .bz-press:active {
+    transform: scale(0.97);
+  }
+  .bz-no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .bz-no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .bz-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .bz-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .bz-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .bz-pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .bz-safe-top {
+    padding-top: max(env(safe-area-inset-top), 0px);
+  }
+  .bz-safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+}
+
+@keyframes bz-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes bz-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes bz-pop {
+  0% { opacity: 0; transform: scale(0.9); }
+  60% { transform: scale(1.03); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes bz-sheet {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes bz-toast {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes bz-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes bz-heart {
+  0% { transform: scale(0.4); opacity: 0; }
+  40% { transform: scale(1.15); opacity: 1; }
+  70% { transform: scale(0.95); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.anim-fade-in { animation: bz-fade-in 0.3s ease both; }
+.anim-fade-up { animation: bz-fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.anim-pop { animation: bz-pop 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.anim-sheet { animation: bz-sheet 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.anim-toast { animation: bz-toast 0.24s ease both; }
+.anim-spin { animation: bz-spin 0.8s linear infinite; }
+.anim-heart { animation: bz-heart 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.delay-1 { animation-delay: 0.05s; }
+.delay-2 { animation-delay: 0.1s; }
+.delay-3 { animation-delay: 0.16s; }
+.delay-4 { animation-delay: 0.22s; }
+.delay-5 { animation-delay: 0.28s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-in, .anim-fade-up, .anim-pop, .anim-sheet, .anim-toast, .anim-heart {
+    animation: none !important;
+  }
+}
