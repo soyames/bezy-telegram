@@ -37,8 +37,8 @@ export function BottomNav() {
   const { unreadCount } = useBezy();
 
   return (
-    <nav className="bz-safe-bottom sticky bottom-0 z-40 border-t border-bz-line bg-[rgb(248_247_251/0.94)] backdrop-blur-[18px]">
-      <div className="mx-auto grid w-full max-w-md grid-cols-4 gap-[5px] px-3 py-2">
+    <nav className="bz-safe-bottom sticky bottom-0 z-40 border-t border-[rgba(243,236,252,0.8)] bg-white/95 backdrop-blur-[18px]">
+      <div className="mx-auto grid w-full max-w-[520px] grid-cols-4 gap-[5px] px-4 py-2.5">
         {TABS.map((t) => {
           const active = tab === t.id;
           return (
@@ -47,8 +47,8 @@ export function BottomNav() {
               onClick={() => setTab(t.id)}
               aria-current={active ? "page" : undefined}
               className={cx(
-                "bz-press relative flex flex-col items-center gap-[3px] rounded-[13px] px-1 py-1.5",
-                active ? "bg-bz-rose-soft text-bz-rose" : "text-bz-faint",
+                "bz-press relative flex flex-col items-center gap-[3px] rounded-2xl px-1 py-1.5",
+                active ? "bg-[#FAF7FD] text-bz-rose-deep" : "text-bz-faint",
               )}
             >
               <span className="relative">

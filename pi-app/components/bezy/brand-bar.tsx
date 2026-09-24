@@ -15,7 +15,7 @@ export function BrandBar() {
   const { openSettings } = useNav();
 
   return (
-    <header className="bz-safe-top flex items-center justify-between gap-3 px-4 pb-1 pt-4">
+    <header className="bz-safe-top mb-[18px] flex items-center justify-between gap-3 px-4 pt-4">
       <div className="flex min-w-0 items-center gap-[10px]">
         <span className="relative block h-10 w-9 shrink-0 overflow-hidden rounded-[12px] border border-bz-line shadow-[0_1px_4px_rgba(99,39,155,0.08)]">
           <Image src={bezyLockup} alt="Bezy" fill sizes="36px" className="object-cover" priority />

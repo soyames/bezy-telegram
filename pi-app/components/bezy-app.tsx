@@ -40,7 +40,7 @@ function Shell() {
   if (!onboarded) return <Onboarding />;
 
   return (
-    <div className="bz-app-bg mx-auto flex min-h-[100dvh] w-full max-w-md flex-col">
+    <div className="bz-app-bg mx-auto flex min-h-[100dvh] w-full max-w-[520px] flex-col">
       {/* Same chrome on every tab, exactly as the Telegram mini app carries it. */}
       <BrandBar />
 

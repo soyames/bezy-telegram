@@ -7,44 +7,47 @@
 @source '../app';
 @source '../components';
 @source '../contexts';
-@source '../hooks';
 @source '../lib';
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* One product, two frontends: these are the Telegram mini app's own values, so a member
-     moving between Pi and Telegram sees the same app. Telegram's source of truth is
-     bg #f8f7fb, card #fff, text #17151c, muted #77727f, line #e9e5ec, accent #7c3aed,
-     accent2 #ec4899, soft #f1ebff. Where a colour is small text on its own soft tint
-     (like, danger) it is darkened a step to stay readable on the light background. */
-  --bz-cream: #f8f7fb;
+  /* One product, two frontends. These are the Telegram mini app's LIVE values: its
+     stylesheet declares a base :root and then a later "discover-redesign" block that
+     overrides it, and the redesign wins. Reading only the first block is what produced
+     the earlier, wrong alignment — the source of truth is index.html lines 184-239.
+     Where a colour is small text on its own soft tint (danger) it is darkened one step
+     to stay readable on the light background. */
+  --bz-cream: #FAF8FE;      /* .app background */
+  --bz-canvas: #EDE8F5;     /* the frame the app column sits inside */
   --bz-panel: #ffffff;
-  --bz-panel-2: #f4f1f9;
-  --bz-line: #e9e5ec;
-  --bz-line-soft: #f1edf7;
-  --bz-ink: #17151c;
-  --bz-muted: #77727f;
-  --bz-faint: #9d97a5;
+  --bz-panel-2: #FAF7FD;    /* .card-prompt surface, active tab tint */
+  --bz-line: #F3ECFC;       /* .profile-card border */
+  --bz-line-soft: #F7F2FD;
+  --bz-ink: #0f172a;        /* .brand-name, .section-head h3 */
+  --bz-muted: #64748b;      /* .stat span */
+  --bz-faint: #94a3b8;      /* inactive nav label */
 
-  --bz-rose: #7c3aed;
-  --bz-rose-deep: #6d28d9;
-  --bz-rose-soft: #f1ebff;
-  --bz-peach: #ec4899;
+  --bz-rose: #7C2AD8;       /* .section-head button, .card-prompt b */
+  --bz-rose-deep: #6d28d9;  /* active nav, .super, .why-chip */
+  --bz-rose-soft: #F3ECFC;  /* the .super fill */
+  --bz-peach: #E11D89;      /* the primary gradient's end stop */
   --bz-peach-soft: #fdeef6;
-  --bz-plum: #9333ea;
-  --bz-plum-soft: #f7f0ff;
+  --bz-plum: #7C2AD8;
+  --bz-plum-soft: #FAF7FD;
   --bz-like: #15803d;
   --bz-like-soft: #eafaf0;
-  --bz-gold: #d97706;
+  --bz-gold: #fbbf24;       /* .premium .stars */
   --bz-danger: #dc2626;
-  --bz-danger-soft: #fdecec;
+  --bz-danger-soft: #fff6f6;
   --bz-on-rose: #ffffff;
   /* Dark-purple brand surface the Bezy wordmark's own artwork sits on, so its built-in
      background blends into the card instead of clashing with an unrelated tile color. */
   --bz-brand-surface: oklch(0.19 0.045 302);
 
-  --background: var(--bz-cream);
+  /* The canvas, not the app column: Telegram paints body #EDE8F5 and lets .app sit on
+     #FAF8FE inside it, so wide viewports show a deliberate two-tone frame. */
+  --background: var(--bz-canvas);
   --foreground: var(--bz-ink);
   --card: var(--bz-panel);
   --card-foreground: var(--bz-ink);
@@ -134,18 +137,21 @@
   .font-display {
     font-family: var(--font-display);
   }
+  /* Flat, like Telegram's .app — the redesign dropped the tinted radials. */
   .bz-app-bg {
-    background:
-      radial-gradient(120% 80% at 100% 0%, rgb(124 58 237 / 0.10), transparent 55%),
-      radial-gradient(120% 80% at 0% 0%, rgb(236 72 153 / 0.09), transparent 55%),
-      var(--bz-cream);
+    background: var(--bz-cream);
   }
+  /* Telegram's .hero: the near-black purple band behind Discover's headline. */
   .bz-hero-grad {
-    background: linear-gradient(135deg, var(--bz-rose) 0%, var(--bz-plum) 55%, var(--bz-peach) 120%);
+    background: linear-gradient(135deg, #250F3B 0%, #461763 60%, #5E1F7F 100%);
   }
-  /* Telegram's own primary action gradient (its .like / .save-btn). */
+  /* Telegram's .premium: the same family, one shade cooler, for the Premium sheet. */
+  .bz-premium-grad {
+    background: linear-gradient(145deg, #260D3B 0%, #3B1259 100%);
+  }
+  /* Telegram's .like — the primary action, and the most-clicked button in both apps. */
   .bz-rose-grad {
-    background: linear-gradient(135deg, var(--bz-rose) 0%, var(--bz-peach) 100%);
+    background: linear-gradient(135deg, #A822D6 0%, #E11D89 100%);
   }
   .bz-nums {
     font-variant-numeric: tabular-nums;
