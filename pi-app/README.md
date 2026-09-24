@@ -12,12 +12,14 @@ Changes from the export:
   messaging and premium benefits are unavailable. The already hosted App
   Studio version is unchanged until updated separately.
 
-This export stores profiles in per-user App Studio state. It cannot show other
-Pi or Telegram users. Selected photos now persist locally in IndexedDB for the
-current signed-in account on this device. The photo module also provides a
-viewer cache for received bytes; no cross-device transport calls it yet.
-Browsers may evict or clear local data. Previously viewed photos can be seen
-offline only after a transfer has succeeded, while the cache remains present.
+This export still stores profile details in per-user App Studio state. It
+cannot discover other Pi or Telegram users yet. Added dating photos upload
+through an authenticated Vercel API to private Vercel Blob; the separate shared
+Postgres database holds references only. IndexedDB caches bytes on the viewer's
+device, including after reload while browser storage persists. A browser can
+evict local cache; the backend can re-serve a photo when online even if the
+owner's device is offline. The Pi-hosted App Studio version is unchanged until
+code is uploaded. Backend setup is described in `../PI_NETWORK.md`.
 The existing
 client `activatePremium(paymentId, txid)` cannot establish a verified, durable
 server entitlement. Do not deploy it publicly as a working dating app.

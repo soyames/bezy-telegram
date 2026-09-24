@@ -1,7 +1,8 @@
 "use client";
+import { downloadDatingPhoto } from "@/lib/bezy/media";
 
-// The photo bytes live only in this browser's IndexedDB. Pi userState stores
-// photo IDs, never bytes. Distinct Pi accounts on the same device are isolated
+// Photo bytes are persisted in private Vercel Blob and cached in IndexedDB.
+// Pi userState stores photo IDs, never bytes. Accounts on the same device are isolated
 // by the verified UID supplied by the authentication context.
 const DB_NAME = "bezy-device-photos";
 const STORE = "photos";
@@ -70,7 +71,7 @@ export async function saveLocalPhoto(id: string, file: File) {
   emit();
 }
 
-/** For future authorized transfers: copies received by a viewer use the same local cache. */
+/** Copies received from the authorized backend use the same device cache. */
 export async function cacheViewedPhoto(ownerId: string, photoId: string, blob: Blob) {
   if (!ownerId || !photoId || !IMAGE_TYPES.has(blob.type) || !blob.size || blob.size > MAX_BYTES) {
     throw new Error("Invalid photo transfer");
@@ -91,11 +92,22 @@ export async function cacheViewedPhoto(ownerId: string, photoId: string, blob: B
 export async function loadPhotoUrl(id: string): Promise<void> {
   const activeAccount = account;
   if (!activeAccount || urls.has(id)) return;
-  const blob = await transact<Blob | undefined>("readonly", (store, resolve, reject) => {
+  let blob = await transact<Blob | undefined>("readonly", (store, resolve, reject) => {
     const req = store.get(key(id));
     req.onsuccess = () => resolve(req.result as Blob | undefined);
     req.onerror = () => reject(req.error);
   });
+  // A different device starts with an empty cache. Fetch through the authenticated
+  // backend and save a local copy, with no photo bytes in the SQL database.
+  if (!blob && /^[a-f\d-]{36}$/i.test(id)) {
+    blob = await downloadDatingPhoto(id);
+    if (account === activeAccount) {
+      await transact<void>("readwrite", (store, resolve) => {
+        const req = store.put(blob, key(id));
+        req.onsuccess = () => resolve();
+      });
+    }
+  }
   if (blob && account === activeAccount && !urls.has(id)) {
     urls.set(id, URL.createObjectURL(blob));
     emit();

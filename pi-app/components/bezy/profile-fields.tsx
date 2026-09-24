@@ -11,12 +11,12 @@ import {
   MAX_PHOTOS,
   MIN_AGE,
   hueFor,
-  makeId,
   type DatingProfile,
   type Gender,
   type LookingFor,
 } from "@/lib/bezy/data";
 import { saveLocalPhoto, clearPhotoUrl } from "@/lib/bezy/photos";
+import { syncMediaMember, uploadDatingPhoto, removeDatingPhoto } from "@/lib/bezy/media";
 import {
   Chip,
   Field,
@@ -39,6 +39,7 @@ export function ProfileFields({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   function set<K extends keyof DatingProfile>(key: K, value: DatingProfile[K]) {
     onChange({ ...draft, [key]: value });
@@ -54,19 +55,29 @@ export function ProfileFields({
   }
 
   async function addPhoto(file: File) {
-    if (draft.photos.length >= MAX_PHOTOS) return;
-    const id = makeId("ph");
+    if (draft.photos.length >= MAX_PHOTOS || uploading) return;
+    setUploading(true);
     try {
-      await saveLocalPhoto(id, file);
-      setPhotoError(null);
+      if (file.size > 3 * 1024 * 1024) throw new Error("Choose a photo under 3 MB.");
+      await syncMediaMember(false, false, true);
+      const id = await uploadDatingPhoto(file);
+      try {
+        await saveLocalPhoto(id, file);
+        setPhotoError(null);
+      } catch {
+        setPhotoError("Photo is saved online, but local caching is unavailable on this device.");
+      }
       onChange({ ...draft, photos: [...draft.photos, { id, hue: hueFor(id) }] });
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "Photo could not be saved on this device.");
+    } finally {
+      setUploading(false);
     }
   }
 
   async function removePhoto(id: string) {
     try {
+      await removeDatingPhoto(id);
       await clearPhotoUrl(id);
       setPhotoError(null);
       onChange({ ...draft, photos: draft.photos.filter((p) => p.id !== id) });
@@ -108,6 +119,7 @@ export function ProfileFields({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
+              disabled={uploading}
               className="bz-press flex h-24 w-20 flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-bz-line text-bz-faint"
             >
               {draft.photos.length === 0 ? (
@@ -115,7 +127,7 @@ export function ProfileFields({
               ) : (
                 <IconPlus className="h-6 w-6" />
               )}
-              <span className="text-[0.65rem] font-medium">Add</span>
+              <span className="text-[0.65rem] font-medium">{uploading ? "Saving…" : "Add"}</span>
             </button>
           ) : null}
         </div>
@@ -131,8 +143,8 @@ export function ProfileFields({
           }}
         />
         <p className="mt-2 text-xs leading-relaxed text-bz-faint">
-          Photos stay on this device and can reappear after reopening the app. Sharing them with other
-          people is unavailable until secure device transfer is connected.
+          Photos are saved securely so other people can view them while your device is offline. They are only
+          visible in discovery after you consent and make your profile discoverable.
         </p>
         {photoError && <p role="alert" className="mt-2 text-xs text-bz-danger">{photoError}</p>}
       </div>

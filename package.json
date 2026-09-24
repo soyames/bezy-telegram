@@ -33,6 +33,7 @@
     "funnel": "node scripts/funnel.mjs"
   },
   "dependencies": {
+    "@vercel/blob": "^2.8.0",
     "pg": "^8.23.0"
   },
   "devDependencies": {

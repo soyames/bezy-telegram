@@ -224,6 +224,48 @@ async function api(path, options = {}) {
   }
   return data;
 }
+// User-added photos travel through authenticated Vercel endpoints. Telegram
+// continues to serve the existing profile avatar directly.
+async function media(path, options = {}) {
+  const response = await fetch(`/api/media/${path}`, {
+    ...options,
+    headers: { ...(options.headers || {}), 'X-Telegram-Init-Data': tg?.initData || '' }
+  });
+  if (!response.ok) throw new Error('Photo service is unavailable. Please try again.');
+  return response;
+}
+let datingPhotoUrls = [];
+function clearDatingPhotoUrls() {
+  datingPhotoUrls.forEach((url) => URL.revokeObjectURL(url));
+  datingPhotoUrls = [];
+}
+async function refreshDatingPhotos() {
+  const gallery = $('dating-photo-gallery');
+  if (!gallery || !tg?.initData) return;
+  clearDatingPhotoUrls();
+  gallery.replaceChildren();
+  const { photos } = await (await media('photos')).json();
+  for (const photo of photos) {
+    const bytes = await (await media(`photos?id=${encodeURIComponent(photo.id)}`)).blob();
+    const url = URL.createObjectURL(bytes);
+    datingPhotoUrls.push(url);
+    const img = document.createElement('img');
+    img.src = url; img.alt = 'Dating photo'; img.style.cssText = 'width:80px;height:96px;object-fit:cover;border-radius:12px';
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.textContent = 'Remove';
+    remove.onclick = async () => {
+      try { await media(`photos?id=${encodeURIComponent(photo.id)}`, { method: 'DELETE' }); await refreshDatingPhotos(); }
+      catch (error) { showToast(error.message); }
+    };
+    const item = document.createElement('div'); item.append(img, remove); gallery.append(item);
+  }
+  const input = $('dating-photo-upload');
+  if (input) input.disabled = photos.length >= 6;
+}
+async function syncTelegramMedia() {
+  await media('member', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  await refreshDatingPhotos();
+}
 // Bezy conversations (ADR 0009): the conversation UI and message delivery live inside the
 // Mini App; Telegram keeps identity, hosting and notifications. There is no Telegram chat
 // handoff anymore — the primary match action opens the Bezy conversation screen.
@@ -488,6 +530,7 @@ function setProfileTab(tab) {
   tabEdit.setAttribute('aria-selected', String(edit));
   tabSettings.setAttribute('aria-selected', String(!edit));
   $('profile-form')?.classList.toggle('hidden', !edit);
+  $('dating-photos-panel')?.classList.toggle('hidden', !edit);
   $('profile-settings-panel')?.classList.toggle('hidden', edit);
 }
 
@@ -689,6 +732,24 @@ function renderDiscover() {
     return;
   }
   host.innerHTML = profileCardHtml(profile, { actions: true });
+  void (async () => {
+    try {
+      const { photos } = await (await media(`photos?provider=telegram&subject=${encodeURIComponent(profile.id)}`)).json();
+      if (!photos?.length) return;
+      const blob = await (await media(`photos?id=${encodeURIComponent(photos[0].id)}`)).blob();
+      if (state.profiles[state.currentIndex]?.id !== profile.id) return;
+      const portrait = host.querySelector('.portrait');
+      if (!portrait) return;
+      const image = document.createElement('img');
+      const url = URL.createObjectURL(blob);
+      image.src = url;
+      image.alt = '';
+      image.onload = () => URL.revokeObjectURL(url);
+      image.onerror = () => URL.revokeObjectURL(url);
+      portrait.querySelector('img')?.remove();
+      portrait.prepend(image);
+    } catch { /* Existing Telegram avatar remains the fallback. */ }
+  })();
   bindTranslationToggles(host);
   // Safety is available on the deck too — block and report must not require a match.
   if ($('deck-safety')) $('deck-safety').onclick = () => openDeckSafety(profile);
@@ -2164,7 +2225,7 @@ async function loadMatches(messagesView = false) {
 async function saveProfile(event) {
   event.preventDefault();
   const profile = { displayName: $('display-name').value, age: Number($('age').value), city: $('city').value, gender: $('gender').value, seeking: $('seeking').value, interests: $('interests').value.split(',').map((value) => value.trim()).filter(Boolean), bio: $('bio').value, prompts: readPromptEditor(), languages: readLanguageChips('languages-list'), discoverable: $('discoverable').checked };
-  try { const data = await api(API.profile, { body: { profile } }); state.account = data.profile; renderAccount(); showToast(t('app.profile_saved')); flashSavedBadge(); if (state.account.profileComplete && state.account.discoverable) showView('discover'); }
+  try { const data = await api(API.profile, { body: { profile } }); state.account = data.profile; renderAccount(); void syncTelegramMedia().catch(() => {}); showToast(t('app.profile_saved')); flashSavedBadge(); if (state.account.profileComplete && state.account.discoverable) showView('discover'); }
   catch (error) { showToast(errorText(error)); }
 }
 async function loadAccount() {
@@ -2176,6 +2237,7 @@ async function loadAccount() {
   state.needsAgeConfirmation = data.needsAgeConfirmation === true;
   document.body.classList.toggle('age-gated', state.needsAgeConfirmation);
   renderAccount();
+  void syncTelegramMedia().catch(() => {});
   return data;
 }
 
@@ -2221,6 +2283,22 @@ function bindEvents() {
   if ($('premium-back')) $('premium-back').onclick = () => showView('discover');
   document.querySelectorAll('.premium-action').forEach((button) => button.onclick = () => showView('premium'));
   if ($('profile-form')) $('profile-form').addEventListener('submit', saveProfile);
+  $('dating-photo-upload')?.addEventListener('change', async (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024 || !['image/jpeg','image/png','image/webp'].includes(file.type)) {
+      showToast('Choose a JPEG, PNG or WebP photo under 3 MB.'); return;
+    }
+    input.disabled = true;
+    try {
+      await syncTelegramMedia();
+      await media('photos', { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+      await refreshDatingPhotos();
+    } catch (error) { showToast(error.message); }
+    finally { input.disabled = false; }
+  });
   if ($('preview-profile-btn')) $('preview-profile-btn').onclick = openPreview;
   // Bezy conversation controls: composer submit, send-button state, back and safety menu.
   if ($('chat-composer')) {

@@ -12,6 +12,7 @@ import {
 import { usePiAuth } from "@/contexts/pi-auth-context";
 import { pi } from "@/lib/pi";
 import { configurePhotoAccount, clearAccountPhotos } from "@/lib/bezy/photos";
+import { syncMediaMember, removeAllDatingPhotos } from "@/lib/bezy/media";
 import { KeyWriter } from "@/lib/bezy/store";
 import {
   KEYS,
@@ -251,6 +252,17 @@ export function BezyProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [isAuthenticated, user?.uid]);
+
+  // Keep the backend's photo access state aligned with the user's Pi profile.
+  // Media stays inaccessible until onboarding and photo consent are complete.
+  useEffect(() => {
+    if (!ready || !consent.onboarded || !profile) return;
+    const visible = profileComplete(profile) && profile.photoConsent
+      && !prefs.paused && prefs.visibility === "everyone";
+    void syncMediaMember(profile.photoConsent, visible).catch(() => {
+      setStorageTrouble(true);
+    });
+  }, [ready, consent.onboarded, profile, prefs.paused, prefs.visibility]);
 
   // ---- flush on hide ----
   useEffect(() => {
@@ -590,7 +602,8 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   }
 
   async function deleteAccount() {
-    await clearAccountPhotos().catch(() => {});
+    await removeAllDatingPhotos();
+    await clearAccountPhotos();
     try {
       const keys = await pi.userState.keys();
       const mine = keys.filter((k) => k.startsWith("bezy."));

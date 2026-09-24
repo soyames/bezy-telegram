@@ -222,9 +222,15 @@ export function SettingsScreen() {
                 icon={<IconTrash className="h-4 w-4" />}
                 onConfirm={async () => {
                   setDeleting(true);
-                  await deleteAccount();
-                  setDeleting(false);
-                  closeSettings();
+                  try {
+                    await deleteAccount();
+                    closeSettings();
+                  } catch {
+                    // Keep the profile visible locally until private media has
+                    // actually been removed on the backend. Retry is possible.
+                  } finally {
+                    setDeleting(false);
+                  }
                 }}
               />
               {deleting ? (
