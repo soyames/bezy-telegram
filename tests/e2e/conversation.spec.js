@@ -65,7 +65,7 @@ const openMessages = async (page) => {
   await expect(page.locator('#messages-view')).toHaveClass(/active/);
 };
 const openFirstConversation = async (page) => {
-  await page.locator('#messages-view .match-card [data-open-chat]').first().click();
+  await page.locator('#messages-view .conversation-btn[data-open-chat]').first().click();
   await expect(page.locator('#chat-screen')).toBeVisible();
 };
 
@@ -73,7 +73,9 @@ test('a matched user opens the Bezy conversation from the Messages tab', async (
   await stubApi(page, { matches: [MATCH_BO], messages: [{ id: 'm1', senderId: '900000002', text: 'Hey there 👋', createdAt: new Date().toISOString() }] });
   await page.goto('/?as=a');
   await openMessages(page);
-  await expect(page.locator('#messages-view .match-card [data-open-chat]')).toHaveText(en.start_conversation);
+  // Messages lists conversations rather than repeating the match cards, so the row carries
+  // the match's name and the last message instead of a "start conversation" CTA.
+  await expect(page.locator('#messages-view .conversation-btn[data-open-chat]')).toContainText('Bo');
   await openFirstConversation(page);
   await expect(page.locator('#chat-name')).toHaveText('Bo');
   await expect(page.locator('#chat-why .why-label')).toHaveText(en.why_matched);

@@ -105,7 +105,7 @@ test('a free user keeps the upgrade UI and the messaging lock', async ({ page })
 
   await expect(page.locator('#premium-copy')).toHaveText(en.premium_copy);
   await page.locator('.nav button[data-view="messages"]').click();
-  await page.locator('#messages-view .match-card [data-open-chat]').first().click();
+  await page.locator('#messages-view .conversation-btn[data-open-chat]').first().click();
   await expect(page.locator('#chat-locked')).toBeVisible();
   await expect(page.locator('#chat-locked')).toContainText(en.msg_premium_locked);
   await page.locator('#chat-unlock').click();
@@ -126,7 +126,7 @@ test('an active Premium member opens a matched conversation with the composer', 
   await stubApi(page, { premium: ACTIVE });
   await page.goto('/?as=a');
   await page.locator('.nav button[data-view="messages"]').click();
-  await page.locator('#messages-view .match-card [data-open-chat]').first().click();
+  await page.locator('#messages-view .conversation-btn[data-open-chat]').first().click();
 
   await expect(page.locator('#chat-screen')).toBeVisible();
   await expect(page.locator('#chat-locked')).toBeHidden();

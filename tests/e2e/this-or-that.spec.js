@@ -108,7 +108,7 @@ async function stubApi(page, options = {}) {
 
 const openConversation = async (page) => {
   await page.locator('.nav button[data-view="messages"]').click();
-  await page.locator('#messages-view .match-card [data-open-chat]').first().click();
+  await page.locator('#messages-view .conversation-btn[data-open-chat]').first().click();
   await expect(page.locator('#chat-screen')).toBeVisible();
 };
 const openWaysToStart = async (page) => {

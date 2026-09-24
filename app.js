@@ -1761,9 +1761,9 @@ function stopChatPolling() {
 // One full-width card per match: photo header, the why-you-matched chips, an icebreaker
 // teaser drawn from their first answered prompt, and the three actions in the design's
 // primary-to-tertiary order. The card keeps the `match-card` class and the `.match-info b`
-// name element the e2e specs pin. `idPrefix` keeps card ids unique when the same renderer
-// feeds both the Matches and the Messages tabs (both views live in one document).
-function matchCardHtml(match, idPrefix = '') {
+// name element the e2e specs pin. Only the Matches grid draws it now — Messages uses the
+// compact conversation row — so card ids need no prefix to stay unique.
+function matchCardHtml(match) {
   const initial = (match.displayName || 'B').charAt(0).toUpperCase();
   const image = match.photoUrl ? `<img src="${escapeHtml(match.photoUrl)}" alt="">` : '';
   const age = match.age ? `, ${escapeHtml(match.age)}` : '';
@@ -1789,7 +1789,7 @@ function matchCardHtml(match, idPrefix = '') {
     : (!lastAt
       ? `<span class="mf-state fresh">${escapeHtml(t('app.match_state_new'))}</span>`
       : (quietForAWeek ? `<span class="mf-state quiet">${escapeHtml(t('app.match_state_quiet'))}</span>` : ''));
-  return `<article class="match-card" id="${idPrefix}match-${escapeHtml(match.id)}">
+  return `<article class="match-card" id="match-${escapeHtml(match.id)}">
     <div class="mf-photo">${image}<span class="mf-photo-glow" aria-hidden="true"></span>${image ? '' : `<span class="mf-initial" aria-hidden="true">${escapeHtml(initial)}</span>`}<span class="mf-photo-shade" aria-hidden="true"></span>
       <div class="mf-photo-info match-info"><b class="mf-name">${escapeHtml(match.displayName || t('app.bezy_member'))}${age}</b>${city}</div>
     </div>
@@ -1827,19 +1827,43 @@ function bindChatOpeners(root) {
   });
 }
 
+/**
+ * One conversation per row for the Messages tab: avatar, name, last message and timestamp,
+ * with the unread badge on the preview. Each row is one tap from the conversation.
+ */
+function conversationRowHtml(match) {
+  const initial = (match.displayName || 'B').charAt(0).toUpperCase();
+  const avatar = match.photoUrl
+    ? `<span class="conv-avatar"><img src="${escapeHtml(match.photoUrl)}" alt=""></span>`
+    : `<span class="conv-avatar">${escapeHtml(initial)}</span>`;
+  const unread = match.conversation?.unread === true;
+  const preview = match.conversation?.lastMessagePreview
+    ? `<p class="mf-preview${unread ? ' unread' : ''}">${unread ? '<span class="chat-badge" aria-hidden="true"></span>' : ''}${escapeHtml(match.conversation.lastMessagePreview)}</p>`
+    : '';
+  const lastAt = match.conversation?.lastMessageAt ? new Date(match.conversation.lastMessageAt).getTime() : 0;
+  return `<button class="conversation conversation-btn" type="button" data-open-chat="${escapeHtml(match.id)}">
+    ${avatar}
+    <span class="conv-main"><b>${escapeHtml(match.displayName || t('app.bezy_member'))}</b>${preview}</span>
+    <span class="time">${escapeHtml(relativeTime(lastAt || match.createdAt))}</span>
+  </button>`;
+}
+
 function renderMatches() {
   const grid = $('match-grid'), empty = $('matches-empty'), conversations = $('conversation-list'), messageEmpty = $('message-empty'), carousel = $('matches-carousel');
   if (!grid || !empty || !conversations || !messageEmpty) return;
   setText('match-count', String(state.matches.length));
   if (state.matchesError && !state.matches.length) {
-    // The fetch failed: say so instead of claiming there are no matches. One retry control.
+    // The fetch failed: say so instead of claiming there are no matches. One retry control,
+    // written into both lists so neither tab goes blank.
+    const failure = `<p>${escapeHtml(t('app.error_generic'))}</p>`;
     grid.innerHTML = '';
-    empty.innerHTML = `<p>${escapeHtml(t('app.error_generic'))}</p><button class="ghost-btn" id="matches-retry" type="button">${escapeHtml(t('app.check_later'))}</button>`;
+    empty.innerHTML = `${failure}<button class="ghost-btn" id="matches-retry" type="button">${escapeHtml(t('app.check_later'))}</button>`;
     empty.classList.remove('hidden');
-    conversations.innerHTML = '';
+    conversations.innerHTML = `${failure}<button class="ghost-btn" id="messages-retry" type="button">${escapeHtml(t('app.check_later'))}</button>`;
     messageEmpty.classList.add('hidden');
     if (carousel) carousel.innerHTML = '';
     $('matches-retry').onclick = () => loadMatches();
+    $('messages-retry').onclick = () => loadMatches();
     renderSocialMatches();
     return;
   }
@@ -1861,25 +1885,12 @@ function renderMatches() {
       if (match) openMatchActions(match);
     };
   });
-  // The Messages tab renders the same card hierarchy as Matches — why you matched, the
-  // conversation preview and unread state, the primary conversation CTA, ways to start and
-  // safety — so a conversation is always one primary tap away.
-  conversations.innerHTML = state.matches.map((match) => matchCardHtml(match, 'c')).join('');
+  // Messages lists conversations, not matches: one compact row each, so the tab answers
+  // "who has written to me" instead of repeating the Matches grid. Starters and the match
+  // actions stay on the card in Matches, where there is room for them.
+  conversations.innerHTML = state.matches.map(conversationRowHtml).join('');
   messageEmpty.classList.add('hidden');
-  bindTranslationToggles(conversations);
   bindChatOpeners(conversations);
-  conversations.querySelectorAll('[data-starters]').forEach((button) => {
-    button.onclick = () => {
-      const match = state.matches.find((m) => m.id === button.dataset.starters);
-      if (match) openStarters(match);
-    };
-  });
-  conversations.querySelectorAll('[data-actions]').forEach((button) => {
-    button.onclick = () => {
-      const match = state.matches.find((m) => m.id === button.dataset.actions);
-      if (match) openMatchActions(match);
-    };
-  });
   renderSocialMatches();
 }
 
@@ -1923,7 +1934,7 @@ function socialMatchRowHtml(match) {
   const preview = last
     ? `<p class="mf-preview${match.unread ? ' unread' : ''}">${match.unread ? '<span class="chat-badge" aria-hidden="true"></span>' : ''}${escapeHtml(last.fromMe ? `${st('you_prefix')}${last.text}` : String(last.text || ''))}</p>`
     : '';
-  return `<button class="conversation" type="button" data-shared-chat="${escapeHtml(match.id)}" style="width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);cursor:pointer">
+  return `<button class="conversation conversation-btn" type="button" data-shared-chat="${escapeHtml(match.id)}">
     ${avatar}
     <div class="conv-main"><b>${escapeHtml(view.displayName || t('app.bezy_member'))}</b><p>${escapeHtml(view.city)}</p>${preview}</div>
     <span class="time">${escapeHtml(relativeTime(last?.at || match.createdAt))}</span>
