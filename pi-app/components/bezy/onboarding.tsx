@@ -51,9 +51,9 @@ export function Onboarding() {
       <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bz-safe-top bz-safe-bottom">
         {step === "welcome" && (
           <div className="anim-fade-up flex flex-1 flex-col justify-center px-6 py-10">
-            <div className="bz-brand-hero mb-8 flex items-center justify-center overflow-hidden rounded-[1.75rem] py-3">
-              <BezyLogo className="h-[178px] w-40" />
-            </div>
+            <span className="mb-6 inline-flex w-fit items-center rounded-xl bg-bz-brand-surface px-3 py-2">
+              <BezyLogo className="h-12 w-48" />
+            </span>
             <h1 className="font-display text-4xl font-bold leading-tight text-bz-ink">
               Meet people,
               <br />

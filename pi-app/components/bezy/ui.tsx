@@ -14,36 +14,38 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
 
-// The App Studio host serves /_next/static but not public/, so the logo travels as a
-// bundled module asset instead of a public/ path.
+// The App Studio host serves /_next/static but not public/, so both marks travel as
+// bundled module assets instead of public/ paths. The artwork itself is the supplied
+// export artwork, unchanged.
 import bezyLogo from "@/lib/bezy/assets/bezy-logo.png";
+import bezyIcon from "@/lib/bezy/assets/bezy-icon.png";
 
-/** Crop the transparent margins of the supplied artwork in CSS; never redraw the mark. */
+/** Official Bezy logo artwork — used in the header and the onboarding welcome screen. */
 export function BezyLogo({ className }: { className?: string }) {
   return (
-    <span className={cx("bz-logo-art relative block shrink-0 overflow-hidden", className)}>
+    <span className={cx("relative block shrink-0 overflow-hidden", className)}>
       <Image
         src={bezyLogo}
         alt="Bezy"
         fill
-        sizes="220px"
-        className="bz-logo-art-image"
+        sizes="160px"
+        className="object-contain"
         priority
       />
     </span>
   );
 }
 
-/** Show just the B from the same supplied logo at small sizes. */
+/** Cropped "B" mark from the official Bezy icon artwork — used for small icon badges. */
 export function BezyMark({ className }: { className?: string }) {
   return (
-    <span className={cx("bz-mark-art relative block shrink-0 overflow-hidden", className)}>
+    <span className={cx("relative block shrink-0 overflow-hidden", className)}>
       <Image
-        src={bezyLogo}
+        src={bezyIcon}
         alt="Bezy"
         fill
         sizes="96px"
-        className="bz-mark-art-image"
+        className="scale-[1.65] object-cover"
       />
     </span>
   );

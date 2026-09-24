@@ -36,7 +36,9 @@
   --bz-danger: oklch(0.58 0.21 25);
   --bz-danger-soft: oklch(0.95 0.04 25);
   --bz-on-rose: oklch(0.99 0.01 20);
-  --bz-brand-surface: #220947;
+  /* Dark-purple brand surface the Bezy wordmark's own artwork sits on, so its built-in
+     background blends into the card instead of clashing with an unrelated tile color. */
+  --bz-brand-surface: oklch(0.19 0.045 302);
 
   --background: var(--bz-cream);
   --foreground: var(--bz-ink);
@@ -122,27 +124,6 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-}
-
-/* The source PNG has transparent margins around a purple square. These viewport
-   crops expose the original pixels without resampling or placing a tiny square
-   inside a second badge. The hero uses the full wordmark; navigation uses the B. */
-.bz-logo-art-image {
-  width: 172% !important;
-  height: 155% !important;
-  max-width: none !important;
-  left: -36% !important;
-  top: -28% !important;
-}
-.bz-mark-art-image {
-  width: 263% !important;
-  height: 263% !important;
-  max-width: none !important;
-  left: -85% !important;
-  top: -50% !important;
-}
-.bz-brand-hero {
-  background: radial-gradient(circle at 45% 30%, #59219a 0%, #30095d 52%, #1c073b 100%);
 }
 
 @layer utilities {

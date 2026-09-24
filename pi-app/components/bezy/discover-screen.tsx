@@ -5,7 +5,7 @@ import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
 import { PersonPhoto, ProviderBadge } from "@/components/bezy/pieces";
 import {
-  BezyMark,
+  BezyLogo,
   Button,
   IconHeartFilled,
   IconPin,
@@ -58,9 +58,8 @@ export function DiscoverScreen() {
   return (
     <div className="flex min-h-full flex-col">
       <header className="bz-safe-top flex items-center justify-between px-5 pb-2 pt-4">
-        <span className="inline-flex items-center gap-2.5" aria-label="Bezy">
-          <BezyMark className="h-9 w-9 rounded-lg" />
-          <span className="font-display text-xl font-bold tracking-tight text-bz-ink">Bezy</span>
+        <span className="inline-flex items-center rounded-xl bg-bz-brand-surface px-2.5 py-1.5">
+          <BezyLogo className="h-6 w-24" />
         </span>
         <Pill tone="rose">
           <IconPin className="h-3.5 w-3.5" />
