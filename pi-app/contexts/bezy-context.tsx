@@ -11,6 +11,7 @@ import {
 } from "react";
 import { usePiAuth } from "@/contexts/pi-auth-context";
 import { pi } from "@/lib/pi";
+import { configurePhotoAccount, clearAccountPhotos } from "@/lib/bezy/photos";
 import { KeyWriter } from "@/lib/bezy/store";
 import {
   KEYS,
@@ -137,7 +138,7 @@ export function useBezy(): BezyContextValue {
 const seedMap = new Map(SEED_PROFILES.map((s) => [s.id, s]));
 
 export function BezyProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = usePiAuth();
+  const { isAuthenticated, user } = usePiAuth();
 
   const [ready, setReady] = useState(false);
   const [storageTrouble, setStorageTrouble] = useState(false);
@@ -208,7 +209,8 @@ export function BezyProvider({ children }: { children: ReactNode }) {
 
   // ---- load ----
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !user?.uid) return;
+    configurePhotoAccount(user.uid);
     let cancelled = false;
     (async () => {
       try {
@@ -248,7 +250,7 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.uid]);
 
   // ---- flush on hide ----
   useEffect(() => {
@@ -588,6 +590,7 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   }
 
   async function deleteAccount() {
+    await clearAccountPhotos().catch(() => {});
     try {
       const keys = await pi.userState.keys();
       const mine = keys.filter((k) => k.startsWith("bezy."));

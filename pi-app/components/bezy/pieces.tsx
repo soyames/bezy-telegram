@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { BezyMark, cx, IconClose, Spinner } from "@/components/bezy/ui";
-import { getPhotoUrl, subscribePhotos } from "@/lib/bezy/photos";
+import { getPhotoUrl, loadPhotoUrl, subscribePhotos } from "@/lib/bezy/photos";
 import { initialsOf, type PhotoRef } from "@/lib/bezy/data";
 import { useBezy } from "@/contexts/bezy-context";
 
@@ -200,6 +200,9 @@ export function ConfirmButton({
 /* ---------- photo art ---------- */
 
 export function usePhotoUrl(id: string | undefined): string | undefined {
+  useEffect(() => {
+    if (id) void loadPhotoUrl(id).catch(() => {});
+  }, [id]);
   const subscribe = useCallback((cb: () => void) => subscribePhotos(cb), []);
   const get = useCallback(() => (id ? getPhotoUrl(id) : undefined), [id]);
   return useSyncExternalStore(subscribe, get, () => undefined);

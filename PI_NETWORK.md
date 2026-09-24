@@ -13,8 +13,9 @@ infrastructure after adapting its private schema; the Pi Browser frontend
 remains separate. Pi sign-in and Pi payments stay on Pi. Telegram login and
 Stars stay on Telegram. Payment prices and provider histories stay distinct.
 
-This export does **not** yet support shared dating. Pi userState saves data
-per Pi account; photo object URLs expire with the tab; and the discover screen
+This export does **not** yet support shared dating. Pi userState saves profile
+metadata per Pi account; IndexedDB retains selected photo bytes only on that
+signed-in user's current device; and the discover screen
 correctly reports no shared candidates. The exported Premium screen disables
 checkout until real benefits and durable, verified entitlements exist. These
 edits do not affect the already hosted App Studio version.
@@ -30,18 +31,22 @@ edits do not affect the already hosted App Studio version.
    and moderation behind server APIs keyed by internal member ID. Use
    transactions for mutual likes and enforce both sides' privacy settings and
    blocks for every operation across both providers.
-3. The owner requires dating photo bytes to remain on each user's device; do
-   not put the bytes in Vercel, Neon, Pi userState, or another media host without
-   an explicit change to that requirement. The database may hold non-image
-   metadata, consent and availability only. For another user to see a photo,
-   its device must transfer the bytes or serve them while online; an App Studio
-   object URL cannot be fetched by another device and disappears after reload.
-   A browser cannot promise that the source device remains reachable in the
-   background. Do not claim reliable cross-user photo display until a feasible,
-   consented transport has been demonstrated on real Pi and Telegram devices,
-   including offline and device-change behavior. Telegram's existing profile
-   avatar URL is already served by Telegram, so it does not satisfy a strict
-   device-only rule. The actual SQL migrations in `db/` are private.
+3. Keep Telegram's existing profile-avatar URL served by Telegram. Pi does not
+   currently supply an equivalent persistent photo URL; do not assume it does.
+   User-added dating photos stay on the owner's device. An authorized viewer
+   receives their bytes and caches them on **that viewer's device**, scoped to
+   the signed-in account, so revisiting that profile can work offline after a
+   successful transfer. Store only photo identifiers, consent and availability
+   metadata in Neon; do not put the image bytes in Vercel, Neon or Pi userState.
+   The Pi export now caches local files in IndexedDB and provides a receiver
+   cache API; it does not implement the cross-device transfer. A source device
+   offline before first transfer means the viewer cannot get the image. A
+   browser cache may be cleared or evicted, and a second device needs another
+   transfer. Copies on viewer devices may persist after the owner deletes a
+   photo, so do not promise remote erasure. Vercel may coordinate signaling,
+   authorization and metadata, but device-to-device delivery needs real-browser
+   testing, including relays that might be necessary for connectivity. The
+   actual SQL migrations in `db/` are private.
 4. Adapt the Pi frontend to the shared APIs for cross-user data instead of
    only Pi userState. Migrate any existing Pi profile with the user's consent;
    Vercel cannot automatically read per-user App Studio state.

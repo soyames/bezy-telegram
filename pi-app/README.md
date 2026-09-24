@@ -13,10 +13,12 @@ Changes from the export:
   Studio version is unchanged until updated separately.
 
 This export stores profiles in per-user App Studio state. It cannot show other
-Pi or Telegram users. Uploaded photos are tab-scoped object URLs and cannot be
-shared with other devices as currently implemented. Device-only photo storage
-requires a separate, tested live transfer mechanism and does not guarantee
-offline visibility. Its existing
+Pi or Telegram users. Selected photos now persist locally in IndexedDB for the
+current signed-in account on this device. The photo module also provides a
+viewer cache for received bytes; no cross-device transport calls it yet.
+Browsers may evict or clear local data. Previously viewed photos can be seen
+offline only after a transfer has succeeded, while the cache remains present.
+The existing
 client `activatePremium(paymentId, txid)` cannot establish a verified, durable
 server entitlement. Do not deploy it publicly as a working dating app.
 

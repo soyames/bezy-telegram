@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   AREAS,
   GENDERS,
@@ -16,7 +16,7 @@ import {
   type Gender,
   type LookingFor,
 } from "@/lib/bezy/data";
-import { setPhotoUrl, clearPhotoUrl } from "@/lib/bezy/photos";
+import { saveLocalPhoto, clearPhotoUrl } from "@/lib/bezy/photos";
 import {
   Chip,
   Field,
@@ -38,6 +38,7 @@ export function ProfileFields({
   onChange: (next: DatingProfile) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   function set<K extends keyof DatingProfile>(key: K, value: DatingProfile[K]) {
     onChange({ ...draft, [key]: value });
@@ -52,17 +53,26 @@ export function ProfileFields({
     }
   }
 
-  function addPhoto(file: File) {
+  async function addPhoto(file: File) {
     if (draft.photos.length >= MAX_PHOTOS) return;
     const id = makeId("ph");
-    const url = URL.createObjectURL(file);
-    setPhotoUrl(id, url);
-    set("photos", [...draft.photos, { id, hue: hueFor(id) }]);
+    try {
+      await saveLocalPhoto(id, file);
+      setPhotoError(null);
+      onChange({ ...draft, photos: [...draft.photos, { id, hue: hueFor(id) }] });
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : "Photo could not be saved on this device.");
+    }
   }
 
-  function removePhoto(id: string) {
-    clearPhotoUrl(id);
-    set("photos", draft.photos.filter((p) => p.id !== id));
+  async function removePhoto(id: string) {
+    try {
+      await clearPhotoUrl(id);
+      setPhotoError(null);
+      onChange({ ...draft, photos: draft.photos.filter((p) => p.id !== id) });
+    } catch {
+      setPhotoError("Photo could not be removed from this device. Try again.");
+    }
   }
 
   return (
@@ -116,14 +126,15 @@ export function ProfileFields({
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) addPhoto(file);
+            if (file) void addPhoto(file);
             e.target.value = "";
           }}
         />
         <p className="mt-2 text-xs leading-relaxed text-bz-faint">
-          Photos you add are shown on your dating profile to people you can be discovered by. They stay on
-          your device during this session and a warm placeholder shows if you reopen the app.
+          Photos stay on this device and can reappear after reopening the app. Sharing them with other
+          people is unavailable until secure device transfer is connected.
         </p>
+        {photoError && <p role="alert" className="mt-2 text-xs text-bz-danger">{photoError}</p>}
       </div>
 
       <Field label="Display name" hint="A first name or nickname is perfect.">

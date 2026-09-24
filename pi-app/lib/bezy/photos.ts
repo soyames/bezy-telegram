@@ -1,42 +1,139 @@
 "use client";
 
-// In-session object URLs for user-added photos. Real image bytes exceed the durable
-// per-user storage budget, so only lightweight PhotoRef descriptors ({ id, hue }) are
-// persisted. During a session we keep the object URL here so the actual picture shows;
-// on reload a warm gradient placeholder stands in until the photo is re-added.
-
+// The photo bytes live only in this browser's IndexedDB. Pi userState stores
+// photo IDs, never bytes. Distinct Pi accounts on the same device are isolated
+// by the verified UID supplied by the authentication context.
+const DB_NAME = "bezy-device-photos";
+const STORE = "photos";
+const MAX_BYTES = 8 * 1024 * 1024;
+const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const urls = new Map<string, string>();
 const subscribers = new Set<() => void>();
+let account: string | null = null;
 
-function emit() {
-  subscribers.forEach((fn) => fn());
-}
+function emit() { subscribers.forEach((fn) => fn()); }
 
-export function setPhotoUrl(id: string, url: string) {
-  urls.set(id, url);
+export function configurePhotoAccount(uid: string) {
+  if (account === uid) return;
+  for (const url of urls.values()) URL.revokeObjectURL(url);
+  urls.clear();
+  account = uid;
   emit();
 }
 
-export function getPhotoUrl(id: string): string | undefined {
-  return urls.get(id);
+function key(photoId: string) {
+  if (!account) throw new Error("Sign in before accessing photos");
+  return `${account}:${photoId}`;
 }
 
-export function clearPhotoUrl(id: string) {
-  const existing = urls.get(id);
-  if (existing) {
-    try {
-      URL.revokeObjectURL(existing);
-    } catch {
-      /* ignore */
-    }
+function openPhotos(): Promise<IDBDatabase> {
+  if (typeof indexedDB === "undefined") return Promise.reject(new Error("Device photo storage is unavailable"));
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result);
+  });
+}
+
+async function transact<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore, resolve: (value: T) => void, reject: (error: unknown) => void) => void): Promise<T> {
+  const db = await openPhotos();
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const tx = db.transaction(STORE, mode);
+      let value: T;
+      tx.oncomplete = () => resolve(value);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+      run(tx.objectStore(STORE), (result) => { value = result; }, reject);
+    });
+  } finally {
+    db.close();
   }
+}
+
+export function getPhotoUrl(id: string): string | undefined { return urls.get(id); }
+
+/** Cache an owner's selected file on their device before saving its photo ID. */
+export async function saveLocalPhoto(id: string, file: File) {
+  if (!IMAGE_TYPES.has(file.type) || file.size > MAX_BYTES || !file.size) {
+    throw new Error("Choose a JPEG, PNG or WebP photo under 8 MB.");
+  }
+  const storageKey = key(id);
+  await transact<void>("readwrite", (store, resolve) => {
+    const req = store.put(file, storageKey);
+    req.onsuccess = () => resolve();
+  });
+  const old = urls.get(id);
+  if (old) URL.revokeObjectURL(old);
+  urls.set(id, URL.createObjectURL(file));
+  emit();
+}
+
+/** For future authorized transfers: copies received by a viewer use the same local cache. */
+export async function cacheViewedPhoto(ownerId: string, photoId: string, blob: Blob) {
+  if (!ownerId || !photoId || !IMAGE_TYPES.has(blob.type) || !blob.size || blob.size > MAX_BYTES) {
+    throw new Error("Invalid photo transfer");
+  }
+  const id = `${ownerId}:${photoId}`;
+  const storageKey = key(id);
+  await transact<void>("readwrite", (store, resolve) => {
+    const req = store.put(blob, storageKey);
+    req.onsuccess = () => resolve();
+  });
+  const old = urls.get(id);
+  if (old) URL.revokeObjectURL(old);
+  urls.set(id, URL.createObjectURL(blob));
+  emit();
+  return id;
+}
+
+export async function loadPhotoUrl(id: string): Promise<void> {
+  const activeAccount = account;
+  if (!activeAccount || urls.has(id)) return;
+  const blob = await transact<Blob | undefined>("readonly", (store, resolve, reject) => {
+    const req = store.get(key(id));
+    req.onsuccess = () => resolve(req.result as Blob | undefined);
+    req.onerror = () => reject(req.error);
+  });
+  if (blob && account === activeAccount && !urls.has(id)) {
+    urls.set(id, URL.createObjectURL(blob));
+    emit();
+  }
+}
+
+export async function clearPhotoUrl(id: string) {
+  const storageKey = key(id);
+  await transact<void>("readwrite", (store, resolve) => {
+    const req = store.delete(storageKey);
+    req.onsuccess = () => resolve();
+  });
+  const old = urls.get(id);
+  if (old) URL.revokeObjectURL(old);
   urls.delete(id);
+  emit();
+}
+
+/** Delete this signed-in account's local copies when they delete their account. */
+export async function clearAccountPhotos() {
+  if (!account) return;
+  const prefix = `${account}:`;
+  await transact<void>("readwrite", (store, resolve, reject) => {
+    const request = store.openCursor();
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) { resolve(); return; }
+      if (typeof cursor.key === "string" && cursor.key.startsWith(prefix)) cursor.delete();
+      cursor.continue();
+    };
+  });
+  for (const url of urls.values()) URL.revokeObjectURL(url);
+  urls.clear();
   emit();
 }
 
 export function subscribePhotos(fn: () => void): () => void {
   subscribers.add(fn);
-  return () => {
-    subscribers.delete(fn);
-  };
+  return () => { subscribers.delete(fn); };
 }
