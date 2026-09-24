@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 
-export type Tab = "discover" | "matches" | "profile";
+/** The Telegram mini app's four tabs, so both frontends navigate the same way. */
+export type Tab = "discover" | "matches" | "messages" | "profile";
 
 export interface ReportTarget {
   id: string;

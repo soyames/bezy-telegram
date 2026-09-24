@@ -93,6 +93,18 @@ export const IconChat = (p: SVGProps<SVGSVGElement>) => (
     <path d="M21 11.5a8.4 8.4 0 0 1-11.9 7.6L3 21l1.9-6.1A8.4 8.4 0 1 1 21 11.5Z" />
   </S>
 );
+/* Discover and Messages carry the Telegram mini app's own glyphs so the tab bar reads
+   identically on both networks. */
+export const IconHome = (p: SVGProps<SVGSVGElement>) => (
+  <S {...p}>
+    <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+  </S>
+);
+export const IconMail = (p: SVGProps<SVGSVGElement>) => (
+  <S {...p}>
+    <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+  </S>
+);
 export const IconUser = (p: SVGProps<SVGSVGElement>) => (
   <S {...p}>
     <circle cx="12" cy="8" r="4" />

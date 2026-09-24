@@ -6,8 +6,10 @@ import { LoadingScreen, StorageNotice, ToastHost } from "@/components/bezy/piece
 import { Onboarding } from "@/components/bezy/onboarding";
 import { DiscoverScreen } from "@/components/bezy/discover-screen";
 import { MatchesScreen } from "@/components/bezy/matches-screen";
+import { MessagesScreen } from "@/components/bezy/messages-screen";
 import { ProfileScreen } from "@/components/bezy/profile-screen";
 import { BottomNav } from "@/components/bezy/bottom-nav";
+import { BrandBar } from "@/components/bezy/brand-bar";
 import { CandidateDetail } from "@/components/bezy/candidate-detail";
 import { ThreadView } from "@/components/bezy/thread-view";
 import { ReportSheet } from "@/components/bezy/report-sheet";
@@ -39,9 +41,13 @@ function Shell() {
 
   return (
     <div className="bz-app-bg mx-auto flex min-h-[100dvh] w-full max-w-md flex-col">
+      {/* Same chrome on every tab, exactly as the Telegram mini app carries it. */}
+      <BrandBar />
+
       <main key={tab} className="anim-fade-in flex flex-1 flex-col">
         {tab === "discover" && <DiscoverScreen />}
         {tab === "matches" && <MatchesScreen />}
+        {tab === "messages" && <MessagesScreen />}
         {tab === "profile" && <ProfileScreen />}
       </main>
 
