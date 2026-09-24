@@ -14,12 +14,16 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
 
+// The App Studio host serves /_next/static but not public/, so the logo travels as a
+// bundled module asset instead of a public/ path.
+import bezyLogo from "@/lib/bezy/assets/bezy-logo.png";
+
 /** Crop the transparent margins of the supplied artwork in CSS; never redraw the mark. */
 export function BezyLogo({ className }: { className?: string }) {
   return (
     <span className={cx("bz-logo-art relative block shrink-0 overflow-hidden", className)}>
       <Image
-        src="/images/bezy-logo.png"
+        src={bezyLogo}
         alt="Bezy"
         fill
         sizes="220px"
@@ -35,7 +39,7 @@ export function BezyMark({ className }: { className?: string }) {
   return (
     <span className={cx("bz-mark-art relative block shrink-0 overflow-hidden", className)}>
       <Image
-        src="/images/bezy-logo.png"
+        src={bezyLogo}
         alt="Bezy"
         fill
         sizes="96px"

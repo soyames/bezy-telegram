@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Poppins, Manrope } from "next/font/google";
 import { GeistMono } from "geist/font/mono";
 import { AppWrapper } from "@/components/app-wrapper";
+import bezyLogo from "@/lib/bezy/assets/bezy-logo.png";
 import "./globals.css";
 
 const display = Poppins({
@@ -21,8 +22,8 @@ export const metadata: Metadata = {
   title: "Bezy",
   description: "Bezy — a warm, respectful dating app for adult Pioneers.",
   icons: {
-    icon: "/images/bezy-logo.png",
-    apple: "/images/bezy-logo.png",
+    icon: bezyLogo.src,
+    apple: bezyLogo.src,
   },
 };
 
