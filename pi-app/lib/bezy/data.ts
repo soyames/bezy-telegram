@@ -193,6 +193,8 @@ export interface DatingPrefs {
   visibility: Visibility;
   whoCanMessage: WhoCanMessage;
   paused: boolean;
+  /** Set once widenArea has been through the area-gate migration, so it is not re-applied. */
+  areaGateCleared?: boolean;
 }
 
 export interface ConsentState {
@@ -484,10 +486,14 @@ export function defaultPrefs(): DatingPrefs {
     interestedIn: ["woman", "man", "nonbinary"],
     ageMin: 18,
     ageMax: 45,
-    widenArea: false,
+    // Wide by default: Bezy is one pool of people across both networks, and gating on area
+    // left a new member sitting in a preset city seeing an empty deck. Age, gender and
+    // interests still filter; location no longer hides anyone.
+    widenArea: true,
     visibility: "everyone",
     whoCanMessage: "matches",
     paused: false,
+    areaGateCleared: true,
   };
 }
 
@@ -621,14 +627,20 @@ export function sanitizePrefs(rec: unknown): DatingPrefs {
   let ageMin = Math.max(MIN_AGE, Math.min(MAX_AGE, Math.round(toNum(o.ageMin, 18))));
   let ageMax = Math.max(MIN_AGE, Math.min(MAX_AGE, Math.round(toNum(o.ageMax, 45))));
   if (ageMin > ageMax) [ageMin, ageMax] = [ageMax, ageMin];
+  // One-time: discovery stopped gating on area. A profile stored before that carries the
+  // old default of false and would never see anyone outside its own city, so it is widened
+  // once. The marker is written on the next save, after which the Settings toggle is
+  // honoured again and a deliberate choice is never overridden.
+  const areaGateCleared = o.areaGateCleared === true;
   return {
     interestedIn: interestedIn.length ? interestedIn : d.interestedIn,
     ageMin,
     ageMax,
-    widenArea: boolOf(o.widenArea),
+    widenArea: areaGateCleared ? boolOf(o.widenArea) : true,
     visibility,
     whoCanMessage,
     paused: boolOf(o.paused),
+    areaGateCleared: true,
   };
 }
 

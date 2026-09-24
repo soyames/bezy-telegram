@@ -14,11 +14,14 @@ import { cors, mediaIdentity } from '../media/_auth.js';
 
 const PI_API = 'https://api.minepi.com/v2';
 
-/** Mirrors the Telegram mini app's monthly / quarterly / yearly structure. */
+/**
+ * The Telegram mini app's monthly / quarterly / yearly structure, priced as straight
+ * multiples of the monthly rate — no discount baked in.
+ */
 export const PLANS = {
   monthly: { months: 1, pi: 89 },
-  quarterly: { months: 3, pi: 214 },
-  yearly: { months: 12, pi: 676 },
+  quarterly: { months: 3, pi: 267 },
+  yearly: { months: 12, pi: 1068 },
 };
 
 function apiKey() {
