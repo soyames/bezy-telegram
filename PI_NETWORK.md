@@ -101,6 +101,14 @@ Moderator review tooling for the new reports table is not built yet.
    Requests from the API's own deployment origin (the Telegram mini app
    posting to the same origin, `BEZY_MINI_APP_URL`) are always allowed, so
    the mini app's writes work without being listed here.
+
+   Matching is exact — there are no wildcards, so every frontend origin must
+   be listed or its preflights fail with 403. App Studio serves the app from
+   both the published `https://<app>.pinet.com` host and a preview host on
+   `*.vusercontent.net`; allowlist both, and re-check the preview host if the
+   app is regenerated. A missing origin looks like `OPTIONS … 403` in the
+   `bezy-api` logs while unauthenticated `curl` calls still return 401,
+   because a request with no `Origin` header is always let through.
 5. Deploy the root Vercel API and create the separate `pi-app` Vercel project
    (its builds differ from the root app; deploy it as its own project or via
    a Pi-supported code import). A GitHub push does not update the Pi-hosted
