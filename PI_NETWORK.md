@@ -1,75 +1,71 @@
-# Bezy on Pi: integration workstream
+# Bezy on Pi: Pi-hosted architecture target
 
-This branch is a separate Pi Browser entry point for the existing Bezy product. The
-Telegram production app remains at `/`. The Pi preview is at `/pi/`; it currently
-supports Pi sign-in and server verification only. Do not advertise it as a working
-dating service or accept Premium payments yet.
+This branch is a **reference for creating a new Pi App Studio app**. The target is
+Pi App Studio hosting and its backend persistent storage, with Pi sign-in and Pi
+payments. No Vercel or Neon instance is required by this target architecture.
+The existing Bezy Telegram app remains unchanged at the repository root.
 
-## What is already in this branch
+Pi has announced backend persistence for **newly created** App Studio apps, but
+has not published enough detail to establish that it can support Bezy's full
+multiuser dating data, file handling, messaging, moderation, and durable paid
+membership logic. Do not represent this branch's static `/pi/` preview as a
+working dating app. It has no payment, server verification, or database.
 
-- `/pi/`: mobile entry and Pi SDK sign-in. `?sandbox=1` is for registered Testnet
-  app development only. The default is Mainnet mode, which still requires Pi app
-  registration and verified production URL.
-- `/api/pi/session`: Vercel function that verifies the access token against Pi
-  `/v2/me`. It never trusts a client-supplied UID and does not persist tokens.
-- `tests/pi-identity.test.mjs`: identity verification boundary checks.
+## Source of product behavior
 
-## Work required before launch
+The current Telegram implementation is the reference for interface, languages,
+onboarding, profile fields, discovery, matching, conversations, age eligibility,
+block/report, privacy controls, and Premium benefits. Its `api/` functions and
+SQL use Telegram BIGINT IDs and private database migrations; they are not
+deployable to Pi App Studio as-is. Pi UIDs must be the identity key for the
+new app. Never map or link by username, and never treat Pi KYC as proof of
+adult age unless an officially exposed, suitable age claim exists.
 
-1. Register separate Testnet and Mainnet Pi apps, verify the HTTPS deployment
-   domains, and configure Pi's app wallet and server API key in Vercel secrets.
-   Never commit keys or a wallet passphrase. App wallet and personal wallet are
-   distinct; confirm the actual payout arrangement in the Pi portal.
-2. Add a **private** database migration for Pi users and their profile, matching,
-   message, safety, and payment relationships. The current SQL uses Telegram BIGINT
-   IDs throughout, and `db/` is deliberately excluded from this public repo.
-   Keep Pi UIDs in a separate namespaced identity table; never coerce them into
-   Telegram IDs or auto-link identities by matching usernames.
-3. Adapt each dating API to verified Pi identity and authorize ownership at every
-   read/write. Reuse matching and moderation rules after separating them from
-   Telegram transport. Preserve adult eligibility, consent, reports, blocks,
-   export, deletion, and privacy rights for Pi accounts. Review the Pi app's
-   privacy/terms text before launch.
-4. Build Bezy Pi profile onboarding, discovery, likes, matches, conversation,
-   safety, and Premium screens on the Pi-specific frontend. The current Telegram
-   frontend sends signed `initData` to every API endpoint and cannot simply be
-   reused as a Pi client.
-5. Define Pi-denominated plan prices separately from Telegram Stars prices.
-   Request `payments` scope, start U2A purchases with `Pi.createPayment`, verify
-   payment UID, direction, network, amount, and order metadata against a durable
-   server-side order before approval. Complete with Pi Platform API, persist a
-   unique payment ID/transaction ID, and extend Premium exactly once. Recover
-   interrupted payments and never deliver access on client callbacks alone.
-   The current Pi SDK documents individual payments, so display renewal as a
-   fresh user-approved purchase rather than automatic billing.
-6. Test in Pi Sandbox and Pi Browser, including an interrupted payment, duplicate
-   callbacks, a mismatch in payment amount/UID, adult gate, blocked users, and
-   account deletion. Mainnet access and listing require Pi's review.
+## App Studio capability gates before production
 
-## App Studio external AI route
+In a newly created App Studio app, verify each item with actual generated code
+and tests, not only AI descriptions:
 
-The branch is public and can be read at
-`https://github.com/soyames/bezy-telegram/tree/BezyPiNetwork`. This does **not**
-grant Pi AI GitHub write access. If App Studio offers repository import or a
-GitHub authorization prompt, inspect its requested permissions before connecting
-the account. A public URL is enough for read-only inspection if the tool supports
-reading repositories. Never paste Vercel secrets, the Pi Server API Key, or a
-wallet passphrase into App Studio's AI instruction box.
+1. Server-side `/v2/me` token verification and protected operations bound to
+   the resulting UID. The Pi access token and API key must never be exposed in
+   URLs, logs, source, or browser storage.
+2. Durable, access-controlled, cross-user data needed for discovery, mutual
+   likes, matches, private conversations, blocks, reports, moderation and
+   account export/deletion. Check pagination, concurrency, and storage limits.
+3. Private profile photos: upload, access rules, deletion, consent, and review.
+4. Payment flow for real Pi Mainnet U2A payments: durable order, server-side
+   verification of user, amount and product, approval, completion, idempotent
+   Premium activation, interrupted-payment recovery, expiry and fresh renewal.
+   Never promise automatic recurring charges without confirmed platform support.
+5. Adult eligibility, moderation, privacy/terms and accessible mobile flows.
 
-### Form fields (within the screenshot limits)
+If App Studio cannot satisfy any of these, do not weaken safety or payment
+integrity. Revisit the platform choice with the owner before using an external
+backend. The Pi App Studio code import has compatibility requirements; the
+current repository has not been validated against them.
 
-**App name (30 characters):** Bezy on Pi
+## Creation fields from the supplied screenshots
+
+**Name (30 characters):** Bezy on Pi
 
 **Description (200 characters):** Bezy helps adult Pioneers meet through profiles, mutual interests and respectful conversations. Sign in with Pi and unlock optional Premium features with Pi payments.
 
-**Language:** English initially; preserve the existing localized Bezy experience
-where support is complete.
+**Language:** English initially; use Bezy's existing translations when complete.
 
-**Category:** Social, subject to Pi's category and listing rules.
+**Category:** Social, subject to Pi's listing rules.
 
 **Pi AI instructions (1,000 characters):**
 
-> Build Bezy on Pi as a Pi Browser dating app for adults, using the existing Bezy code at https://github.com/soyames/bezy-telegram/tree/BezyPiNetwork as the reference. Keep the current Vercel backend and database. Use Pi SDK sign-in and verify each Pi access token server-side with /v2/me. Pi UID identifies a user; a dating profile with photo, age, interests, preferences and consent is created separately. Include profile creation, discovery, mutual likes and matches, private messaging, blocking, reporting, moderation, privacy controls and account deletion. Premium is optional and paid in Pi through Pi SDK and server-approved/completed payments; activate access only after verified completion. Show a renewal prompt when time expires, with no automatic charge. Never expose server keys or wallet secrets. Do not use Telegram authentication or Telegram Stars in this Pi experience. Preserve Bezy branding and mobile usability.
+> Create a Pi-hosted Bezy dating app for adults, using https://github.com/soyames/bezy-telegram/tree/BezyPiNetwork as the product and design reference. Use Pi App Studio's own backend persistent storage, Pi sign-in and Pi payments. Do not depend on Vercel, Neon, Telegram login or Telegram Stars. Verify Pi identity server-side; use Pi UID as the account key. Build separate consent-based dating profiles with age eligibility, photos and preferences. Support discovery, mutual likes/matches, private messaging, blocking, reporting, moderation, privacy controls and account deletion. Premium is optional: create durable orders, verify each Pi payment server-side, grant access once after completion and prompt renewal at expiry. Never auto-charge or expose keys. If App Studio cannot securely provide cross-user data, media storage, moderation or durable payment verification, flag the limitation and stop short of claiming those features work. Keep Bezy branding and mobile usability.
 
-The AI text states the intended product; it is not proof that App Studio will
-automatically implement this complex existing backend or receive GitHub access.
+Do not paste keys, wallet passphrases, or access tokens into App Studio's prompt
+or this public repository. The branch URL grants no GitHub write permission to
+Pi AI. If App Studio requests a GitHub connection, inspect the requested scopes.
+
+## After App Studio generates its app
+
+Export its code and inspect the actual storage, API, security and payment
+implementation. The generated app may need to be synchronized back to this
+branch if the import/export format supports it. Validate in Pi Testnet before
+requesting Mainnet access. User action in the Pi App Studio interface is needed
+to create the hosted app; this repository cannot provision it by itself.
