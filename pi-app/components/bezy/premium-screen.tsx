@@ -91,7 +91,7 @@ export function PremiumScreen() {
     <Overlay onClose={closePremium}>
       <OverlayHeader title="Bezy Premium" onBack={closePremium} />
       <div className="flex-1 overflow-y-auto bz-no-scrollbar p-5">
-        <div className="bz-premium-grad relative overflow-hidden rounded-[1.75rem] p-6 text-white">
+        <div className="bz-premium-grad relative overflow-hidden rounded-3xl p-6 text-white">
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/20">
             <IconStar className="h-6 w-6" />
           </span>

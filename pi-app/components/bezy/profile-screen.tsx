@@ -33,7 +33,7 @@ export function ProfileScreen() {
 
       <div className="flex-1 px-5 pb-6">
         {/* Preview card */}
-        <div className="relative overflow-hidden rounded-[1.75rem] border border-bz-line">
+        <div className="relative overflow-hidden rounded-3xl border border-bz-line">
           <PhotoArt
             photo={profile.photos[0]}
             name={profile.displayName}

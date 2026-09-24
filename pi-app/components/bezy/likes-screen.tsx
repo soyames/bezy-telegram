@@ -73,7 +73,7 @@ export function LikesScreen() {
     if (!isPremiumActive) {
       return (
         <div className="px-5 pt-4">
-          <div className="bz-premium-grad relative overflow-hidden rounded-[1.75rem] p-5 text-white">
+          <div className="bz-premium-grad relative overflow-hidden rounded-3xl p-5 text-white">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
               <IconLock className="h-5 w-5" />
             </span>

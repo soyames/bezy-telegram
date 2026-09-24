@@ -108,7 +108,7 @@ export function DiscoverScreen() {
         <div className="flex flex-1 flex-col px-5 pb-4">
           <button
             onClick={() => openCandidate(person.id)}
-            className="bz-press relative block w-full overflow-hidden rounded-[1.75rem] border border-bz-line bg-bz-panel text-left"
+            className="bz-press relative block w-full overflow-hidden rounded-3xl border border-bz-line bg-bz-panel text-left"
           >
             <PersonPhoto
               ownerId={person.id}
