@@ -16,7 +16,12 @@ import {
   type LookingFor,
 } from "@/lib/bezy/data";
 import { saveLocalPhoto, clearPhotoUrl } from "@/lib/bezy/photos";
-import { syncMediaMember, uploadDatingPhoto, removeDatingPhoto } from "@/lib/bezy/media";
+import {
+  removeDatingPhoto,
+  shrinkDatingPhoto,
+  syncMediaMember,
+  uploadDatingPhoto,
+} from "@/lib/bezy/media";
 import {
   Chip,
   Field,
@@ -57,11 +62,12 @@ export function ProfileFields({
     if (draft.photos.length >= MAX_PHOTOS || uploading) return;
     setUploading(true);
     try {
-      if (file.size > 3 * 1024 * 1024) throw new Error("Choose a photo under 3 MB.");
+      // No size limit: the photo is downscaled below, so any image from any camera works.
       await syncMediaMember(false, false, true);
-      const id = await uploadDatingPhoto(file);
+      const prepared = await shrinkDatingPhoto(file);
+      const id = await uploadDatingPhoto(prepared);
       try {
-        await saveLocalPhoto(id, file);
+        await saveLocalPhoto(id, prepared);
         setPhotoError(null);
       } catch {
         setPhotoError("Photo is saved online, but local caching is unavailable on this device.");

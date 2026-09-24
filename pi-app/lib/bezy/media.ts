@@ -85,10 +85,50 @@ export async function syncMediaMember(photoConsent: boolean, discoverable: boole
   });
 }
 
-export async function uploadDatingPhoto(file: File): Promise<string> {
+/**
+ * Shrink a chosen photo in the browser before it is sent. The upload passes through a
+ * serverless function, and Vercel aborts any request over ~4.5 MB before Bezy sees it, so
+ * without this a member on a modern phone camera simply cannot add a photo. Downscaling
+ * also keeps what other members download sane. Returns the original file when the browser
+ * cannot decode it, so an unusual format still gets its chance at the API.
+ */
+export async function shrinkDatingPhoto(
+  file: File,
+  maxEdge = 1600,
+  quality = 0.82,
+): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("decode failed"));
+      element.src = url;
+    });
+    const longest = Math.max(image.naturalWidth, image.naturalHeight);
+    const scale = Math.min(1, maxEdge / longest);
+    if (scale === 1 && file.size <= 1_000_000) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", quality),
+    );
+    return blob && blob.size < file.size ? blob : file;
+  } catch {
+    return file;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+export async function uploadDatingPhoto(file: Blob): Promise<string> {
   const response = await request("api/media/photos", {
     method: "POST",
-    headers: { "Content-Type": file.type },
+    headers: { "Content-Type": file.type || "application/octet-stream" },
     body: file,
   });
   return (await response.json()).id as string;

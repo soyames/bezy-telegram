@@ -55,8 +55,11 @@ async function transact<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore
 
 export function getPhotoUrl(id: string): string | undefined { return urls.get(id); }
 
-/** Cache an owner's selected file on their device before saving its photo ID. */
-export async function saveLocalPhoto(id: string, file: File) {
+/**
+ * Cache an owner's selected photo on their device before saving its photo ID. Takes a
+ * Blob because the bytes cached are the downscaled ones, not the file the member picked.
+ */
+export async function saveLocalPhoto(id: string, file: Blob) {
   if (!IMAGE_TYPES.has(file.type) || file.size > MAX_BYTES || !file.size) {
     throw new Error("Choose a JPEG, PNG or WebP photo under 8 MB.");
   }

@@ -5,7 +5,11 @@ import { mediaQuery as query } from './_db.js';
 import { cors, mediaIdentity, sameMember } from './_auth.js';
 import { photoAccess } from './_access.js';
 
-const MAX_BYTES = 3 * 1024 * 1024; // beneath Vercel Function's 4.5 MB request limit
+// Vercel aborts any function request above ~4.5 MB with FUNCTION_PAYLOAD_TOO_LARGE
+// before this code runs (measured: 4 MB passes, 5 MB is rejected), so this is a ceiling
+// that cannot be raised from here — it just turns that opaque 413 into a clear error.
+// Clients downscale in the browser first, so a member can still pick a photo of any size.
+const MAX_BYTES = 4_400_000;
 const UUID = /^[a-f\d]{8}-[a-f\d]{4}-[1-8][a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i;
 
 // Members should not have to know what their camera produced, so every image format a

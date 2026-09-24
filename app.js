@@ -2726,23 +2726,52 @@ function bindEvents() {
   // The shared profile is derived from the Telegram one, so the moment discoverability
   // changes is the moment it is re-derived. Fire-and-forget, like the other two syncs.
   $('discoverable')?.addEventListener('change', () => syncSocialProfile());
+  /**
+   * The upload passes through a serverless function, and Vercel aborts anything over
+   * ~4.5 MB before Bezy sees it, so the browser shrinks the photo first: the member can
+   * pick any image, at any size, from any camera. Returns the original file when the
+   * browser cannot decode it, so an exotic format still gets its chance at the API.
+   */
+  async function shrinkPhoto(file, maxEdge = 1600, quality = 0.82) {
+    const url = URL.createObjectURL(file);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('decode failed'));
+        img.src = url;
+      });
+      const longest = Math.max(image.naturalWidth, image.naturalHeight);
+      const scale = Math.min(1, maxEdge / longest);
+      if (scale === 1 && file.size <= 1000000) return file;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return file;
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      return blob && blob.size < file.size ? blob : file;
+    } catch { return file; }
+    finally { URL.revokeObjectURL(url); }
+  }
   $('dating-photo-upload')?.addEventListener('change', async (event) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
     input.value = '';
     if (!file) return;
-    // The API sniffs the bytes and accepts every format a phone or browser produces, so
-    // the picker only rules out what can never be stored: a non-image, or SVG, which can
-    // carry script and is deliberately never re-served to other members.
+    // No size check: the photo is shrunk below. The picker only rules out what can never
+    // be stored — a non-image, or SVG, which can carry script and is never re-served.
     const photoType = String(file.type || '').toLowerCase();
-    if (file.size > 3 * 1024 * 1024 || photoType === 'image/svg+xml'
-        || (photoType && !photoType.startsWith('image/'))) {
-      showToast('Choose an image under 3 MB.'); return;
+    if (photoType === 'image/svg+xml' || (photoType && !photoType.startsWith('image/'))) {
+      showToast('Choose an image.'); return;
     }
     input.disabled = true;
     try {
       await syncTelegramMedia();
-      await media('photos', { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+      const prepared = await shrinkPhoto(file);
+      await media('photos', { method: 'POST',
+        headers: { 'Content-Type': prepared.type || 'application/octet-stream' }, body: prepared });
       await refreshDatingPhotos();
     } catch (error) { showToast(error.message); }
     finally { input.disabled = false; }
