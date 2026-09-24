@@ -13,7 +13,10 @@ Changes from the export:
   Studio version is unchanged until updated separately.
 
 This export stores profiles in per-user App Studio state. It cannot show other
-Pi or Telegram users. Uploaded photos are tab-scoped object URLs. Its existing
+Pi or Telegram users. Uploaded photos are tab-scoped object URLs and cannot be
+shared with other devices as currently implemented. Device-only photo storage
+requires a separate, tested live transfer mechanism and does not guarantee
+offline visibility. Its existing
 client `activatePremium(paymentId, txid)` cannot establish a verified, durable
 server entitlement. Do not deploy it publicly as a working dating app.
 

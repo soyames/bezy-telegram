@@ -30,10 +30,18 @@ edits do not affect the already hosted App Studio version.
    and moderation behind server APIs keyed by internal member ID. Use
    transactions for mutual likes and enforce both sides' privacy settings and
    blocks for every operation across both providers.
-3. Provide permanent, access-controlled photo storage with consent, moderation
-   and deletion. Telegram currently uses its profile photo URL; the Pi export
-   does not persist image bytes. The actual SQL migrations in `db/` are private
-   and excluded from this public repository.
+3. The owner requires dating photo bytes to remain on each user's device; do
+   not put the bytes in Vercel, Neon, Pi userState, or another media host without
+   an explicit change to that requirement. The database may hold non-image
+   metadata, consent and availability only. For another user to see a photo,
+   its device must transfer the bytes or serve them while online; an App Studio
+   object URL cannot be fetched by another device and disappears after reload.
+   A browser cannot promise that the source device remains reachable in the
+   background. Do not claim reliable cross-user photo display until a feasible,
+   consented transport has been demonstrated on real Pi and Telegram devices,
+   including offline and device-change behavior. Telegram's existing profile
+   avatar URL is already served by Telegram, so it does not satisfy a strict
+   device-only rule. The actual SQL migrations in `db/` are private.
 4. Adapt the Pi frontend to the shared APIs for cross-user data instead of
    only Pi userState. Migrate any existing Pi profile with the user's consent;
    Vercel cannot automatically read per-user App Studio state.
@@ -42,7 +50,8 @@ edits do not affect the already hosted App Studio version.
    Restore it after reload; handle retries, interruptions, expiration and
    manual renewal. Client callbacks alone cannot grant Premium.
 6. Test with one Telegram and two distinct Pi accounts: reciprocal discovery,
-   likes, match, chat, unmatch, block, report, photo reload and deletion,
+   likes, match, chat, unmatch, block, report, photo availability while the
+   owner is offline, photo reload and deletion,
    account deletion, moderator review and payment reconciliation. Keep public
    access and purchases disabled until these tests pass.
 
