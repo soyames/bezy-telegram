@@ -147,6 +147,38 @@ export async function removeAllDatingPhotos(): Promise<void> {
   await request("api/media/photos?all=1", { method: "DELETE" });
 }
 
+/* ---------- Pi payments (/api/pi) ---------- */
+
+/** What the server says this member owns. Premium is read from there, never asserted here. */
+export interface PiEntitlement {
+  active: boolean;
+  expiresAt: number;
+  days?: number;
+  productId?: string;
+}
+
+function paymentRequest(init: RequestInit = {}): Promise<Response> {
+  return request("api/pi/payment", init, "Payments are unavailable right now");
+}
+
+export async function fetchPiEntitlement(): Promise<PiEntitlement> {
+  const response = await paymentRequest();
+  return (await response.json()) as PiEntitlement;
+}
+
+export async function approvePiPayment(paymentId: string): Promise<void> {
+  await paymentRequest(json({ action: "approve", paymentId }));
+}
+
+export async function completePiPayment(paymentId: string, txid: string): Promise<PiEntitlement> {
+  const response = await paymentRequest(json({ action: "complete", paymentId, txid }));
+  return (await response.json()) as PiEntitlement;
+}
+
+export async function cancelPiPayment(paymentId: string): Promise<void> {
+  await paymentRequest(json({ action: "cancel", paymentId }));
+}
+
 /* ---------- shared community service (/api/social) ---------- */
 
 const COMMUNITY_LABEL = "Couldn't reach Bezy's community service";

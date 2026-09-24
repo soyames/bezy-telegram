@@ -85,6 +85,20 @@ declare global {
         scopes: string[],
         onIncompletePaymentFound: (payment: unknown) => void,
       ) => Promise<PiAuthResult>;
+      /**
+       * Pi's own payment sheet. The callbacks fire on the client, but nothing is granted
+       * here: approval and completion are done by Bezy's server against Pi's API, and the
+       * entitlement is read back from the server once Pi confirms the transaction.
+       */
+      createPayment: (
+        payment: { amount: number; memo: string; metadata: Record<string, unknown> },
+        callbacks: {
+          onReadyForServerApproval: (paymentId: string) => void;
+          onReadyForServerCompletion: (paymentId: string, txid: string) => void;
+          onCancel: (paymentId: string) => void;
+          onError: (error: Error, payment?: unknown) => void;
+        },
+      ) => void;
     };
   }
 }

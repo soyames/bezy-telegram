@@ -7,6 +7,7 @@ import { usePiAuth } from "@/contexts/pi-auth-context";
 import { Overlay, OverlayHeader } from "@/components/bezy/pieces";
 import { Button, IconCheck, IconInfo, IconStar, Pill, cx } from "@/components/bezy/ui";
 import { PREMIUM_DAYS, premiumExpiryLabel } from "@/lib/bezy/data";
+import { buyPremium } from "@/lib/bezy/pi-checkout";
 import { PRODUCT_CONFIG } from "@/lib/product-config";
 
 // Only what the code actually delivers today. Extra Super Likes, filter upgrades and a
@@ -28,34 +29,28 @@ export function PremiumScreen() {
   if (!premiumOpen) return null;
 
   const products = auth?.products ?? null;
-  const sdk = auth?.sdk ?? null;
   const product = products?.find((p) => p.id === PRODUCT_CONFIG.PRODUCT_6ab4ec72c8d845bd3f689671) ?? null;
   const amount = product?.price_in_pi;
 
   async function handlePurchase() {
-    if (!product || !sdk) {
+    if (!product) {
       setError("Premium isn't available to purchase right now. Please try again shortly.");
       return;
     }
     setError(null);
     setPurchasing(true);
     try {
-      const result = await sdk.makePurchase(product.id);
-      if (result.ok) {
-        activatePremium(result.paymentId, result.txid);
-        toast(`Premium unlocked for ${PREMIUM_DAYS} days.`);
-      } else {
-        setError("Your payment didn't complete. You haven't been charged.");
-      }
-    } catch (e: any) {
-      const code = e?.code;
-      if (code === "purchase_cancelled") {
-        setError("Payment cancelled — you weren't charged.");
-      } else if (code === "product_not_found") {
-        setError("Premium isn't available to purchase right now.");
-      } else {
-        setError("Something went wrong completing your payment. Please try again.");
-      }
+      // Bezy's server approves and completes the payment with Pi and records it; the
+      // entitlement it returns is the durable one.
+      const purchase = await buyPremium({ id: product.id, price_in_pi: product.price_in_pi });
+      activatePremium(purchase.paymentId, purchase.txid);
+      toast(`Premium unlocked for ${PREMIUM_DAYS} days.`);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Something went wrong completing your payment. Please try again.",
+      );
     } finally {
       setPurchasing(false);
     }
