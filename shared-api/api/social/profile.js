@@ -1,5 +1,5 @@
 import { query as telegramQuery } from '../_db.js';
-import { query, cors, mediaIdentity, AREAS, INTERESTS, GENDERS, LOOKING_FOR, VISIBILITIES,
+import { query, cors, mediaIdentity, INTERESTS, GENDERS, LOOKING_FOR, VISIBILITIES,
   WHO_CAN_MESSAGE, MIN_AGE, MAX_AGE, MAX_BIO, MAX_INTERESTS, areaFromCity, areaKeyOf, clampAge,
   cleanText } from './_helpers.js';
 
@@ -106,11 +106,13 @@ async function syncPi(viewer, body) {
   if (!Number.isInteger(raw.age) || raw.age < MIN_AGE || raw.age > MAX_AGE)
     return { error: 'INVALID_PROFILE', status: 400 };
   if (!GENDERS.includes(raw.gender)) return { error: 'INVALID_PROFILE', status: 400 };
-  if (!AREAS.includes(raw.area)) return { error: 'INVALID_PROFILE', status: 400 };
+  // Area is a typed city, not a whitelist: areaFromCity normalizes a known area and keeps
+  // anything else verbatim, exactly as the Telegram path below already does.
+  const area = areaFromCity(cleanText(raw.area, 60));
+  if (!area) return { error: 'INVALID_PROFILE', status: 400 };
 
   const age = raw.age;
   const gender = raw.gender;
-  const area = raw.area;
   const bio = cleanText(raw.bio, MAX_BIO);
   const interests = interestsOf(raw.interests, INTERESTS);
   const lookingFor = LOOKING_FOR.includes(raw.lookingFor) ? raw.lookingFor : 'open';

@@ -40,6 +40,32 @@ export const AREAS: string[] = [
   "São Paulo area",
 ];
 
+/** Lowercase, letters and digits only — the form both sides compare areas in. */
+export function areaKeyOf(value: unknown): string {
+  return typeof value === "string" ? value.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+}
+
+/**
+ * A typed city to the area the rest of the app matches on. Mirrors areaFromCity() in
+ * shared-api/api/social/_helpers.js so the Pi app and the backend agree: a known AREA wins
+ * when the typed text overlaps it either way and is long enough to mean something, so
+ * "London" still finds "Greater London"; anything else is kept verbatim (≤40 chars) so two
+ * people who name the same city still match each other. AREAS stays a suggestion list, not
+ * a whitelist.
+ */
+export function areaFromCity(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  const key = areaKeyOf(raw);
+  if (key.length >= 4) {
+    for (const area of AREAS) {
+      const areaKey = areaKeyOf(area);
+      if (areaKey.includes(key) || key.includes(areaKey)) return area;
+    }
+  }
+  return raw.slice(0, 40);
+}
+
 export const INTERESTS: string[] = [
   "Hiking",
   "Coffee",
@@ -563,7 +589,7 @@ export function sanitizeProfile(rec: unknown): DatingProfile | null {
   const lookingFor = (LOOKING_IDS as string[]).includes(lookingForRaw)
     ? (lookingForRaw as LookingFor)
     : "open";
-  const area = AREAS.includes(cleanStr(o.area, 40)) ? cleanStr(o.area, 40) : AREAS[0];
+  const area = areaFromCity(cleanStr(o.area, 60)) || AREAS[0];
   return {
     displayName,
     age: Math.max(0, Math.min(MAX_AGE, Math.round(toNum(o.age)))),

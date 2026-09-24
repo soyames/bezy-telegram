@@ -44,10 +44,13 @@ Vercel endpoints under `/api/social/*`:
   active match between the two (both frontends promise this).
 - `report` — file a report and block the target, ending any active match.
 
-Premium checkout in the Pi app remains gated, and moderator review tooling for
-the new reports table is not built yet. This branch must not be released as a
-working cross-platform dating app until the tests below pass and purchases are
-explicitly enabled.
+Premium checkout in the Pi app is enabled, and sells exactly one benefit: the
+"Likes you" list (`GET /api/social/likes`) — who already liked you, and matching
+by liking back. The premium screen's `BENEFITS` array must not list anything
+that is not built. Entitlement is still client-only, so it is forgeable and
+lost when Pi userState clears; server-verified receipts remain unbuilt.
+
+Moderator review tooling for the new reports table is not built yet.
 
 ## Current Vercel/Neon state (verified with the Vercel CLI)
 
@@ -129,7 +132,8 @@ explicitly enabled.
    amount, app and verified UID. Approve and complete through Pi, then grant
    Premium once. Restore it after reload; handle retries, interruptions,
    expiration and manual renewal. Client callbacks alone cannot grant
-   Premium. **Not implemented yet — checkout stays gated.**
+   Premium. **Still not implemented — checkout is live on a client-only
+   entitlement, so a purchase is honoured but cannot be verified or revoked.**
 6. Test with one Telegram and two distinct Pi accounts: reciprocal discovery,
    likes, match, chat, unmatch, block, report, photo availability while the
    owner is offline, photo reload and deletion, account deletion, moderator

@@ -23,7 +23,6 @@ import {
   IconCamera,
   IconPlus,
   IconX,
-  Select,
   TextArea,
   TextInput,
   cx,
@@ -170,15 +169,24 @@ export function ProfileFields({
             }}
           />
         </Field>
-        <Field label="Area">
-          <Select value={draft.area} onChange={(e) => set("area", e.target.value)}>
-            {AREAS.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </Select>
+        <Field label="Area" hint="Type your own city if it isn't listed.">
+          <TextInput
+            value={draft.area}
+            maxLength={40}
+            placeholder="Your city"
+            onChange={(e) => set("area", e.target.value.slice(0, 40))}
+          />
         </Field>
+      </div>
+
+      {/* Suggestions, not a whitelist: a known area fills the field, and anything typed
+          beyond the list is kept as-is and matched on text. */}
+      <div className="-mt-1 flex flex-wrap gap-2">
+        {AREAS.map((a) => (
+          <Chip key={a} active={draft.area === a} onClick={() => set("area", a)}>
+            {a}
+          </Chip>
+        ))}
       </div>
 
       {draft.age > 0 && draft.age < MIN_AGE ? (

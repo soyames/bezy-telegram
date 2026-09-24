@@ -23,3 +23,6 @@ Thumbs.db
 # Owner decision (2026-09-13): the database schema and documentation are not published.
 db/
 docs/
+
+# Generated for the Pi App Studio upload; rebuild it rather than tracking a binary.
+bezy-pi-app-studio.zip
