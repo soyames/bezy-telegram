@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
 import { Sheet } from "@/components/bezy/pieces";
-import { Button, Chip, IconFlag, TextArea } from "@/components/bezy/ui";
+import { Button, Chip, Field, IconFlag, TextArea } from "@/components/bezy/ui";
 import { REPORT_REASONS, type ReportReason } from "@/lib/bezy/data";
 
 export function ReportSheet() {
@@ -43,13 +43,15 @@ export function ReportSheet() {
       </div>
 
       <div className="mt-4">
-        <TextArea
-          rows={3}
-          maxLength={300}
-          value={note}
-          placeholder="Add anything that helps a moderator (optional)."
-          onChange={(e) => setNote(e.target.value)}
-        />
+        {/* A placeholder is not a label: it disappears the moment the member types. */}
+        <Field label="Anything else?" hint="Optional — it helps a moderator.">
+          <TextArea
+            rows={3}
+            maxLength={300}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </Field>
       </div>
 
       <p className="mt-3 rounded-2xl bg-bz-panel-2 px-3 py-2 text-xs leading-relaxed text-bz-muted">

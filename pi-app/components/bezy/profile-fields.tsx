@@ -110,13 +110,17 @@ export function ProfileFields({
                   Main
                 </span>
               ) : null}
+              {/* The dot stays 24px; the button around it is the 44px touch target, centred
+                  on exactly the same spot. */}
               <button
                 type="button"
                 onClick={() => removePhoto(p.id)}
                 aria-label="Remove photo"
-                className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-bz-ink text-white shadow"
+                className="bz-press absolute -right-4 -top-4 flex h-11 w-11 items-center justify-center"
               >
-                <IconX className="h-3.5 w-3.5" />
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-bz-ink text-white shadow">
+                  <IconX className="h-3.5 w-3.5" />
+                </span>
               </button>
             </div>
           ))}

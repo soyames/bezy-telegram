@@ -354,7 +354,9 @@ export function Chip({
       type="button"
       onClick={onClick}
       className={cx(
-        "bz-press rounded-full border px-3.5 py-2 text-sm font-medium",
+        // min-h-11 keeps every chip at the 44px touch minimum without changing how it
+        // looks — the extra height lands in the padding.
+        "bz-press inline-flex min-h-11 items-center rounded-full border px-3.5 py-2 text-sm font-medium",
         active
           ? "border-bz-rose bg-bz-rose-soft text-bz-rose-deep"
           : "border-bz-line bg-bz-panel text-bz-muted",

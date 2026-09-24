@@ -32,7 +32,7 @@ export function BrandBar() {
       <button
         onClick={openSettings}
         aria-label="Settings"
-        className="bz-press flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[14px] border border-bz-line bg-bz-panel text-bz-ink shadow-[0_5px_18px_rgba(31,23,43,0.07)]"
+        className="bz-press flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-bz-line bg-bz-panel text-bz-ink shadow-[0_5px_18px_rgba(31,23,43,0.07)]"
       >
         <IconSettings className="h-5 w-5" />
       </button>

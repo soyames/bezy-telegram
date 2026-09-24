@@ -114,7 +114,7 @@ export function OverlayHeader({
       <button
         onClick={onBack}
         aria-label="Back"
-        className="bz-press flex h-9 w-9 items-center justify-center rounded-full text-bz-ink"
+        className="bz-press flex h-11 w-11 items-center justify-center rounded-full text-bz-ink"
       >
         <IconClose className="h-5 w-5" />
       </button>
