@@ -23,6 +23,7 @@ import {
   TextInput,
   cx,
 } from "@/components/bezy/ui";
+import { SelectCard } from "@/components/bezy/pieces";
 import { ProfileFields } from "@/components/bezy/profile-fields";
 
 type Step = "welcome" | "consent" | "profile" | "prefs";
@@ -89,16 +90,16 @@ export function Onboarding() {
             </p>
 
             <div className="mt-6 space-y-3">
-              <ConsentCheck checked={adult} onToggle={() => setAdult((v) => !v)}>
+              <SelectCard control="check" active={adult} onClick={() => setAdult((v) => !v)}>
                 <strong className="font-semibold text-bz-ink">I am 18 or older.</strong> Age here is
                 self-declared. Bezy does not run a verified age check — please be honest, and report anyone
                 who appears underage.
-              </ConsentCheck>
-              <ConsentCheck checked={terms} onToggle={() => setTerms((v) => !v)}>
+              </SelectCard>
+              <SelectCard control="check" active={terms} onClick={() => setTerms((v) => !v)}>
                 <strong className="font-semibold text-bz-ink">I accept the community & consent terms.</strong>{" "}
                 Be respectful, only share what you're comfortable being seen, and treat every match with
                 kindness.
-              </ConsentCheck>
+              </SelectCard>
             </div>
 
             <div className="mt-6 rounded-2xl border border-bz-line bg-bz-panel-2 p-4 text-xs leading-relaxed text-bz-muted">
@@ -232,33 +233,3 @@ function WelcomeRow({
   );
 }
 
-function ConsentCheck({
-  checked,
-  onToggle,
-  children,
-}: {
-  checked: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={cx(
-        "bz-press flex w-full items-start gap-3 rounded-2xl border p-4 text-left",
-        checked ? "border-bz-rose bg-bz-rose-soft" : "border-bz-line bg-bz-panel",
-      )}
-    >
-      <span
-        className={cx(
-          "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2",
-          checked ? "border-bz-rose bg-bz-rose text-bz-on-rose" : "border-bz-line text-transparent",
-        )}
-      >
-        <IconCheck className="h-4 w-4" />
-      </span>
-      <span className="text-sm leading-relaxed text-bz-muted">{children}</span>
-    </button>
-  );
-}

@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { BezyMark, cx, IconClose, Spinner } from "@/components/bezy/ui";
+import { BezyMark, cx, IconCheck, IconChevron, IconClose, Pill, Spinner } from "@/components/bezy/ui";
 import { getPhotoUrl, loadPhotoUrl, subscribePhotos, viewedPhotoUrl } from "@/lib/bezy/photos";
 import { initialsOf, type PhotoRef } from "@/lib/bezy/data";
 import { useBezy } from "@/contexts/bezy-context";
@@ -292,6 +292,103 @@ export function PersonPhoto({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={name} className="h-full w-full object-cover" />
     </div>
+  );
+}
+
+/**
+ * The one Premium entry point. Matches, Profile and Settings each drew their own — a
+ * different surface, a different trailing affordance, and two of them for the same
+ * destination. Same plum treatment everywhere now.
+ */
+export function UpsellCard({
+  icon,
+  title,
+  desc,
+  badge,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  desc: string;
+  badge?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="bz-press flex w-full items-center gap-3 rounded-2xl border border-bz-line bg-bz-plum-soft p-3.5 text-left"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/70 text-bz-plum">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-sm font-semibold text-bz-plum">{title}</span>
+        <span className="block text-xs leading-relaxed text-bz-plum/90">{desc}</span>
+      </span>
+      {badge ? (
+        <Pill tone="plum" className="shrink-0">
+          {badge}
+        </Pill>
+      ) : null}
+      <IconChevron className="h-4 w-4 shrink-0 text-bz-plum" />
+    </button>
+  );
+}
+
+/**
+ * One selectable card. Onboarding's consent rows and Settings' option rows were the same
+ * component twice, differing only in whether the indicator is a tick or a radio dot and in
+ * what sits beside it.
+ */
+export function SelectCard({
+  active,
+  control = "radio",
+  label,
+  desc,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  control?: "radio" | "check";
+  label?: string;
+  desc?: string;
+  onClick: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cx(
+        "bz-press flex w-full items-start gap-3 rounded-2xl border p-4 text-left",
+        active ? "border-bz-rose bg-bz-rose-soft" : "border-bz-line bg-bz-panel",
+      )}
+    >
+      <span
+        className={cx(
+          "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2",
+          active ? "border-bz-rose bg-bz-rose" : "border-bz-line",
+          control === "check" ? (active ? "text-bz-on-rose" : "text-transparent") : "",
+        )}
+      >
+        {control === "check" ? (
+          <IconCheck className="h-4 w-4" />
+        ) : active ? (
+          <span className="h-2 w-2 rounded-full bg-white" />
+        ) : null}
+      </span>
+      {label !== undefined ? (
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-bz-ink">{label}</span>
+          {desc ? (
+            <span className="mt-0.5 block text-xs leading-relaxed text-bz-muted">{desc}</span>
+          ) : null}
+        </span>
+      ) : (
+        <span className="text-sm leading-relaxed text-bz-muted">{children}</span>
+      )}
+    </button>
   );
 }
 

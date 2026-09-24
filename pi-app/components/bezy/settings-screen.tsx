@@ -3,18 +3,15 @@
 import { useState } from "react";
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { ConfirmButton, Overlay, OverlayHeader } from "@/components/bezy/pieces";
+import { ConfirmButton, Overlay, OverlayHeader, SelectCard, UpsellCard } from "@/components/bezy/pieces";
 import {
   Button,
   Chip,
   Eyebrow,
   IconBan,
-  IconChevron,
   IconInfo,
   IconStar,
   IconTrash,
-  Pill,
-  Select,
   TextInput,
   cx,
 } from "@/components/bezy/ui";
@@ -48,24 +45,17 @@ export function SettingsScreen() {
         {/* Premium */}
         <section className="space-y-3">
           <Eyebrow>Premium</Eyebrow>
-          <button
+          <UpsellCard
+            icon={<IconStar className="h-5 w-5" />}
+            title={isPremiumActive ? "Bezy Premium" : "Upgrade to Premium"}
+            desc={
+              isPremiumActive
+                ? `Active until ${premiumExpiryLabel(premium.expiresAt)} · manage renewal`
+                : "Unlock who liked you and match by liking back"
+            }
+            badge={isPremiumActive ? "Active" : undefined}
             onClick={openPremium}
-            className="bz-press flex w-full items-center gap-3 rounded-2xl border border-bz-line bg-bz-panel p-4 text-left"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-bz-plum-soft text-bz-plum">
-              <IconStar className="h-5 w-5" />
-            </span>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-bz-ink">Upgrade to Premium</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-bz-muted">
-                {isPremiumActive
-                  ? `Active until ${premiumExpiryLabel(premium.expiresAt)} · manage renewal`
-                  : "Unlock who liked you and match by liking back"}
-              </p>
-            </div>
-            {isPremiumActive ? <Pill tone="plum">Active</Pill> : null}
-            <IconChevron className="h-4 w-4 text-bz-faint" />
-          </button>
+          />
         </section>
 
         {/* Discovery status */}
@@ -93,7 +83,7 @@ export function SettingsScreen() {
           <Eyebrow>Who can see me</Eyebrow>
           <div className="space-y-2">
             {VISIBILITY.map((v) => (
-              <OptionRow
+              <SelectCard
                 key={v.id}
                 active={prefs.visibility === v.id}
                 label={v.label}
@@ -109,7 +99,7 @@ export function SettingsScreen() {
           <Eyebrow>Who can message me</Eyebrow>
           <div className="space-y-2">
             {WHO_CAN_MESSAGE.map((v) => (
-              <OptionRow
+              <SelectCard
                 key={v.id}
                 active={prefs.whoCanMessage === v.id}
                 label={v.label}
@@ -288,37 +278,3 @@ function Toggle({
   );
 }
 
-function OptionRow({
-  active,
-  label,
-  desc,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  desc: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cx(
-        "bz-press flex w-full items-start gap-3 rounded-2xl border p-4 text-left",
-        active ? "border-bz-rose bg-bz-rose-soft" : "border-bz-line bg-bz-panel",
-      )}
-    >
-      <span
-        className={cx(
-          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2",
-          active ? "border-bz-rose bg-bz-rose" : "border-bz-line",
-        )}
-      >
-        {active ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
-      </span>
-      <div>
-        <p className="text-sm font-semibold text-bz-ink">{label}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-bz-muted">{desc}</p>
-      </div>
-    </button>
-  );
-}

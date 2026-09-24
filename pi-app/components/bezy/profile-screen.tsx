@@ -2,7 +2,7 @@
 
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { PhotoArt } from "@/components/bezy/pieces";
+import { PhotoArt, UpsellCard } from "@/components/bezy/pieces";
 import {
   IconChevron,
   IconEdit,
@@ -100,25 +100,19 @@ export function ProfileScreen() {
         </div>
 
         {/* Premium */}
-        <button
-          onClick={openPremium}
-          className="bz-press mt-5 block w-full overflow-hidden rounded-2xl border border-bz-line bg-bz-plum-soft p-4 text-left"
-        >
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/70 text-bz-plum">
-              <IconStar className="h-5 w-5" />
-            </span>
-            <p className="font-display text-base font-semibold text-bz-plum">Bezy Premium</p>
-            <Pill tone="plum" className="ml-auto">
-              {isPremiumActive ? "Active" : "Upgrade"}
-            </Pill>
-          </div>
-          <p className="mt-2 text-xs leading-relaxed text-bz-plum/90">
-            {isPremiumActive
-              ? `Active until ${premiumExpiryLabel(premium.expiresAt)}. See everyone who liked you.`
-              : "See who already liked you and match by liking back — paid once in Pi."}
-          </p>
-        </button>
+        <div className="mt-5">
+          <UpsellCard
+            icon={<IconStar className="h-5 w-5" />}
+            title="Bezy Premium"
+            desc={
+              isPremiumActive
+                ? `Active until ${premiumExpiryLabel(premium.expiresAt)}. See everyone who liked you.`
+                : "See who already liked you and match by liking back — paid once in Pi."
+            }
+            badge={isPremiumActive ? "Active" : "Upgrade"}
+            onClick={openPremium}
+          />
+        </div>
 
         <p className="mt-6 text-center text-xs leading-relaxed text-bz-faint">
           Age on Bezy is self-declared — there is no verified age check. Please be honest and report anyone

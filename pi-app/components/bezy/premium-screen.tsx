@@ -3,11 +3,18 @@
 import { useEffect, useState } from "react";
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { Overlay, OverlayHeader } from "@/components/bezy/pieces";
+import { Overlay, OverlayHeader, SelectCard } from "@/components/bezy/pieces";
 import { Button, IconCheck, IconInfo, IconStar, Pill, cx } from "@/components/bezy/ui";
 import { premiumExpiryLabel } from "@/lib/bezy/data";
 import { fetchPiCheckout, type PiCheckout } from "@/lib/bezy/media";
 import { buyPlan } from "@/lib/bezy/pi-checkout";
+
+// Plans are named, not identified: "quarterly" is a server token, not customer-facing copy.
+const PLAN_LABEL: Record<string, string> = {
+  monthly: "Monthly",
+  quarterly: "Quarterly",
+  yearly: "Yearly",
+};
 
 // Only what the code actually delivers today. Extra Super Likes, filter upgrades and a
 // discover ranking boost are not built, so they are not sold — add each line here only
@@ -110,39 +117,16 @@ export function PremiumScreen() {
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-bz-faint">
               Choose your plan
             </p>
-            <div className="grid grid-cols-3 gap-2">
-              {plans.map((p) => {
-                const chosen = p.id === plan?.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setSelected(p.id)}
-                    aria-pressed={chosen}
-                    className={cx(
-                      "bz-press rounded-2xl border p-3 text-left",
-                      chosen
-                        ? "border-bz-rose bg-bz-rose-soft"
-                        : "border-bz-line bg-bz-panel",
-                    )}
-                  >
-                    <span
-                      className={cx(
-                        "block text-xs font-bold capitalize",
-                        chosen ? "text-bz-rose-deep" : "text-bz-muted",
-                      )}
-                    >
-                      {p.id}
-                    </span>
-                    <span className="mt-1 block font-display text-lg font-bold text-bz-ink">
-                      {p.pi} <span className="text-xs font-semibold text-bz-muted">Pi</span>
-                    </span>
-                    <span className="mt-0.5 block text-[0.65rem] text-bz-faint">
-                      {p.months} month{p.months === 1 ? "" : "s"}
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="space-y-2">
+              {plans.map((p) => (
+                <SelectCard
+                  key={p.id}
+                  active={p.id === plan?.id}
+                  label={`${PLAN_LABEL[p.id] ?? p.id} · ${p.pi} Pi`}
+                  desc={`${p.months} month${p.months === 1 ? "" : "s"} of Premium`}
+                  onClick={() => setSelected(p.id)}
+                />
+              ))}
             </div>
           </div>
         ) : null}
