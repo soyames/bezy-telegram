@@ -2,6 +2,25 @@ import { validateInitData } from '../_telegram.js';
 
 const PI_ME = 'https://api.minepi.com/v2/me';
 
+// App Studio serves a Pi app from per-app hosts that change whenever the app is
+// regenerated: a preview on <something>.vusercontent.net and the published app on
+// <app>.pinet.com. Listing those by exact origin alone means the app silently loses
+// every API call the moment the host moves, so they are matched by suffix instead.
+// Override with BEZY_PI_ORIGIN_SUFFIXES (comma separated, '' to disable) to tighten this.
+const DEFAULT_ORIGIN_SUFFIXES = 'vusercontent.net,pinet.com';
+
+function matchesOriginSuffix(origin, suffixes) {
+  let url;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+}
+
 export function cors(req, res) {
   const origin = req.headers?.origin;
   if (!origin) return true;
@@ -12,7 +31,10 @@ export function cors(req, res) {
   if (ownHost && (origin === `https://${ownHost}` || origin === `http://${ownHost}`)) return true;
   const allowed = (process.env.BEZY_PI_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
   if (process.env.BEZY_MINI_APP_URL) allowed.push(process.env.BEZY_MINI_APP_URL);
-  if (!allowed.includes(origin)) return false;
+  const configured = process.env.BEZY_PI_ORIGIN_SUFFIXES;
+  const suffixes = (configured === undefined ? DEFAULT_ORIGIN_SUFFIXES : configured)
+    .split(',').map((s) => s.trim().toLowerCase().replace(/^\./, '')).filter(Boolean);
+  if (!allowed.includes(origin) && !matchesOriginSuffix(origin, suffixes)) return false;
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
