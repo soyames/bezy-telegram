@@ -5,7 +5,13 @@ const PI_ME = 'https://api.minepi.com/v2/me';
 export function cors(req, res) {
   const origin = req.headers?.origin;
   if (!origin) return true;
+  // Requests from the API's own deployment (the Telegram mini app posts to the same
+  // origin) are always allowed: browsers attach Origin to same-origin POSTs, and
+  // refusing them would break every write from the mini app itself.
+  const ownHost = req.headers?.host;
+  if (ownHost && (origin === `https://${ownHost}` || origin === `http://${ownHost}`)) return true;
   const allowed = (process.env.BEZY_PI_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (process.env.BEZY_MINI_APP_URL) allowed.push(process.env.BEZY_MINI_APP_URL);
   if (!allowed.includes(origin)) return false;
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');

@@ -42,7 +42,7 @@ export function PremiumScreen() {
     setError(null);
     setPurchasing(true);
     try {
-      const result = await sdk.makePurchase(product.slug);
+      const result = await sdk.makePurchase(product.id);
       if (result.ok) {
         activatePremium(result.paymentId, result.txid);
         toast(`Premium unlocked for ${PREMIUM_DAYS} days.`);

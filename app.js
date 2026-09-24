@@ -1,11 +1,18 @@
 const tg = window.Telegram?.WebApp;
 const API = { profile: '/api/profile/me', discover: '/api/discover', swipe: '/api/swipe', matches: '/api/matches', premium: '/api/premium', likes: '/api/likes', relationship: '/api/relationship', account: '/api/account', support: '/api/support', messages: '/api/messages' };
-const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null, chatPollTick: 0, chatCache: new Map(), swipeInFlight: false, matchesError: false, likesError: false, premiumCheckPending: false, quota: null, totSheetRound: false };
+const state = { lang: null, dict: null, telegramUser: null, account: null, profiles: [], matches: [], stats: null, preferences: null, notifications: null, processingRestricted: false, processingObjection: false, emptyReason: null, currentIndex: 0, view: 'discover', premium: null, likes: null, likeCount: 0, selectedPlan: 'yearly', userNavigated: false, chat: null, chatPollTimer: null, chatPollTick: 0, chatCache: new Map(), swipeInFlight: false, matchesError: false, likesError: false, premiumCheckPending: false, quota: null, totSheetRound: false, social: { candidates: [], matches: [], trouble: false }, socialLoaded: false, socialPhotoUrls: [], socialSignature: '' };
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char])); }
 function safeCall(fn) { try { return fn(); } catch (error) { console.warn('[Bezy] Ignored Telegram WebApp error:', error); return undefined; } }
 function t(key) { return key.split('.').reduce((value, part) => value?.[part], state.dict) ?? key; }
+
+// Copy for the shared community layer (Pi Network members and other Telegram members) is
+// NEW, so most catalogues do not hold it yet. t() answers with the dotted key when a
+// catalogue is missing one; st() keeps that fallback English instead. The values below are
+// the English wording — the same wording locales/en.json carries under `shared_<key>`.
+const SHARED_COPY = { pi_badge: 'Pi Network', shared_matches: 'Pi Network', shared_matches_note: 'People you match with from the Pi Network appear here.', shared_deck_note: 'from the Pi Network', shared_offline: 'Community service is unavailable right now.', social_loading: 'Loading…', you_prefix: 'You: ' };
+function st(key) { const value = t('app.shared_' + key); return value === 'app.shared_' + key ? (SHARED_COPY[key] || key) : value; }
 
 // Locale resolution mirrors api/_telegram.js (normalizeLanguageTag/resolveLanguage), pinned
 // by the localization suite. Priority: explicit Bezy choice (localStorage holds ONLY that) →
@@ -234,6 +241,31 @@ async function media(path, options = {}) {
   if (!response.ok) throw new Error('Photo service is unavailable. Please try again.');
   return response;
 }
+// The shared community backend (/api/social/*) serves Pi Network members and other
+// Telegram members in the same deck, match list and conversations. It is keyed by an
+// opaque member id and authenticated by the Mini App's initData, exactly like the rest of
+// the app — same origin, so there is nothing else to carry. Typed failures keep the same
+// shape as api(): the payload is copied onto the error, with `.error` and `.status`.
+// Reads omit the method; every write names it, because a GET carrying a body is refused by
+// the fetch spec rather than being sent.
+async function social(path, options = {}) {
+  const response = await fetch(`/api/social/${path}`, {
+    method: options.method || 'GET',
+    headers: { 'content-type': 'application/json', 'X-Telegram-Init-Data': tg?.initData || '' },
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  // 204 responses (unmatch, block, read) carry no body at all.
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || t('app.error_generic'));
+    Object.assign(error, data, { status: response.status });
+    throw error;
+  }
+  return data;
+}
+// The community profile is derived server-side from the existing Telegram account. It is a
+// fire-and-forget mirror: a missing or ineligible profile must never block or surface here.
+function syncSocialProfile() { void social('profile', { method: 'POST', body: {} }).catch(() => {}); }
 let datingPhotoUrls = [];
 function clearDatingPhotoUrls() {
   datingPhotoUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -652,7 +684,11 @@ function profileCardHtml(profile, { actions = false } = {}) {
   const bioTranslation = profile.translations?.bio;
   const meta = [profile.city, bioTranslation ? bioTranslation.text : profile.bio].filter(Boolean).map(escapeHtml).join(' · ');
   const isNewChip = profile.isNew ? `<span class="tag tag-new">🆕 ${escapeHtml(t('app.new_today'))}</span>` : '';
-  const tags = languageTags(profile.languages) + isNewChip
+  // A shared card says where it came from: the same deck now carries two communities, and
+  // "Pi Network" is the only thing that distinguishes them. Everything else on the card is
+  // the same card, so nothing about the legacy rendering changes.
+  const sharedChip = profile.isShared && profile.provider === 'pi' ? `<span class="tag tag-new">${escapeHtml(st('pi_badge'))}</span>` : '';
+  const tags = languageTags(profile.languages) + isNewChip + sharedChip
     + (profile.interests || []).slice(0, 5).map((interest) => `<span class="tag">${escapeHtml(interest)}</span>`).join('');
   // "Why this person?" for everyone, computed only from facts the card already shows —
   // shared interests, shared languages, same city. Premium viewers get the richer numeric
@@ -660,7 +696,10 @@ function profileCardHtml(profile, { actions = false } = {}) {
   // { actions: false }, so it never renders there.
   const mine = state.account?.profile || {};
   const shares = [];
-  if (actions && !profile.breakdown) {
+  // Shared cards carry no language, prompt or score data, so the "why" line is left to
+  // them: a chip about a shared city would be the only honest one, and the source chip
+  // already says where the card came from.
+  if (actions && !profile.isShared && !profile.breakdown) {
     const myInterests = new Set((mine.interests || []).map((v) => String(v).toLowerCase()));
     const sharedInterests = (profile.interests || []).filter((v) => myInterests.has(String(v).toLowerCase()));
     if (sharedInterests.length) shares.push(t('app.why_interests').replace('{values}', sharedInterests.slice(0, 3).map((v) => String(v)).join(', ')));
@@ -673,10 +712,13 @@ function profileCardHtml(profile, { actions = false } = {}) {
   const whyLine = shares.length ? `<div class="why-chips">${shares.map((text) => `<span class="why-chip">${escapeHtml(text)}</span>`).join('')}</div>` : '';
   const score = profile.compatibility ? `<div class="score">${escapeHtml(profile.compatibility)}% ${escapeHtml(t('app.match_score'))}</div>` : '';
   const breakdown = profile.breakdown ? `<div class="why-chips">${breakdownHtml(profile.breakdown)}</div>` : '';
-  const controls = actions
-    ? `<div class="actions"><button class="action pass" id="passBtn" type="button">✕ ${escapeHtml(t('app.pass'))}</button><button class="action super" id="superBtn" type="button">★ ${escapeHtml(t('app.super'))}</button><button class="action like" id="likeBtn" type="button">♥ ${escapeHtml(t('app.like'))}</button></div>`
-    : '';
-  return `<article class="profile-card" id="profile-card"><div class="portrait">${image}${score}<div class="avatar-letter">${escapeHtml(initial)}</div><div class="portrait-overlay"></div><div class="profile-copy"><h2>${escapeHtml(profile.displayName || t('app.bezy_member'))}${age}</h2><div class="tr-group"><p class="tr-target" dir="auto">${meta || '💜 Bezy'}</p>${bioTranslation ? translationToggle(bioTranslation, profile.bio, profile.city) : ''}</div><div class="tags">${tags}</div>${whyLine}${breakdown}${actions ? `<button class="card-safety" id="deck-safety" type="button">${escapeHtml(t('app.safety_actions'))}</button>` : ''}</div></div>${promptCardHtml(profile)}${controls}</article>`;
+  // A shared candidate has no Super Like on this side of the product, so the grid keeps
+  // exactly the two decisions the shared API accepts and drops the third column with it.
+  const actionsHtml = profile.isShared
+    ? `<div class="actions" style="grid-template-columns:1fr 1.4fr"><button class="action pass" id="passBtn" type="button">✕ ${escapeHtml(t('app.pass'))}</button><button class="action like" id="likeBtn" type="button">♥ ${escapeHtml(t('app.like'))}</button></div>`
+    : `<div class="actions"><button class="action pass" id="passBtn" type="button">✕ ${escapeHtml(t('app.pass'))}</button><button class="action super" id="superBtn" type="button">★ ${escapeHtml(t('app.super'))}</button><button class="action like" id="likeBtn" type="button">♥ ${escapeHtml(t('app.like'))}</button></div>`;
+  const controls = actions ? actionsHtml : '';
+  return `<article class="profile-card" id="profile-card"><div class="portrait">${image}${score}<div class="avatar-letter">${escapeHtml(initial)}</div><div class="portrait-overlay"></div><div class="profile-copy"><h2>${escapeHtml(profile.displayName || t('app.bezy_member'))}${age}</h2><div class="tr-group"><p class="tr-target" dir="auto">${meta || '💜 Bezy'}</p>${bioTranslation ? translationToggle(bioTranslation, profile.bio, profile.city) : ''}</div><div class="tags">${tags}</div>${whyLine}${breakdown}${actions ? `<button class="card-safety" id="deck-safety" type="button">${escapeHtml(t('app.safety_actions'))}</button>` : ''}</div></div>${profile.isShared ? '' : promptCardHtml(profile)}${controls}</article>`;
 }
 
 function renderDiscover() {
@@ -734,6 +776,24 @@ function renderDiscover() {
   host.innerHTML = profileCardHtml(profile, { actions: true });
   void (async () => {
     try {
+      // A shared candidate's photos are media photos, served by id from the community
+      // store. The initial-letter art stays the fallback, exactly as it does below.
+      if (profile.isShared) {
+        if (!profile.photoIds?.length) return;
+        const blob = await (await media(`photos?id=${encodeURIComponent(profile.photoIds[0])}`)).blob();
+        if (state.profiles[state.currentIndex]?.id !== profile.id) return;
+        const portrait = host.querySelector('.portrait');
+        if (!portrait) return;
+        const sharedImage = document.createElement('img');
+        const sharedUrl = URL.createObjectURL(blob);
+        sharedImage.src = sharedUrl;
+        sharedImage.alt = '';
+        sharedImage.onload = () => URL.revokeObjectURL(sharedUrl);
+        sharedImage.onerror = () => URL.revokeObjectURL(sharedUrl);
+        portrait.querySelector('img')?.remove();
+        portrait.prepend(sharedImage);
+        return;
+      }
       const { photos } = await (await media(`photos?provider=telegram&subject=${encodeURIComponent(profile.id)}`)).json();
       if (!photos?.length) return;
       const blob = await (await media(`photos?id=${encodeURIComponent(photos[0].id)}`)).blob();
@@ -798,6 +858,9 @@ async function loadDiscover() {
     state.preferences = data.preferences || state.preferences;
     state.emptyReason = data.emptyReason ?? null;
     state.currentIndex = 0;
+    // The community deck is additive and never blocks the Telegram deck: whatever it
+    // returns (including nothing) is appended after the legacy profiles.
+    await loadSharedCandidates();
     renderDiscover();
   } catch (error) {
     // A failed deck load is recoverable, not a dead end: the error names itself and offers
@@ -808,6 +871,48 @@ async function loadDiscover() {
     if (retry) retry.onclick = () => { renderDiscover(); loadDiscover(); };
   }
 }
+// ---------------------------------------------------------------------------
+// Shared community layer (Pi Network members and other Telegram members)
+//
+// Candidates arrive in the community's own shape and are mapped onto the legacy card shape
+// once, here, so every renderer downstream stays exactly the renderer it already is. The
+// layer is additive in both directions: a community failure leaves the Telegram deck, list
+// and conversations untouched, and vice versa.
+// ---------------------------------------------------------------------------
+
+// Maps a candidate onto the deck-card shape the existing renderers already understand.
+// `id` and `sharedId` carry the opaque member id (block/report target it); a shared match
+// uses its own `matchId` for the conversation, set in socialMatchView below.
+function sharedProfile(candidate) {
+  return {
+    id: candidate.id, sharedId: candidate.id, isShared: true, provider: candidate.provider,
+    displayName: candidate.name, age: candidate.age, city: candidate.area, bio: candidate.bio,
+    interests: candidate.interests || [], languages: [], gender: candidate.gender,
+    hueA: candidate.hueA, hueB: candidate.hueB, photoIds: candidate.photoIds || [],
+    translations: null, compatibility: null, breakdown: null, isNew: false
+  };
+}
+
+// Appends the community's candidates AFTER the Telegram deck. A failure is a quiet flag and
+// never an error state: the deck already in hand keeps working, and the user is never told
+// about a service they did not ask for.
+async function loadSharedCandidates() {
+  try {
+    const data = await social('discover');
+    state.social.candidates = data.candidates || [];
+    state.social.trouble = false;
+  } catch {
+    state.social.candidates = [];
+    state.social.trouble = true;
+    return;
+  }
+  for (const candidate of state.social.candidates) state.profiles.push(sharedProfile(candidate));
+  // A deck that was empty only because the Telegram pool ran dry now has cards after all:
+  // the empty state must describe what is actually on screen.
+  if (state.social.candidates.length && (state.emptyReason === 'pool' || state.emptyReason === 'no_supply')) state.emptyReason = null;
+  if (state.stats && state.social.candidates.length) state.stats.available = (Number(state.stats.available) || 0) + state.social.candidates.length;
+}
+
 async function actOnCurrent(action) {
   const profile = state.profiles[state.currentIndex]; if (!profile) return;
   // One action in flight at a time: a double tap must never fire two swipes whose second
@@ -815,6 +920,30 @@ async function actOnCurrent(action) {
   if (state.swipeInFlight) return;
   state.swipeInFlight = true;
   try {
+    // Shared cards decide through the community API. The two branches must never touch
+    // each other: a shared card never reaches the legacy swipe endpoint, and a legacy card
+    // never reaches the community one.
+    if (profile.isShared) {
+      const sharedResult = await social('decision', { method: 'POST', body: { target: profile.id, decision: action === 'pass' ? 'pass' : 'like' } });
+      state.profiles.splice(state.currentIndex, 1);
+      // Shared cards carry no compatibility or new-today data, so only availability moves.
+      if (state.stats) state.stats.available = state.profiles.length;
+      if (sharedResult.matched) {
+        showToast(t('app.match_created'));
+        await loadMatches();
+        await loadSocialMatches();
+        // No "why you matched" sheet: the community layer has no shared signals to explain,
+        // so the toast is the whole moment rather than a sheet with nothing in it.
+      }
+      if (!state.profiles.length) {
+        const host = $('discover-content');
+        if (host) host.innerHTML = `<div class="loading">${escapeHtml(t('app.loading'))}</div>`;
+        try { await loadDiscover(); } catch { renderDiscover(); }
+        return;
+      }
+      renderDiscover();
+      return;
+    }
     const result = await api(API.swipe, { body: { targetId: profile.id, action } });
     state.profiles.splice(state.currentIndex, 1);
     // The stats describe the deck in hand, so they follow the swipe: availability falls,
@@ -844,6 +973,25 @@ async function actOnCurrent(action) {
     }
     renderDiscover();
   } catch (error) {
+    if (profile.isShared) {
+      // The candidate is gone from the community's reality (decided elsewhere, blocked,
+      // deleted): the deck advances exactly as it does for the legacy TARGET_NOT_FOUND,
+      // because keeping the card would turn every tap into the same dead end.
+      if (error.status === 404 || error.error === 'TARGET_NOT_FOUND') {
+        state.profiles.splice(state.currentIndex, 1);
+        if (state.stats) state.stats.available = state.profiles.length;
+        if (!state.profiles.length) {
+          try { await loadDiscover(); } catch { renderDiscover(); }
+          return;
+        }
+        renderDiscover();
+        return;
+      }
+      // Anything else is the community service being unavailable: the card stays so the
+      // swipe can be retried, and the message says which service it was.
+      showToast(st('shared_offline'));
+      return;
+    }
     // Hitting a daily limit is a moment for a calm explanation, not an uninvited
     // teleport into the Premium screen — the Premium card is already visible on this
     // very screen, so the toast is enough of a CTA.
@@ -1029,7 +1177,8 @@ function renderGameCard() {
   const chat = state.chat;
   if (!host) return;
   const round = chat?.game?.round || null;
-  if (!chat || !round || chat.locked || chat.unavailable) { host.innerHTML = ''; host.classList.add('hidden'); return; }
+  // The round belongs to the Telegram conversation; a shared one has no round to show.
+  if (!chat || !round || chat.locked || chat.unavailable || chat.match?.isShared) { host.innerHTML = ''; host.classList.add('hidden'); return; }
   const cardState = totDisplayState(round);
   host.classList.remove('hidden');
   host.innerHTML = `<div class="tot-card" role="group" aria-label="${escapeHtml(t('app.tot_title'))}">
@@ -1045,6 +1194,9 @@ function renderGameCard() {
 async function loadGameState() {
   const chat = state.chat;
   if (!chat || chat.locked || chat.unavailable) return;
+  // This or That is a Telegram-conversation capability; there is no round to read for a
+  // shared conversation, and nothing to ask the shared service either.
+  if (chat.match?.isShared) return;
   try {
     const data = await api(API.messages, { body: { action: 'game_state', conversationId: chat.match.matchId } });
     if (state.chat !== chat) return;
@@ -1229,6 +1381,9 @@ function useStarter(match, text) {
 // ---------------------------------------------------------------------------
 
 const CHAT_POLL_MS = 4000;
+// The shared match list moves far more slowly than a conversation, and it is only a list:
+// a slow refresh is enough for a Pi match's reply to appear in Telegram on its own.
+const SOCIAL_POLL_MS = 15000;
 
 function chatClientId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -1252,7 +1407,7 @@ function openChat(match) {
   const cached = state.chatCache.get(match.matchId) || null;
   // `unread` seeds the read-marking from the list's own snapshot; a counterpart message
   // arriving during polling flips it back on.
-  state.chat = { match, messages: cached ? cached.messages : [], pending: cached ? cached.pending : new Map(), locked: false, unavailable: false, unread: Boolean(match.conversation?.unread), loadFailed: false, game: { round: null, inFlight: false } };
+  state.chat = { match, messages: cached ? cached.messages : [], pending: cached ? cached.pending : new Map(), locked: false, unavailable: false, unread: Boolean(match.conversation?.unread), loadFailed: false, game: { round: null, inFlight: false }, lastSocialAt: 0 };
   // The previous conversation's messages must never sit under the new match's name: the
   // history area starts empty (loading) and renders only for the conversation being opened.
   const history = $('chat-messages');
@@ -1261,13 +1416,24 @@ function openChat(match) {
   setText('chat-name', match.displayName || t('app.bezy_member'));
   setText('chat-sub', [match.age ? String(match.age) : '', match.city].filter(Boolean).join(' · '));
   setText('chat-status', '');
+  // A shared conversation carries no shared signals, so there is nothing for "Ways to
+  // start" to suggest: the control is removed rather than left promising context that
+  // does not exist. The legacy conversation keeps it, exactly as before.
+  $('chat-starters-open')?.classList.toggle('hidden', Boolean(match.isShared));
   const why = $('chat-why');
   if (why) {
-    // Match context flows into the conversation — but stays out of the way. The "why you
-    // matched" chips are one collapsible strip above the messages, dismissed with a tap.
-    why.innerHTML = `<div class="chat-why-bar"><span>${escapeHtml(t('app.why_matched'))}</span><button type="button" class="chat-why-toggle" aria-label="${escapeHtml(t('app.close'))}">▾</button></div>${whyMatchedHtml(match)}`;
-    const toggle = why.querySelector('.chat-why-toggle');
-    if (toggle) toggle.onclick = () => why.classList.toggle('collapsed');
+    if (match.isShared) {
+      // Nothing to explain, so the strip is removed entirely instead of rendering empty.
+      why.innerHTML = '';
+      why.classList.add('hidden');
+    } else {
+      why.classList.remove('hidden');
+      // Match context flows into the conversation — but stays out of the way. The "why you
+      // matched" chips are one collapsible strip above the messages, dismissed with a tap.
+      why.innerHTML = `<div class="chat-why-bar"><span>${escapeHtml(t('app.why_matched'))}</span><button type="button" class="chat-why-toggle" aria-label="${escapeHtml(t('app.close'))}">▾</button></div>${whyMatchedHtml(match)}`;
+      const toggle = why.querySelector('.chat-why-toggle');
+      if (toggle) toggle.onclick = () => why.classList.toggle('collapsed');
+    }
   }
   const locked = $('chat-locked');
   if (locked) locked.classList.add('hidden');
@@ -1309,6 +1475,44 @@ async function loadChatMessages() {
   const chat = state.chat;
   if (!chat) return;
   try {
+    // A shared conversation is incremental: the API answers with everything newer than the
+    // watermark, so the local history is extended rather than replaced — a poll can never
+    // drop a message the user is reading.
+    if (chat.match.isShared) {
+      const data = await social(`messages?match=${encodeURIComponent(chat.match.matchId)}&after=${chat.lastSocialAt || 0}`);
+      if (state.chat !== chat) return;
+      chat.locked = false;
+      chat.unavailable = false;
+      const known = new Set(chat.messages.map((message) => message.id));
+      for (const raw of data.messages || []) {
+        const at = new Date(raw.at).getTime() || 0;
+        if (at > (chat.lastSocialAt || 0)) chat.lastSocialAt = at;
+        // The renderer decides sent/received by comparing the sender id with the viewer's,
+        // so the counterpart is marked rather than invented.
+        const message = { id: raw.id, senderId: raw.fromMe ? String(state.telegramUser?.id || '') : 'other', createdAt: raw.at, text: raw.text };
+        if (known.has(message.id)) continue;
+        known.add(message.id);
+        chat.messages.push(message);
+      }
+      // The watermark is part of the signature, so a first arrival always repaints.
+      const signature = JSON.stringify({
+        ids: chat.messages.map((message) => message.id),
+        at: chat.lastSocialAt || 0,
+        pending: [...chat.pending.entries()].map(([id, p]) => `${id}:${p.failed}`).join('|')
+      });
+      if (signature !== chat.renderedSignature) {
+        chat.renderedSignature = signature;
+        renderChatMessages();
+      }
+      const myId = String(state.telegramUser?.id || '');
+      const newest = chat.messages.length ? chat.messages[chat.messages.length - 1] : null;
+      if (newest && newest.senderId !== myId && newest.id !== chat.lastSeenCounterpartId) {
+        chat.unread = true;
+        chat.lastSeenCounterpartId = newest.id;
+      }
+      if (chat.unread) markChatRead(newest?.createdAt || null);
+      return;
+    }
     const data = await api(API.messages, { body: { action: 'list', conversationId: chat.match.matchId } });
     if (state.chat !== chat) return;
     chat.locked = false;
@@ -1338,6 +1542,21 @@ async function loadChatMessages() {
     if (chat.unread) markChatRead(newest?.createdAt || null);
   } catch (error) {
     if (state.chat !== chat) return;
+    if (chat.match.isShared) {
+      // There is no Premium gate on the shared conversation: the only terminal state is one
+      // the server no longer offers (an unmatch, a block, a deleted counterpart).
+      if (error.error === 'CONVERSATION_UNAVAILABLE' || error.status === 404) { chat.unavailable = true; renderChatUnavailable(); return; }
+      if (!chat.messages.length) {
+        // A failed FIRST load with nothing on screen says so instead of claiming the
+        // conversation is empty; the poll keeps retrying behind the visible control.
+        chat.loadFailed = true;
+        const host = $('chat-messages');
+        if (host) host.innerHTML = `<div class="chat-empty"><p>${escapeHtml(t('app.error_generic'))}</p><button class="chat-starters-btn" id="chat-load-retry" type="button">${escapeHtml(t('app.check_later'))}</button></div>`;
+        const retry = $('chat-load-retry');
+        if (retry) retry.onclick = () => loadChatMessages();
+      }
+      return;
+    }
     if (error.error === 'PREMIUM_REQUIRED') { chat.locked = true; renderChatLocked(); }
     else if (error.error === 'CONVERSATION_UNAVAILABLE') { chat.unavailable = true; renderChatUnavailable(); }
     else if (!chat.messages.length) {
@@ -1389,7 +1608,11 @@ function renderChatMessages() {
     }
   }
   if (!items.length) {
-    host.innerHTML = `<div class="chat-empty"><p>${escapeHtml(t('app.msg_no_messages'))}</p><button class="chat-starters-btn" id="chat-starters" type="button">✨ ${escapeHtml(t('app.starters_title'))}</button></div>`;
+    // A shared conversation has no starters to offer — there are no shared signals behind
+    // them — so the empty state is the plain statement and nothing more.
+    host.innerHTML = chat.match.isShared
+      ? `<div class="chat-empty"><p>${escapeHtml(t('app.msg_no_messages'))}</p></div>`
+      : `<div class="chat-empty"><p>${escapeHtml(t('app.msg_no_messages'))}</p><button class="chat-starters-btn" id="chat-starters" type="button">✨ ${escapeHtml(t('app.starters_title'))}</button></div>`;
     const starters = $('chat-starters');
     if (starters) starters.onclick = () => openStarters(chat.match);
     return;
@@ -1423,6 +1646,23 @@ async function deliverChatMessage(pending) {
   const chat = state.chat;
   if (!chat || !chat.pending.has(pending.clientId)) return;
   try {
+    if (chat.match.isShared) {
+      // The client id is the same idempotency key the legacy send uses, and the community
+      // API stores the message under it — a retry reconciles instead of duplicating.
+      const data = await social('messages', { method: 'POST', body: { match: chat.match.matchId, clientId: pending.clientId, text: pending.text } });
+      if (state.chat !== chat) return;
+      chat.pending.delete(pending.clientId);
+      if (data.message) {
+        const at = new Date(data.message.at).getTime() || 0;
+        if (at > (chat.lastSocialAt || 0)) chat.lastSocialAt = at;
+        chat.messages.push({ id: data.message.id, senderId: String(state.telegramUser?.id || ''), createdAt: data.message.at, text: data.message.text });
+      }
+      renderChatMessages();
+      // Sending reads your own conversation; the watermark follows the newest listed message.
+      const sharedNewest = chat.messages.length ? chat.messages[chat.messages.length - 1] : null;
+      markChatRead(sharedNewest?.createdAt || null);
+      return;
+    }
     const data = await api(API.messages, { body: { action: 'send', conversationId: chat.match.matchId, text: pending.text, clientId: pending.clientId } });
     if (state.chat !== chat) return;
     chat.pending.delete(pending.clientId);
@@ -1433,6 +1673,13 @@ async function deliverChatMessage(pending) {
     markChatRead(newest?.createdAt || null);
   } catch (error) {
     if (state.chat !== chat) return;
+    if (chat.match.isShared) {
+      // No Premium gate here: a 404 means the conversation is gone for good, anything else
+      // (a rate limit included) keeps the message on screen with its retry.
+      if (error.error === 'CONVERSATION_UNAVAILABLE' || error.status === 404) { chat.pending.clear(); chat.unavailable = true; renderChatUnavailable(); }
+      else { pending.failed = true; renderChatMessages(); }
+      return;
+    }
     if (error.error === 'PREMIUM_REQUIRED') { chat.pending.clear(); chat.locked = true; renderChatLocked(); }
     else if (error.error === 'CONVERSATION_UNAVAILABLE') { chat.pending.clear(); chat.unavailable = true; renderChatUnavailable(); }
     else { pending.failed = true; renderChatMessages(); }
@@ -1466,6 +1713,19 @@ function renderChatUnavailable() {
 function markChatRead(lastMessageAt) {
   const chat = state.chat;
   if (!chat || chat.locked || chat.unavailable) return;
+  if (chat.match.isShared) {
+    // The shared layer has no watermark to advance: reading is a per-conversation flag.
+    social('messages', { method: 'POST', body: { match: chat.match.matchId, read: true } })
+      .then(() => {
+        if (state.chat !== chat) return;
+        chat.unread = false;
+        // The list behind this screen must agree, without waiting for the next poll.
+        const match = state.social.matches.find((m) => m.id === chat.match.matchId);
+        if (match) match.unread = false;
+      })
+      .catch(() => { /* the poll retries */ });
+    return;
+  }
   api(API.messages, { body: { action: 'read', conversationId: chat.match.matchId, lastMessageAt } })
     .then(() => {
       if (state.chat !== chat) return;
@@ -1577,9 +1837,10 @@ function renderMatches() {
     messageEmpty.classList.add('hidden');
     if (carousel) carousel.innerHTML = '';
     $('matches-retry').onclick = () => loadMatches();
+    renderSocialMatches();
     return;
   }
-  if (!state.matches.length) { grid.innerHTML = ''; empty.textContent = t('app.no_matches'); empty.classList.remove('hidden'); conversations.innerHTML = ''; messageEmpty.classList.remove('hidden'); if (carousel) carousel.innerHTML = ''; return; }
+  if (!state.matches.length) { grid.innerHTML = ''; empty.textContent = t('app.no_matches'); empty.classList.remove('hidden'); conversations.innerHTML = ''; messageEmpty.classList.remove('hidden'); if (carousel) carousel.innerHTML = ''; renderSocialMatches(); return; }
   empty.classList.add('hidden');
   if (carousel) carousel.innerHTML = matchesCarouselHtml(state.matches);
   grid.innerHTML = state.matches.map(matchCardHtml).join('');
@@ -1616,6 +1877,112 @@ function renderMatches() {
       if (match) openMatchActions(match);
     };
   });
+  renderSocialMatches();
+}
+
+// ---------------------------------------------------------------------------
+// Shared community matches (Pi Network members)
+//
+// The section lives in its own container inside the Matches view, so the legacy grid and
+// carousel keep rendering exactly as they do today and nothing here can be wiped by a later
+// renderMatches(). Rows are rebuilt only when the visible facts change — a rebuild would
+// otherwise throw away the object URLs behind the avatars on every poll.
+// ---------------------------------------------------------------------------
+
+function clearSocialPhotoUrls() {
+  state.socialPhotoUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.socialPhotoUrls = [];
+}
+
+// A shared match shaped the way the conversation screen expects a match to be. `matchId` is
+// the conversation the community API speaks in; `sharedId` is the counterpart's member id,
+// which block and report target. A deleted counterpart still gets a row — a fallback name,
+// no photo, and a conversation the server answers with CONVERSATION_UNAVAILABLE.
+function socialMatchView(match) {
+  const counterpart = match.counterpart || null;
+  return {
+    id: match.id, matchId: match.id, isShared: true, sharedId: counterpart?.id || null,
+    displayName: counterpart?.name || '', age: counterpart?.age || null,
+    city: counterpart?.area || '', photoIds: counterpart?.photoIds || [],
+    conversation: { unread: Boolean(match.unread) }
+  };
+}
+
+function socialMatchRowHtml(match) {
+  const view = socialMatchView(match);
+  const last = match.lastMessage || null;
+  const initial = (view.displayName || 'B').charAt(0).toUpperCase();
+  const avatar = view.photoIds.length
+    ? `<div class="conv-avatar" data-shared-photo="${escapeHtml(view.photoIds[0])}">${escapeHtml(initial)}</div>`
+    : `<div class="conv-avatar">${escapeHtml(initial)}</div>`;
+  // Who spoke last is part of reading the list at a glance, so the viewer's own message is
+  // marked — the same way the server marks it on the Telegram side.
+  const preview = last
+    ? `<p class="mf-preview${match.unread ? ' unread' : ''}">${match.unread ? '<span class="chat-badge" aria-hidden="true"></span>' : ''}${escapeHtml(last.fromMe ? `${st('you_prefix')}${last.text}` : String(last.text || ''))}</p>`
+    : '';
+  return `<button class="conversation" type="button" data-shared-chat="${escapeHtml(match.id)}" style="width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);cursor:pointer">
+    ${avatar}
+    <div class="conv-main"><b>${escapeHtml(view.displayName || t('app.bezy_member'))}</b><p>${escapeHtml(view.city)}</p>${preview}</div>
+    <span class="time">${escapeHtml(relativeTime(last?.at || match.createdAt))}</span>
+  </button>`;
+}
+
+// Photos arrive after the rows do, so the list paints immediately and the initial letter is
+// the fallback if the photo cannot be read. A row rebuilt while its photo was in flight is
+// simply skipped — its URL is never created, so nothing leaks.
+async function hydrateSocialAvatar(node) {
+  try {
+    const blob = await (await media(`photos?id=${encodeURIComponent(node.dataset.sharedPhoto)}`)).blob();
+    if (!node.isConnected) return;
+    const url = URL.createObjectURL(blob);
+    state.socialPhotoUrls.push(url);
+    const image = document.createElement('img');
+    image.src = url;
+    image.alt = '';
+    node.replaceChildren(image);
+  } catch { /* The initial letter remains. */ }
+}
+
+function renderSocialMatches() {
+  const host = $('social-matches');
+  if (!host) return;
+  const matches = state.social.matches || [];
+  if (!matches.length) {
+    // An absent community section is not an empty state: the view is left exactly as the
+    // legacy renderer drew it, and a section that went away is removed.
+    if (state.socialSignature) { state.socialSignature = ''; clearSocialPhotoUrls(); host.innerHTML = ''; }
+    return;
+  }
+  // "No matches yet" must never sit under a list that has matches.
+  $('matches-empty')?.classList.add('hidden');
+  const signature = JSON.stringify(matches.map((m) => [m.id, Boolean(m.unread), m.counterpart?.name || '', m.lastMessage?.text || '', m.lastMessage?.fromMe === true, m.lastMessage?.at || '']));
+  if (signature === state.socialSignature) return;
+  state.socialSignature = signature;
+  clearSocialPhotoUrls();
+  host.innerHTML = `<div class="section-head"><h3>${escapeHtml(st('shared_matches'))}</h3></div>
+    <p class="mf-note">${escapeHtml(st('shared_matches_note'))}</p>
+    ${matches.map(socialMatchRowHtml).join('')}`;
+  host.querySelectorAll('[data-shared-chat]').forEach((row) => {
+    row.onclick = () => {
+      const match = state.social.matches.find((m) => m.id === row.dataset.sharedChat);
+      if (match) openChat(socialMatchView(match));
+    };
+  });
+  for (const node of host.querySelectorAll('[data-shared-photo]')) hydrateSocialAvatar(node);
+}
+
+// Loaded on every matches render, on demand after a decision, and on the slow poll below —
+// never allowed to raise: the community service being down is a flag, not an error screen.
+async function loadSocialMatches() {
+  try {
+    const data = await social('matches');
+    state.social.matches = data.matches || [];
+    state.socialLoaded = true;
+    state.social.trouble = false;
+  } catch {
+    state.social.trouble = true;
+  }
+  renderSocialMatches();
 }
 // ---------------------------------------------------------------------------
 // Bezy Premium
@@ -1877,6 +2244,19 @@ function openMatchActions(match) {
 // and report must not require a match — "block or report anyone who makes you
 // uncomfortable" is the copy's own promise. Unmatch is a match-only action and is absent.
 function openDeckSafety(profile) {
+  // A shared card gets the same two actions, enforced by the community service instead of
+  // the Telegram one; the sheet itself is identical.
+  if (profile.isShared) {
+    openSheet(profile.displayName || t('app.bezy_member'), `
+      <button class="ghost-btn" data-act="block">${escapeHtml(t('app.block'))}</button>
+      <button class="ghost-btn" data-act="report" style="color:var(--danger)">${escapeHtml(t('app.report'))}</button>
+      <p class="filter-note">${escapeHtml(t('app.safety_sheet_note'))}</p>
+    `, (host) => {
+      host.querySelector('[data-act="block"]').onclick = () => confirmAction('block', profile);
+      host.querySelector('[data-act="report"]').onclick = () => openSharedReportSheet(profile);
+    });
+    return;
+  }
   openSheet(profile.displayName || t('app.bezy_member'), `
     <button class="ghost-btn" data-act="block">${escapeHtml(t('app.block'))}</button>
     <button class="ghost-btn" data-act="report" style="color:var(--danger)">${escapeHtml(t('app.report'))}</button>
@@ -1895,6 +2275,25 @@ function confirmAction(action, match) {
   `, (host) => {
     host.querySelector('[data-act="confirm"]').onclick = async () => {
       try {
+        if (match.isShared) {
+          // Unmatch and block live in the community service; the local caches follow so
+          // the row, the deck card and the open conversation leave together.
+          if (action === 'unmatch') await social('matches', { method: 'POST', body: { match: match.matchId, action: 'unmatch' } });
+          else await social('block', { method: 'POST', body: { target: match.sharedId || match.id } });
+          closeSheet();
+          showToast(t(`app.${action}_done`));
+          state.social.matches = state.social.matches.filter((m) => m.id !== match.matchId);
+          if (state.chat?.match?.matchId === match.matchId) closeChat();
+          const sharedDeckIndex = state.profiles.findIndex((p) => p.isShared && p.id === (match.sharedId || match.id));
+          if (sharedDeckIndex >= 0) {
+            state.profiles.splice(sharedDeckIndex, 1);
+            if (state.stats) state.stats.available = state.profiles.length;
+            renderDiscover();
+          }
+          renderSocialMatches();
+          await loadSocialMatches();
+          return;
+        }
         await api(API.relationship, { body: { action, targetId: match.id } });
         closeSheet();
         showToast(t(`app.${action}_done`));
@@ -1929,6 +2328,41 @@ function openReportSheet(match) {
         if (deckIndex >= 0) { state.profiles.splice(deckIndex, 1); renderDiscover(); }
         await loadMatches();
       } catch (error) { showToast(errorText(error)); }
+    };
+  });
+}
+
+// The shared layer's report vocabulary is its own (five tokens, a shorter note), so the
+// sheet is built from that list while the copy reuses the reason labels the Telegram sheet
+// already shows for the same five situations.
+const SOCIAL_REPORT_REASONS = [['fake', 'app.reason_fake_profile'], ['harassment', 'app.reason_harassment'], ['inappropriate', 'app.reason_inappropriate_content'], ['underage', 'app.reason_underage'], ['other', 'app.reason_other']];
+
+function openSharedReportSheet(target) {
+  openSheet(t('app.report'), `
+    <div class="field"><label for="report-reason">${escapeHtml(t('app.report_reason'))}</label>
+      <select id="report-reason">${SOCIAL_REPORT_REASONS.map(([value, key]) => `<option value="${escapeHtml(value)}">${escapeHtml(t(key))}</option>`).join('')}</select></div>
+    <div class="field"><label for="report-details">${escapeHtml(t('app.report_details'))}</label>
+      <textarea id="report-details" maxlength="300"></textarea></div>
+    <button class="save-btn" id="report-send" type="button">${escapeHtml(t('app.report_send'))}</button>
+    <p class="filter-note">${escapeHtml(t('app.report_note'))}</p>
+  `, () => {
+    $('report-send').onclick = async () => {
+      try {
+        await social('report', { method: 'POST', body: { target: target.sharedId || target.id, reason: $('report-reason').value, note: $('report-details').value } });
+        closeSheet();
+        showToast(t('app.report_done'));
+        // Reporting also blocks them server-side, so the card and the row leave the screen
+        // exactly as they do on the Telegram side.
+        const deckIndex = state.profiles.findIndex((p) => p.isShared && p.id === (target.sharedId || target.id));
+        if (deckIndex >= 0) {
+          state.profiles.splice(deckIndex, 1);
+          if (state.stats) state.stats.available = state.profiles.length;
+          renderDiscover();
+        }
+        state.social.matches = state.social.matches.filter((m) => m.id !== target.matchId);
+        renderSocialMatches();
+        await loadSocialMatches();
+      } catch { showToast(st('shared_offline')); }
     };
   });
 }
@@ -2208,6 +2642,9 @@ function openDeleteAccount() {
 }
 
 async function loadMatches(messagesView = false) {
+  // The shared community list is refreshed alongside the Telegram one — the two lists are
+  // one screen, so they are never more than one render apart. Its own failure is silent.
+  void loadSocialMatches();
   try {
     const data = await api(API.matches, { body: { lang: state.lang } });
     state.matches = data.matches || [];
@@ -2225,7 +2662,7 @@ async function loadMatches(messagesView = false) {
 async function saveProfile(event) {
   event.preventDefault();
   const profile = { displayName: $('display-name').value, age: Number($('age').value), city: $('city').value, gender: $('gender').value, seeking: $('seeking').value, interests: $('interests').value.split(',').map((value) => value.trim()).filter(Boolean), bio: $('bio').value, prompts: readPromptEditor(), languages: readLanguageChips('languages-list'), discoverable: $('discoverable').checked };
-  try { const data = await api(API.profile, { body: { profile } }); state.account = data.profile; renderAccount(); void syncTelegramMedia().catch(() => {}); showToast(t('app.profile_saved')); flashSavedBadge(); if (state.account.profileComplete && state.account.discoverable) showView('discover'); }
+  try { const data = await api(API.profile, { body: { profile } }); state.account = data.profile; renderAccount(); void syncTelegramMedia().catch(() => {}); syncSocialProfile(); showToast(t('app.profile_saved')); flashSavedBadge(); if (state.account.profileComplete && state.account.discoverable) showView('discover'); }
   catch (error) { showToast(errorText(error)); }
 }
 async function loadAccount() {
@@ -2283,6 +2720,9 @@ function bindEvents() {
   if ($('premium-back')) $('premium-back').onclick = () => showView('discover');
   document.querySelectorAll('.premium-action').forEach((button) => button.onclick = () => showView('premium'));
   if ($('profile-form')) $('profile-form').addEventListener('submit', saveProfile);
+  // The shared profile is derived from the Telegram one, so the moment discoverability
+  // changes is the moment it is re-derived. Fire-and-forget, like the other two syncs.
+  $('discoverable')?.addEventListener('change', () => syncSocialProfile());
   $('dating-photo-upload')?.addEventListener('change', async (event) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
@@ -2420,6 +2860,12 @@ async function init() {
   // when a locale/API request is slow or unavailable.
   bindEvents();
 
+  // The community match list refreshes on a slow timer — started once, and skipped while
+  // the app is not on screen, exactly like the conversation poll. A failure is silent.
+  if (!init.socialPoll) {
+    init.socialPoll = setInterval(() => { if (document.visibilityState === 'visible') void loadSocialMatches(); }, SOCIAL_POLL_MS);
+  }
+
   const storedExplicit = storedExplicitLanguage();
   try {
     await loadLocale(resolveAppLocale());
@@ -2437,6 +2883,10 @@ async function init() {
 
   try {
     const account = await loadAccount();
+    // The shared community layer mirrors this account from here on. Both calls are silent:
+    // Bezy works exactly as it did before whether or not that service answers.
+    syncSocialProfile();
+    void loadSocialMatches();
     // An explicit choice saved on the account (e.g. picked on another device) wins over
     // automatic detection on this one. The local cache only ever holds explicit choices,
     // so caching the adopted value keeps the next session's first paint correct too.

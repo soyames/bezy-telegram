@@ -231,10 +231,9 @@ export interface SafetyRecord {
   at: number;
 }
 
-// The shape of a discoverable Pioneer's profile card. Bezy's storage is scoped privately
-// per Pi account with no shared, cross-account data store yet, so there is currently no
-// real pool of other Pioneers for this array to hold. It stays empty — intentionally, not
-// as a placeholder for fake people — until a shared backend can supply real candidates.
+// The shape of a discoverable person's card. Local seeds stay empty by design — never fake
+// people. Real candidates now arrive from the shared Bezy community backend as SharedPerson
+// records, which carry these same fields plus the provider they signed in with.
 export interface SeedProfile {
   id: string;
   name: string;
@@ -252,6 +251,37 @@ export interface SeedProfile {
 }
 
 export const SEED_PROFILES: SeedProfile[] = [];
+
+// ---------- shared community (real people, Pi + Telegram) ----------
+
+export type Provider = "pi" | "telegram";
+
+/**
+ * A real person from the shared Bezy community: a Pi Pioneer or a Telegram user. The card
+ * fields are the seed shape, so discovery, matching and messaging code work unchanged.
+ * `interestedIn`, `ageMin` and `ageMax` are the candidate's own filters; the backend has
+ * already applied them on both sides, so they stay wide here rather than hiding anyone twice.
+ */
+export interface SharedPerson extends SeedProfile {
+  provider: Provider;
+  photoIds: string[];
+}
+
+/** The newest message in a conversation, as the matches list reports it. */
+export interface LastMessage {
+  text: string;
+  fromMe: boolean;
+  at: number;
+}
+
+/** One mutual match with a real person, in the shapes the rest of Bezy already uses. */
+export interface MatchSummary {
+  id: string;
+  createdAt: number;
+  counterpart: SharedPerson | null;
+  lastMessage: LastMessage | null;
+  unread: boolean;
+}
 
 // ---------- helpers ----------
 
@@ -370,13 +400,16 @@ export interface DiscoveryContext {
  * Both-sides discovery: a candidate appears only when the viewer's filters AND the
  * candidate's own preferences and visibility are all satisfied. Excludes blocked,
  * passed, matched, and reported profiles. Ranked by shared interests then age closeness.
+ *
+ * `pool` defaults to the (empty) local seeds. The shared community backend filters both
+ * sides itself, so its candidates are passed in here as a second, local safety net.
  */
-export function buildDiscovery(ctx: DiscoveryContext): SeedProfile[] {
+export function buildDiscovery(ctx: DiscoveryContext, pool: SeedProfile[] = SEED_PROFILES): SeedProfile[] {
   const { profile, prefs, likes, passes, matchedIds, blocked, reported } = ctx;
   const viewerGender = profile.gender;
   if (viewerGender === "") return [];
 
-  const candidates = SEED_PROFILES.filter((c) => {
+  const candidates = pool.filter((c) => {
     if (likes.has(c.id) || passes.has(c.id)) return false;
     if (matchedIds.has(c.id) || blocked.has(c.id) || reported.has(c.id)) return false;
 
@@ -770,6 +803,120 @@ export function sanitizeModLog(rec: unknown): ModActionLog[] {
       at: toNum(r.at, Date.now()),
     });
     if (out.length >= MAX_MOD_ACTIONS) break;
+  }
+  return out;
+}
+
+// ---------- shared community (server payloads are untrusted too) ----------
+
+const PROVIDER_IDS: Provider[] = ["pi", "telegram"];
+const PHOTO_ID = /^[a-f\d-]{36}$/i;
+const ALL_GENDERS: Gender[] = GENDERS.map((g) => g.id);
+const MAX_SHARED_PHOTOS = 6;
+const MAX_SHARED_MATCHES = 200;
+
+function toMs(v: unknown, fallback: number): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const parsed = Date.parse(v);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function hueOf(v: unknown, seed: string): number {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return hueFor(seed);
+  return ((Math.round(n) % 360) + 360) % 360;
+}
+
+/** Only ids the media backend can serve; anything else would be a wasted request. */
+function photoIdList(v: unknown): string[] {
+  return strArray(v, null, MAX_SHARED_PHOTOS).filter((id) => PHOTO_ID.test(id));
+}
+
+/**
+ * A person from the shared backend. Returns null when the record can't be shown honestly
+ * (no id, no name, or no usable gender) rather than inventing details about a real person.
+ */
+export function sanitizeSharedPerson(rec: unknown): SharedPerson | null {
+  const o = extractObject(rec);
+  if (!o) return null;
+  const id = cleanStr(o.id, 64);
+  const name = cleanStr(o.name, 40);
+  const gender = pickGender(o.gender);
+  if (!id || !name || !gender) return null;
+
+  const providerRaw = cleanStr(o.provider, 20);
+  const provider: Provider = (PROVIDER_IDS as string[]).includes(providerRaw)
+    ? (providerRaw as Provider)
+    : "pi";
+  const lookingForRaw = cleanStr(o.lookingFor, 20);
+  const lookingFor = (LOOKING_IDS as string[]).includes(lookingForRaw)
+    ? (lookingForRaw as LookingFor)
+    : "open";
+  return {
+    id,
+    name,
+    age: Math.max(MIN_AGE, Math.min(MAX_AGE, Math.round(toNum(o.age, MIN_AGE)))),
+    gender,
+    // The backend already filtered both sides; these stay wide so nothing is filtered twice.
+    interestedIn: [...ALL_GENDERS],
+    ageMin: MIN_AGE,
+    ageMax: MAX_AGE,
+    area: cleanStr(o.area, 40) || AREAS[0],
+    interests: strArray(o.interests, INTERESTS, MAX_INTERESTS),
+    lookingFor,
+    bio: cleanStr(o.bio, MAX_BIO),
+    hueA: hueOf(o.hueA, id),
+    hueB: hueOf(o.hueB, `${id}:b`),
+    provider,
+    photoIds: photoIdList(o.photoIds),
+  };
+}
+
+/** One match from the server. Timestamps become epoch ms like every other Bezy timestamp. */
+export function sanitizeMatchSummary(rec: unknown): MatchSummary | null {
+  const o = extractObject(rec);
+  if (!o) return null;
+  const id = cleanStr(o.id, 64);
+  if (!id) return null;
+  const rawLast = o.lastMessage && typeof o.lastMessage === "object" ? (o.lastMessage as AnyRec) : null;
+  const text = rawLast ? cleanStr(rawLast.text, MAX_MESSAGE) : "";
+  return {
+    id,
+    createdAt: toMs(o.createdAt, Date.now()),
+    counterpart: sanitizeSharedPerson(o.counterpart),
+    lastMessage: rawLast && text
+      ? { text, fromMe: boolOf(rawLast.fromMe), at: toMs(rawLast.at, 0) }
+      : null,
+    unread: boolOf(o.unread),
+  };
+}
+
+export function sanitizeMatchSummaries(v: unknown): MatchSummary[] {
+  if (!Array.isArray(v)) return [];
+  const out: MatchSummary[] = [];
+  for (const item of v) {
+    const summary = sanitizeMatchSummary(item);
+    if (summary) out.push(summary);
+    if (out.length >= MAX_SHARED_MATCHES) break;
+  }
+  return out;
+}
+
+/** Messages from the server, in the local thread shape (ascending, newest last). */
+export function sanitizeSocialMessages(v: unknown): Message[] {
+  if (!Array.isArray(v)) return [];
+  const out: Message[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as AnyRec;
+    const id = cleanStr(r.id, 64);
+    const text = cleanStr(r.text, MAX_MESSAGE);
+    if (!id || !text) continue;
+    out.push({ id, from: boolOf(r.fromMe) ? "me" : "them", text, at: toMs(r.at, Date.now()) });
+    if (out.length >= 200) break;
   }
   return out;
 }

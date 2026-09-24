@@ -13,84 +13,121 @@ infrastructure after adapting its private schema; the Pi Browser frontend
 remains separate. Pi sign-in and Pi payments stay on Pi. Telegram login and
 Stars stay on Telegram. Payment prices and provider histories stay distinct.
 
-This branch adds an authenticated photo-transfer API and Pi/Telegram upload clients.
-A selected dating photo uploads automatically through Vercel to a **private Vercel
-Blob store**; its ID and Blob reference live in a separate Bezy shared database.
-The existing Telegram database and `DATABASE_URL` stay intact. Authorized
-viewers download through the API when browsing; the owner's device may be
-offline. The Pi device also caches downloaded bytes in IndexedDB. No image
-bytes go into Postgres. Copies already cached on viewer devices cannot be
-remotely erased, and Vercel Blob storage and transfer incur usage charges.
+## What this branch adds
 
-Photo transfer is only one component: the Pi export still has no shared
-profile discovery, matching or messaging, and must not be released as a
-working cross-platform dating app. Premium checkout remains gated.
+**Photo transfer (media layer).** A selected dating photo uploads automatically
+through Vercel to a **private Vercel Blob store**; its ID and Blob reference
+live in the shared database. The existing Telegram database and `DATABASE_URL`
+stay intact. Authorized viewers download through the API when browsing; the
+owner's device may be offline. No image bytes go into Postgres. Copies already
+cached on viewer devices cannot be remotely erased, and Vercel Blob storage and
+transfer incur usage charges.
 
-## Setup for the new Vercel database
+**Shared social layer.** Namespaced tables in the same shared database plus
+Vercel endpoints under `/api/social/*`:
 
-1. Keep the Telegram project's existing `DATABASE_URL` as is. On the Vercel
-   project serving `/api/media/*`, set `BEZY_MEDIA_DATABASE_URL` to the **new**
-   Bezy database connection string. If the new database was auto-linked as
-   `DATABASE_URL`, rename or map it to this variable on that project without
-   replacing the Telegram project's original value. Do not paste a connection
-   string into the repo or this chat.
-2. Run `media-migrations/001-media.sql` **only on the new database**. It creates
-   three namespaced tables for photo metadata and consent, and does not touch
-   the existing Telegram tables.
+- `profile` — publish/read/remove a member's cross-platform profile. Telegram
+  profiles are derived server-side from the existing `users`/`profiles`/
+  `preferences` tables (the client sends no profile body); Pi profiles are
+  validated against the Pi app's own constants. Both providers land in one
+  `bezy_social_profiles` row keyed by `(provider, subject)`.
+- `discover` — both-sides filtered candidates (gender, age, area, visibility,
+  paused, already decided/blocked/matched/reported excluded; telegram viewers
+  never see telegram candidates, so the legacy deck is never duplicated),
+  ranked by shared interests then age closeness, capped at 30.
+- `decision` — like/pass with transactional mutual-like match creation.
+- `matches` — list active matches with counterpart card, last message and
+  unread; unmatch.
+- `messages` — list/send/read per match; idempotent client ids, per-match
+  send rate limit.
+- `block` — one-directional row applied both ways; blocking also ends an
+  active match between the two (both frontends promise this).
+- `report` — file a report and block the target, ending any active match.
+
+Premium checkout in the Pi app remains gated, and moderator review tooling for
+the new reports table is not built yet. This branch must not be released as a
+working cross-platform dating app until the tests below pass and purchases are
+explicitly enabled.
+
+## Current Vercel/Neon state (verified with the Vercel CLI)
+
+- The `bezy-telegram` project keeps its existing Neon store
+  `neon-apricot-helmet` as its `DATABASE_URL` — **never replace or unlink it**
+  or Telegram members lose their data.
+- The new shared database `bezy-db` (Neon ID `withered-night-73349739`) exists
+  on the team but is **not connected** to any project yet.
+- No `BEZY_MEDIA_DATABASE_URL`, `BEZY_PI_ORIGINS` or `BLOB_READ_WRITE_TOKEN`
+  are set on `bezy-telegram` yet.
+- The Pi frontend has no Vercel project yet.
+
+## Setup steps
+
+1. Copy the connection string for `bezy-db` from the Neon console and add it
+   on the `bezy-telegram` project as a **secret named
+   `BEZY_MEDIA_DATABASE_URL`** (Production + Preview). Set it manually rather
+   than using Vercel's storage-connect flow: connecting a second Neon store to
+   a project that already has one can overwrite the existing `POSTGRES_*`
+   variables that the Telegram backend depends on. Do not paste the connection
+   string into the repo or a chat.
+2. Run `media-migrations/001-media.sql` then `media-migrations/002-social.sql`
+   **only on `bezy-db`**. All tables are namespaced (`bezy_media_*`,
+   `bezy_social_*`) and touch nothing from the Telegram database.
 3. Create a **private Vercel Blob store** and link it to the Vercel project
    serving `/api/media/*`; Vercel supplies `BLOB_READ_WRITE_TOKEN` on that
    project's server environment. A Postgres database alone cannot retain
-   photo bytes without storing them in a database. Never put Blob tokens in
-   `NEXT_PUBLIC_*` or in source control.
+   photo bytes. Never put Blob tokens in `NEXT_PUBLIC_*` or in source control.
 4. Set `BEZY_PI_ORIGINS` to the exact HTTPS Pi App Studio and Pi Vercel
-   frontend origins (comma separated). Pi's frontend may point to the API via
+   frontend origins (comma separated). The Pi frontend points at the API via
    `NEXT_PUBLIC_BEZY_API_URL`. This URL is public; it is not a secret.
-5. Deploy the root Vercel API and upload/deploy the `pi-app/` frontend from
-   this branch. A GitHub push does not update the Pi-hosted App Studio app.
-   Verify authenticated Pi and Telegram uploads, access denial, reload,
+   Requests from the API's own deployment origin (the Telegram mini app
+   posting to the same origin, `BEZY_MINI_APP_URL`) are always allowed, so
+   the mini app's writes work without being listed here.
+5. Deploy the root Vercel API and create the separate `pi-app` Vercel project
+   (its builds differ from the root app; deploy it as its own project or via
+   a Pi-supported code import). A GitHub push does not update the Pi-hosted
+   App Studio app.
+6. Verify authenticated Pi and Telegram uploads, access denial, reload,
    deletion, and viewing while the uploader is offline before rollout.
-
-If the new Vercel database is a Blob store rather than Postgres, step 2 needs
-an actual Postgres store for the small metadata tables. Identify the store type
-in the Vercel dashboard before connecting anything.
 
 ## Integration contract
 
-1. Create one opaque Bezy member ID per account, with a unique provider binding
-   `(provider, provider_subject)` for Telegram and Pi. Verify signed Telegram
-   `initData` on the server and Pi access tokens through `GET /v2/me`. Never
-   merge accounts based on usernames or names. Linking identities needs explicit
-   consent and proof of control of both accounts.
-2. Move discovery, decisions, matches, private conversations, blocks, reports
-   and moderation behind server APIs keyed by internal member ID. Use
-   transactions for mutual likes and enforce both sides' privacy settings and
-   blocks for every operation across both providers.
-3. Keep Telegram's existing profile-avatar URL served by Telegram. User-added
+1. One opaque Bezy member ID per account, with a unique provider binding
+   `(provider, provider_subject)` for Telegram and Pi. Telegram `initData` is
+   signature-verified on the server; Pi access tokens are verified through
+   `GET /v2/me`. Accounts are never merged based on usernames or names.
+2. Discovery, decisions, matches, private conversations, blocks, reports and
+   moderation live behind server APIs keyed by internal member ID. Mutual
+   likes run in transactions; blocks and privacy settings are enforced for
+   every operation across both providers.
+3. Telegram's existing profile-avatar URL stays served by Telegram. User-added
    dating images are held in private Vercel Blob, with IDs, consent and Blob
    references in the separate shared database. All reads go through a
    server-authenticated endpoint, not a public image URL. Device copies are
    optional caches and never the only source of an uploaded photo. Photo
-   authorization must be integrated with reciprocal discovery, decisions,
-   reports, matches and moderation before a cross-platform launch.
-4. Adapt the Pi frontend to the shared APIs for cross-user data instead of
-   only Pi userState. Migrate any existing Pi profile with the user's consent;
-   Vercel cannot automatically read per-user App Studio state.
-5. Verify Pi payments on the server against an order, product, amount, app and
-   verified UID. Approve and complete through Pi, then grant Premium once.
-   Restore it after reload; handle retries, interruptions, expiration and
-   manual renewal. Client callbacks alone cannot grant Premium.
+   authorization is integrated with discovery, decisions, reports, matches
+   and moderation.
+4. The Pi frontend talks to the shared APIs for cross-user data instead of
+   only Pi userState. Migrating any existing Pi profile happens through the
+   normal profile publish with the user's consent.
+5. Pi payments must be verified on the server against an order, product,
+   amount, app and verified UID. Approve and complete through Pi, then grant
+   Premium once. Restore it after reload; handle retries, interruptions,
+   expiration and manual renewal. Client callbacks alone cannot grant
+   Premium. **Not implemented yet — checkout stays gated.**
 6. Test with one Telegram and two distinct Pi accounts: reciprocal discovery,
    likes, match, chat, unmatch, block, report, photo availability while the
-   owner is offline, photo reload and deletion,
-   account deletion, moderator review and payment reconciliation. Keep public
-   access and purchases disabled until these tests pass.
+   owner is offline, photo reload and deletion, account deletion, moderator
+   review and payment reconciliation. Keep public access and purchases
+   disabled until these tests pass.
 
 ## Deployment separation
 
 The root app and Next.js export have different builds. Deploy `pi-app/` as a
 separate Vercel project or use a Pi-supported code import, then connect it to
-the shared API after identity and cross-origin security are implemented. Do
-not put `DATABASE_URL`, Pi API keys or wallet secrets in the frontend or repo.
-The generated `pi-app/lib/pi.ts` is marked locked by App Studio; verify its
-upload rules before import. The My Apps icon is configured separately in Pi
-App Studio and is unaffected by in-app branding changes.
+the shared API. Do not put `DATABASE_URL`, Pi API keys or wallet secrets in
+the frontend or repo. The generated `pi-app/lib/pi.ts` is marked locked by
+App Studio; verify its upload rules before import. The My Apps icon is
+configured separately in Pi App Studio and is unaffected by in-app branding
+changes. The shared API adds 7 route files to the media 3 (10 total) —
+inside the 12-serverless-function ceiling for the shared project; the
+Telegram project's own routes are untouched.

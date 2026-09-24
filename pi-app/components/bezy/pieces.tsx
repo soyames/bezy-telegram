@@ -8,8 +8,8 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { BezyMark, cx, IconClose, Spinner } from "@/components/bezy/ui";
-import { getPhotoUrl, loadPhotoUrl, subscribePhotos } from "@/lib/bezy/photos";
+import { BezyMark, cx, IconClose, Pill, Spinner } from "@/components/bezy/ui";
+import { getPhotoUrl, loadPhotoUrl, subscribePhotos, viewedPhotoUrl } from "@/lib/bezy/photos";
 import { initialsOf, type PhotoRef } from "@/lib/bezy/data";
 import { useBezy } from "@/contexts/bezy-context";
 
@@ -241,6 +241,66 @@ export function PhotoArt({
         </div>
       )}
     </div>
+  );
+}
+
+/* ---------- people from the shared community ---------- */
+
+/**
+ * Someone else's photo, loaded through the authenticated backend. Until (or unless) the
+ * bytes arrive it shows the same gradient art as everything else, so a card never breaks.
+ */
+export function PersonPhoto({
+  ownerId,
+  photoId,
+  name,
+  hueA,
+  hueB,
+  className,
+  rounded = "rounded-3xl",
+}: {
+  ownerId: string;
+  photoId?: string;
+  name: string;
+  hueA?: number;
+  hueB?: number;
+  className?: string;
+  rounded?: string;
+}) {
+  const [url, setUrl] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!photoId) {
+      setUrl(undefined);
+      return;
+    }
+    let live = true;
+    setUrl(undefined);
+    void viewedPhotoUrl(ownerId, photoId)
+      .then((next) => {
+        if (live) setUrl(next);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [ownerId, photoId]);
+  if (!url) {
+    return <PhotoArt name={name} hueA={hueA} hueB={hueB} className={className} rounded={rounded} />;
+  }
+  return (
+    <div className={cx("relative overflow-hidden bg-bz-panel-2", rounded, className)}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt={name} className="h-full w-full object-cover" />
+    </div>
+  );
+}
+
+/** Which network someone came from — one Bezy community, two ways in. */
+export function ProviderBadge({ provider }: { provider: "pi" | "telegram" }) {
+  return (
+    <Pill tone={provider === "telegram" ? "neutral" : "peach"}>
+      {provider === "telegram" ? "Telegram" : "Pi"}
+    </Pill>
   );
 }
 

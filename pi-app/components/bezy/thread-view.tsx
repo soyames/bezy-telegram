@@ -25,6 +25,7 @@ export function ThreadView() {
     messagesFor,
     sendMessage,
     markRead,
+    refreshThread,
     unmatch,
     blockProfile,
     isGuardAcknowledged,
@@ -49,6 +50,18 @@ export function ThreadView() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length]);
+
+  // Keep the open conversation current: their replies arrive while it is on screen.
+  useEffect(() => {
+    if (!threadId) return;
+    void refreshThread(threadId);
+    const timer = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void refreshThread(threadId);
+    }, 5000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
 
   // Match may vanish (unmatch/block) — close the overlay.
   useEffect(() => {

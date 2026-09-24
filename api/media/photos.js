@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { put, get, del } from '@vercel/blob';
-import { query as telegramQuery } from '../_db.js';
 import { mediaQuery as query } from './_db.js';
 import { cors, mediaIdentity, sameMember } from './_auth.js';
+import { photoAccess } from './_access.js';
 
 const MAX_BYTES = 3 * 1024 * 1024; // beneath Vercel Function's 4.5 MB request limit
 const TYPES = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
@@ -24,27 +24,6 @@ async function readLimited(req) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
-}
-
-async function access(viewer, owner) {
-  if (sameMember(viewer, owner)) return true;
-  const { rows } = await query(
-    `SELECT EXISTS (SELECT 1 FROM bezy_media_members WHERE provider=$1 AND subject=$2
-         AND adult_confirmed) AS viewer_ok,
-       EXISTS (SELECT 1 FROM bezy_media_members WHERE provider=$3 AND subject=$4
-         AND adult_confirmed AND photo_consent AND discoverable) AS owner_ok,
-       EXISTS (SELECT 1 FROM bezy_media_blocks WHERE
-         (blocker_provider=$1 AND blocker_subject=$2 AND blocked_provider=$3 AND blocked_subject=$4)
-         OR (blocker_provider=$3 AND blocker_subject=$4 AND blocked_provider=$1 AND blocked_subject=$2)) AS blocked`,
-    [viewer.provider,viewer.subject,owner.provider,owner.subject]);
-  if (!rows[0]?.viewer_ok || !rows[0]?.owner_ok || rows[0]?.blocked) return false;
-  if (viewer.provider === 'telegram' && owner.provider === 'telegram') {
-    const legacy = await telegramQuery(`SELECT EXISTS (SELECT 1 FROM blocks WHERE
-       (blocker_id=$1 AND blocked_id=$2) OR (blocker_id=$2 AND blocked_id=$1)) AS blocked`,
-      [viewer.subject,owner.subject]);
-    if (legacy.rows[0]?.blocked) return false;
-  }
-  return true;
 }
 
 export default async function handler(req, res) {
@@ -97,7 +76,7 @@ export default async function handler(req, res) {
       if (!['pi','telegram'].includes(provider) || typeof subject !== 'string' || subject.length > 128)
         return res.status(400).json({ error: 'INVALID_OWNER' });
       const owner = { provider,subject };
-      if (!(await access(viewer,owner))) return res.status(404).json({ error: 'PHOTO_NOT_FOUND' });
+      if (!(await photoAccess(viewer,owner))) return res.status(404).json({ error: 'PHOTO_NOT_FOUND' });
       const { rows } = await query(`SELECT photo_id AS id FROM bezy_media_photos
         WHERE owner_provider=$1 AND owner_subject=$2 ORDER BY created_at LIMIT 6`, [provider,subject]);
       return res.status(200).json({ photos: rows });
@@ -114,7 +93,7 @@ export default async function handler(req, res) {
       await query('DELETE FROM bezy_media_photos WHERE photo_id=$1', [id]);
       return res.status(204).end();
     }
-    if (!(await access(viewer,owner))) return res.status(404).json({ error: 'PHOTO_NOT_FOUND' });
+    if (!(await photoAccess(viewer,owner))) return res.status(404).json({ error: 'PHOTO_NOT_FOUND' });
     const blob = await get(photo.blob_url, { access:'private' });
     if (!blob || blob.statusCode !== 200) return res.status(404).json({ error: 'PHOTO_NOT_FOUND' });
     res.setHeader('Content-Type',photo.content_type);

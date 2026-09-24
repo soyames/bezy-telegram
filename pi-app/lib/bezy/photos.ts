@@ -149,3 +149,50 @@ export function subscribePhotos(fn: () => void): () => void {
   subscribers.add(fn);
   return () => { subscribers.delete(fn); };
 }
+
+/* ---------- photos of other people ---------- */
+
+// One download per photo even when several cards ask for it at once.
+const viewed = new Map<string, Promise<string>>();
+
+/**
+ * A photo belonging to someone else. Local copies come back instantly; otherwise the bytes
+ * are fetched through the authenticated backend — which only serves a photo while its owner
+ * is consented and discoverable — and cached under the owner's key like any other transfer.
+ * Rejects when the photo can't be shown, so callers fall back to PhotoArt.
+ */
+export async function viewedPhotoUrl(ownerId: string, photoId: string): Promise<string> {
+  const id = `${ownerId}:${photoId}`;
+  const cached = urls.get(id);
+  if (cached) return cached;
+  const pending = viewed.get(id);
+  if (pending) return pending;
+  const task = transferViewedPhoto(id, ownerId, photoId).finally(() => {
+    viewed.delete(id);
+  });
+  viewed.set(id, task);
+  return task;
+}
+
+async function transferViewedPhoto(id: string, ownerId: string, photoId: string): Promise<string> {
+  if (!account) throw new Error("Sign in before viewing photos");
+  // Another session on this device may already hold the bytes under the owner's key.
+  await loadPhotoUrl(id);
+  const local = urls.get(id);
+  if (local) return local;
+  const blob = await downloadDatingPhoto(photoId);
+  const stored = await cacheViewedPhoto(ownerId, photoId, blob);
+  const url = urls.get(stored);
+  if (!url) throw new Error("That photo isn't available on this device");
+  return url;
+}
+
+/** Let go of the in-memory copy once a card is gone; the device cache keeps the bytes. */
+export function releaseViewedPhoto(ownerId: string, photoId: string) {
+  const id = `${ownerId}:${photoId}`;
+  const url = urls.get(id);
+  if (!url) return;
+  URL.revokeObjectURL(url);
+  urls.delete(id);
+  emit();
+}

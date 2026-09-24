@@ -12,7 +12,21 @@ import {
 import { usePiAuth } from "@/contexts/pi-auth-context";
 import { pi } from "@/lib/pi";
 import { configurePhotoAccount, clearAccountPhotos } from "@/lib/bezy/photos";
-import { syncMediaMember, removeAllDatingPhotos } from "@/lib/bezy/media";
+import {
+  blockSocial,
+  fetchSocialDiscovery,
+  fetchSocialMatches,
+  fetchSocialMessages,
+  markSocialRead,
+  removeAllDatingPhotos,
+  removeSocialProfile,
+  reportSocial,
+  sendSocialDecision,
+  sendSocialMessage,
+  syncMediaMember,
+  syncSocialProfile,
+  unmatchSocial,
+} from "@/lib/bezy/media";
 import { KeyWriter } from "@/lib/bezy/store";
 import {
   KEYS,
@@ -48,11 +62,14 @@ import {
   sanitizeSafety,
   sanitizeThreads,
   threadsToBlob,
+  MAX_MESSAGE,
   MAX_MESSAGES_PER_THREAD,
   type ConsentState,
   type DatingPrefs,
   type DatingProfile,
+  type LastMessage,
   type Match,
+  type MatchSummary,
   type Message,
   type ModAction,
   type ModActionLog,
@@ -61,6 +78,7 @@ import {
   type ReportReason,
   type SafetyRecord,
   type SeedProfile,
+  type SharedPerson,
   type ThreadsState,
 } from "@/lib/bezy/data";
 
@@ -90,8 +108,12 @@ interface BezyContextValue {
   activatePremium: (paymentId: string, txid: string) => void;
 
   // discovery
-  discovery: SeedProfile[];
+  discovery: SharedPerson[];
+  discoveryLoading: boolean;
+  socialTrouble: boolean;
   getSeed: (id: string) => SeedProfile | undefined;
+  refreshDiscovery: () => Promise<void>;
+  refreshSocial: () => Promise<void>;
 
   // onboarding + profile
   completeOnboarding: (profile: DatingProfile, prefs: DatingPrefs) => void;
@@ -99,8 +121,8 @@ interface BezyContextValue {
   savePrefs: (prefs: DatingPrefs) => void;
 
   // discovery actions
-  likeProfile: (id: string) => { matched: boolean; match?: Match };
-  passProfile: (id: string) => void;
+  likeProfile: (id: string) => Promise<{ matched: boolean; match?: Match }>;
+  passProfile: (id: string) => Promise<void>;
 
   // matches + messaging
   getMatch: (matchId: string) => Match | undefined;
@@ -113,6 +135,7 @@ interface BezyContextValue {
   isGuardAcknowledged: (matchId: string) => boolean;
   markRead: (matchId: string) => void;
   sendMessage: (matchId: string, text: string) => void;
+  refreshThread: (matchId: string) => Promise<void>;
   unmatch: (matchId: string) => void;
 
   // safety
@@ -138,6 +161,20 @@ export function useBezy(): BezyContextValue {
 
 const seedMap = new Map(SEED_PROFILES.map((s) => [s.id, s]));
 
+/**
+ * A local stand-in id for a match's newest message: the matches list reports the last
+ * message without its id, so the text, time and sender identify it well enough to merge
+ * once and never twice.
+ */
+function serverMessageId(matchId: string, last: LastMessage): string {
+  return `srv_${matchId}_${last.at}_${last.fromMe ? "me" : "them"}`;
+}
+
+/** Client ids must be 8–64 chars of [A-Za-z0-9_-]; makeId can, very rarely, come up short. */
+function messageClientId(): string {
+  return makeId("m").padEnd(12, "0");
+}
+
 export function BezyProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = usePiAuth();
 
@@ -159,6 +196,15 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [now, setNow] = useState(() => Date.now());
 
+  // People and matches come from the shared community backend: `people` is every real
+  // person this session knows about, so any id (a discover card, a match, a blocker)
+  // resolves to a name and a face without another request.
+  const [people, setPeople] = useState<Record<string, SharedPerson>>({});
+  const [serverDiscovery, setServerDiscovery] = useState<SharedPerson[]>([]);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
+  const [socialTrouble, setSocialTrouble] = useState(false);
+  const threadSynced = useRef<Set<string>>(new Set());
+
   // Authoritative refs so writers always serialize the latest snapshot.
   const consentRef = useRef(consent);
   const profileRef = useRef(profile);
@@ -172,6 +218,9 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   const likesRef = useRef(likes);
   const passesRef = useRef(passes);
   const premiumRef = useRef(premium);
+  const peopleRef = useRef(people);
+  // Whether the shared community backend can be used at all for the current account.
+  const socialReadyRef = useRef(false);
 
   consentRef.current = consent;
   profileRef.current = profile;
@@ -185,6 +234,8 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   likesRef.current = likes;
   passesRef.current = passes;
   premiumRef.current = premium;
+  peopleRef.current = people;
+  socialReadyRef.current = ready && consent.onboarded && !!profile;
 
   // Recheck expiry once a minute so an active period naturally flips to expired
   // without needing a reload.
@@ -263,6 +314,44 @@ export function BezyProvider({ children }: { children: ReactNode }) {
       setStorageTrouble(true);
     });
   }, [ready, consent.onboarded, profile, prefs.paused, prefs.visibility]);
+
+  // Publish the same profile to the shared community service — always, because even a pause
+  // is a preference the server needs. Only then can discovery and matches hold real people.
+  // Edits collapse into one publish the way storage writes do.
+  useEffect(() => {
+    if (!ready || !consent.onboarded || !profile) return;
+    const timer = setTimeout(() => {
+      const current = profileRef.current;
+      if (!current) return;
+      void (async () => {
+        // Only ever visible when there is no one on screen yet: the first look for people.
+        setDiscoveryLoading(true);
+        try {
+          await syncSocialProfile(current, prefsRef.current);
+          setSocialTrouble(false);
+          await Promise.all([refreshDiscovery(), refreshMatches()]);
+        } catch {
+          setSocialTrouble(true);
+        } finally {
+          setDiscoveryLoading(false);
+        }
+      })();
+    }, 700);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, consent.onboarded, profile, prefs]);
+
+  // While the app is open, keep matches and their newest messages fresh. Polling never
+  // toasts: a failed poll only raises the retry notice on Discover.
+  useEffect(() => {
+    if (!isAuthenticated || !ready || !consent.onboarded) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void refreshMatches();
+    }, 10000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, ready, consent.onboarded]);
 
   // ---- flush on hide ----
   useEffect(() => {
@@ -345,18 +434,168 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   const reportedIds = useMemo(() => new Set(reports.map((r) => r.profileId)), [reports]);
   const matchedIds = useMemo(() => new Set(matches.map((m) => m.profileId)), [matches]);
 
-  const discovery = useMemo(() => {
+  // The backend decides who is genuinely available (both sides' filters, blocks, matches).
+  // Everything this session has already acted on is filtered out again here, from the exact
+  // same rules the local seed pool used, so a stale response can't resurface anyone.
+  const discovery = useMemo<SharedPerson[]>(() => {
     if (!profile || !profileComplete(profile) || prefs.paused) return [];
-    return buildDiscovery({
-      profile,
-      prefs,
-      likes: new Set(likes),
-      passes: new Set(passes),
-      matchedIds,
-      blocked: new Set(blocked),
-      reported: reportedIds,
+    // buildDiscovery only ever filters the pool it is handed, so these stay real people.
+    return buildDiscovery(
+      {
+        profile,
+        prefs,
+        likes: new Set(likes),
+        passes: new Set(passes),
+        matchedIds,
+        blocked: new Set(blocked),
+        reported: reportedIds,
+      },
+      serverDiscovery,
+    ) as SharedPerson[];
+  }, [profile, prefs, likes, passes, matchedIds, blocked, reportedIds, serverDiscovery]);
+
+  // ---- shared community (Pi + Telegram people) ----
+
+  function mergePeople(list: SharedPerson[]) {
+    if (!list.length) return;
+    setPeople((prev) => {
+      const next = { ...prev };
+      for (const person of list) next[person.id] = person;
+      return next;
     });
-  }, [profile, prefs, likes, passes, matchedIds, blocked, reportedIds]);
+  }
+
+  async function refreshDiscovery(): Promise<void> {
+    if (!socialReadyRef.current) return;
+    setDiscoveryLoading(true);
+    try {
+      const list = await fetchSocialDiscovery();
+      setServerDiscovery(list);
+      mergePeople(list);
+      setSocialTrouble(false);
+    } catch {
+      // Keep whoever we already have; the Discover notice offers a retry.
+      setSocialTrouble(true);
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  }
+
+  /** Matches the server knows about that this device hasn't stored yet. */
+  function applyServerMatches(list: MatchSummary[]) {
+    const counterparts = list
+      .map((item) => item.counterpart)
+      .filter((person): person is SharedPerson => person !== null);
+    mergePeople(counterparts);
+
+    const known = new Set(matchesRef.current.map((m) => m.id));
+    const added: Match[] = [];
+    for (const item of list) {
+      const person = item.counterpart;
+      if (!person || known.has(item.id)) continue;
+      known.add(item.id);
+      added.push({
+        id: item.id,
+        profileId: person.id,
+        createdAt: item.createdAt,
+        // Found on a later poll, so it didn't happen on screen: no match moment.
+        seenMoment: true,
+      });
+    }
+    if (added.length) {
+      const next = [...matchesRef.current, ...added];
+      matchesRef.current = next;
+      setMatches(next);
+      persistMatches();
+    }
+    mergeLastMessages(list);
+  }
+
+  /**
+   * The matches list reports each conversation's newest message without an id. Merging it
+   * keeps the list (and its unread dot) honest when the message was sent from another
+   * device, and never reorders what this device already shows.
+   */
+  function mergeLastMessages(list: MatchSummary[]) {
+    let changed = false;
+    for (const item of list) {
+      const last = item.lastMessage;
+      if (!last || !last.text) continue;
+      const current = threadsRef.current.byMatch[item.id] ?? [];
+      if (current.some((m) => m.id === serverMessageId(item.id, last))) continue;
+      const lastAt = current.length ? current[current.length - 1].at : 0;
+      if (last.at <= lastAt) continue;
+      const next = [...current, {
+        id: serverMessageId(item.id, last),
+        from: last.fromMe ? "me" as const : "them" as const,
+        text: last.text,
+        at: last.at,
+      }].slice(-MAX_MESSAGES_PER_THREAD);
+      threadsRef.current = {
+        ...threadsRef.current,
+        byMatch: { ...threadsRef.current.byMatch, [item.id]: next },
+      };
+      changed = true;
+    }
+    if (changed) {
+      setThreads(threadsRef.current);
+      persistThreads();
+    }
+  }
+
+  async function refreshMatches(): Promise<void> {
+    if (!socialReadyRef.current) return;
+    try {
+      const list = await fetchSocialMatches();
+      setSocialTrouble(false);
+      applyServerMatches(list);
+    } catch {
+      // Polling is silent; a match the server can't confirm yet stays local.
+      setSocialTrouble(true);
+    }
+  }
+
+  async function refreshSocial(): Promise<void> {
+    await Promise.all([refreshDiscovery(), refreshMatches()]);
+  }
+
+  async function refreshThread(matchId: string): Promise<void> {
+    if (!socialReadyRef.current) return;
+    const current = threadsRef.current.byMatch[matchId] ?? [];
+    const lastAt = current.length ? current[current.length - 1].at : 0;
+    // The first look at a conversation brings its recent history; after that, only the tail.
+    const after = threadSynced.current.has(matchId) ? lastAt : 0;
+    try {
+      const incoming = await fetchSocialMessages(matchId, after);
+      threadSynced.current.add(matchId);
+      if (!incoming.length) return;
+      mergeServerMessages(matchId, incoming);
+      if (incoming.some((m) => m.from === "them")) markRead(matchId);
+    } catch {
+      // Silent: a conversation that can't refresh keeps the messages already shown.
+    }
+  }
+
+  function mergeServerMessages(matchId: string, incoming: Message[]) {
+    const current = threadsRef.current.byMatch[matchId] ?? [];
+    const byId = new Map(current.map((m) => [m.id, m]));
+    let added = 0;
+    for (const message of incoming) {
+      if (byId.has(message.id)) continue;
+      byId.set(message.id, message);
+      added += 1;
+    }
+    if (!added) return;
+    const merged = [...byId.values()]
+      .sort((a, b) => a.at - b.at)
+      .slice(-MAX_MESSAGES_PER_THREAD);
+    threadsRef.current = {
+      ...threadsRef.current,
+      byMatch: { ...threadsRef.current.byMatch, [matchId]: merged },
+    };
+    setThreads(threadsRef.current);
+    persistThreads();
+  }
 
   // ---- actions ----
   function completeOnboarding(p: DatingProfile, pr: DatingPrefs) {
@@ -376,26 +615,53 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     persistPrefs(pr);
   }
 
-  function likeProfile(id: string): { matched: boolean; match?: Match } {
+  async function likeProfile(id: string): Promise<{ matched: boolean; match?: Match }> {
     if (!likesRef.current.includes(id)) {
       const nextLikes = [...likesRef.current, id];
       likesRef.current = nextLikes;
       setLikes(nextLikes);
       persistDecisions();
     }
-    // A match can only be created once both sides' likes are known. Bezy's storage is
-    // scoped privately per Pi account with no shared backend yet to detect that the
-    // other real Pioneer liked back, so liking someone only records the decision here —
-    // it never fabricates a match.
-    return { matched: false };
+    // The shared backend knows whether the other person liked back; a match is only ever
+    // created from its answer, never inferred from what this device has seen.
+    try {
+      const { matched, match } = await sendSocialDecision(id, "like");
+      const person = match?.counterpart ?? null;
+      if (!matched || !match || !person) return { matched: false };
+      mergePeople([person]);
+      let local = matchesRef.current.find((m) => m.id === match.id);
+      if (!local) {
+        local = {
+          id: match.id,
+          profileId: person.id,
+          createdAt: match.createdAt,
+          seenMoment: false,
+        };
+        const next = [...matchesRef.current, local];
+        matchesRef.current = next;
+        setMatches(next);
+        persistMatches();
+      }
+      return { matched: true, match: local };
+    } catch {
+      // They left discovery (404) or the service is unreachable: not a match, and the
+      // local "like" still hides them here until the server says otherwise.
+      return { matched: false };
+    }
   }
 
-  function passProfile(id: string) {
+  async function passProfile(id: string): Promise<void> {
     if (!passesRef.current.includes(id)) {
       const next = [...passesRef.current, id];
       passesRef.current = next;
       setPasses(next);
       persistDecisions();
+    }
+    try {
+      await sendSocialDecision(id, "pass");
+    } catch {
+      // A decision the backend never recorded is invisible here either way: passes are
+      // local too, so the same person can't come back and surprise the user.
     }
   }
 
@@ -443,6 +709,8 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     threadsRef.current = next;
     setThreads(next);
     persistThreads();
+    // Tell the shared backend too, so the other person's "sent" turns into "read" there.
+    void markSocialRead(matchId).catch(() => {});
   }
 
   function appendMessage(matchId: string, msg: Message) {
@@ -457,12 +725,13 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   }
 
   function sendMessage(matchId: string, text: string) {
-    const clean = text.trim();
+    const clean = text.trim().slice(0, MAX_MESSAGE);
     if (!clean) return;
     const match = matchesRef.current.find((m) => m.id === matchId);
     if (!match) return;
     const now = Date.now();
-    appendMessage(matchId, { id: makeId("m"), from: "me", text: clean, at: now });
+    const clientId = messageClientId();
+    appendMessage(matchId, { id: clientId, from: "me", text: clean, at: now });
     // Mark my own message as read.
     threadsRef.current = {
       ...threadsRef.current,
@@ -470,14 +739,19 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     };
     setThreads(threadsRef.current);
     persistThreads(true);
-    // Bezy delivers only real messages between the two matched Pi accounts — there is
-    // no scripted or automated reply on the other side.
+    // The message shows straight away and is delivered in the background with the same id,
+    // so the copy the server stores is the copy already on screen. A send that fails is
+    // kept locally (it can still be read back) and the user is told it didn't go out.
+    void sendSocialMessage(matchId, clientId, clean).catch(() => {
+      setSocialTrouble(true);
+      toast("Message not sent", "danger");
+    });
   }
 
   function unmatch(matchId: string) {
     const match = matchesRef.current.find((m) => m.id === matchId);
     if (!match) return;
-    const seed = seedMap.get(match.profileId);
+    const seed = peopleRef.current[match.profileId] ?? seedMap.get(match.profileId);
     const msgs = threadsRef.current.byMatch[matchId] ?? [];
 
     // Retain a limited safety record (explained to the user at unmatch time).
@@ -515,6 +789,8 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     setThreads(nextThreads);
     persistThreads(true);
 
+    // Close it on the backend as well, so it disappears for them too.
+    void unmatchSocial(matchId).catch(() => {});
     toast("Unmatched. The conversation was closed for both of you.");
   }
 
@@ -542,6 +818,9 @@ export function BezyProvider({ children }: { children: ReactNode }) {
       setThreads(nextThreads);
       persistThreads(true);
     }
+    // Only people the shared backend knows about can be blocked there; a real block hides
+    // each of you from the other's discovery, not just this device.
+    if (peopleRef.current[id]) void blockSocial(id).catch(() => {});
     toast(`${name} was blocked`, "danger");
   }
 
@@ -574,6 +853,11 @@ export function BezyProvider({ children }: { children: ReactNode }) {
       setThreads(threadsRef.current);
       persistThreads(true);
     }
+    // The backend keeps the report (and blocks them both ways) so moderation can act on
+    // someone who is messaging people beyond this device.
+    if (peopleRef.current[id]) {
+      void reportSocial(id, reason, note).catch(() => {});
+    }
     toast("Report sent. They're now hidden from you.", "rose");
   }
 
@@ -602,6 +886,9 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   }
 
   async function deleteAccount() {
+    // Remove the shared profile first: it takes the account out of discovery and closes
+    // every conversation on the backend before anything local disappears.
+    await removeSocialProfile();
     await removeAllDatingPhotos();
     await clearAccountPhotos();
     try {
@@ -623,6 +910,10 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     setModLog([]);
     setSafety([]);
     setPremium(emptyPremium());
+    setPeople({});
+    setServerDiscovery([]);
+    setSocialTrouble(false);
+    threadSynced.current.clear();
     consentRef.current = emptyConsent();
     profileRef.current = null;
     prefsRef.current = defaultPrefs();
@@ -635,6 +926,7 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     modLogRef.current = [];
     safetyRef.current = [];
     premiumRef.current = emptyPremium();
+    peopleRef.current = {};
   }
 
   // ---- unread ----
@@ -667,7 +959,12 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     isPremiumActive: computeIsPremiumActive(premium, now),
     activatePremium,
     discovery,
-    getSeed: (id) => seedMap.get(id),
+    discoveryLoading,
+    socialTrouble,
+    // Real people first; the (empty) local seed pool stays as the last resort.
+    getSeed: (id) => people[id] ?? seedMap.get(id),
+    refreshDiscovery,
+    refreshSocial,
     completeOnboarding,
     saveProfile,
     savePrefs,
@@ -683,6 +980,7 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     isGuardAcknowledged,
     markRead,
     sendMessage,
+    refreshThread,
     unmatch,
     blockProfile,
     reportProfile,

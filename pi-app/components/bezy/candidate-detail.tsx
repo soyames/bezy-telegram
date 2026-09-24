@@ -2,7 +2,7 @@
 
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { Overlay, OverlayHeader, PhotoArt } from "@/components/bezy/pieces";
+import { Overlay, OverlayHeader, PersonPhoto, ProviderBadge } from "@/components/bezy/pieces";
 import {
   Button,
   IconBan,
@@ -13,7 +13,12 @@ import {
   IconX,
   Pill,
 } from "@/components/bezy/ui";
-import { genderLabel, lookingForLabel, sharedInterests } from "@/lib/bezy/data";
+import {
+  genderLabel,
+  lookingForLabel,
+  sharedInterests,
+  type SharedPerson,
+} from "@/lib/bezy/data";
 
 export function CandidateDetail() {
   const { candidateId, closeCandidate, openReport } = useNav();
@@ -24,18 +29,41 @@ export function CandidateDetail() {
 
   const shared = sharedInterests(profile?.interests ?? [], seed.interests);
   const mine = new Set(profile?.interests ?? []);
+  // getSeed keeps its seed signature; people from the community service carry photos and a
+  // provider on top of it.
+  const serverPerson = seed as Partial<SharedPerson>;
+  const photoIds = serverPerson.photoIds ?? [];
+  const provider = serverPerson.provider;
 
   return (
     <Overlay onClose={closeCandidate}>
       <OverlayHeader title={`${seed.name}, ${seed.age}`} onBack={closeCandidate} />
       <div className="flex-1 overflow-y-auto bz-no-scrollbar">
-        <PhotoArt
+        <PersonPhoto
+          ownerId={seed.id}
+          photoId={photoIds[0]}
           name={seed.name}
           hueA={seed.hueA}
           hueB={seed.hueB}
           rounded="rounded-none"
           className="aspect-[4/5] w-full"
         />
+        {photoIds.length > 1 ? (
+          <div className="flex gap-2 overflow-x-auto bz-no-scrollbar px-5 pt-3">
+            {photoIds.slice(1).map((id) => (
+              <PersonPhoto
+                key={id}
+                ownerId={seed.id}
+                photoId={id}
+                name={seed.name}
+                hueA={seed.hueA}
+                hueB={seed.hueB}
+                rounded="rounded-2xl"
+                className="h-24 w-20 shrink-0"
+              />
+            ))}
+          </div>
+        ) : null}
         <div className="space-y-5 p-5">
           <div>
             <h2 className="font-display text-2xl font-bold text-bz-ink">
@@ -48,6 +76,7 @@ export function CandidateDetail() {
             <div className="mt-3 flex flex-wrap gap-2">
               <Pill tone="rose">{lookingForLabel(seed.lookingFor)}</Pill>
               <Pill tone="plum">{genderLabel(seed.gender)}</Pill>
+              {provider ? <ProviderBadge provider={provider} /> : null}
               {shared > 0 ? (
                 <Pill tone="peach">
                   <IconSpark className="h-3.5 w-3.5" />
@@ -105,7 +134,7 @@ export function CandidateDetail() {
       <div className="bz-safe-bottom flex items-center justify-center gap-6 border-t border-bz-line bg-bz-panel px-5 py-3">
         <button
           onClick={() => {
-            passProfile(seed.id);
+            void passProfile(seed.id);
             closeCandidate();
           }}
           aria-label="Pass"
@@ -117,10 +146,13 @@ export function CandidateDetail() {
           className="flex-1"
           block
           onClick={() => {
-            const res = likeProfile(seed.id);
             closeCandidate();
-            if (res.matched) toast(`It's a match with ${seed.name}!`, "rose");
-            else toast("Liked — we'll let you know if it's mutual.", "rose");
+            // The answer comes from the backend: it's the only side that knows whether
+            // the other person liked back.
+            void likeProfile(seed.id).then((res) => {
+              if (res.matched) toast(`It's a match with ${seed.name}!`, "rose");
+              else toast("Liked — we'll let you know if it's mutual.", "rose");
+            });
           }}
         >
           <IconHeartFilled className="h-4 w-4" />
