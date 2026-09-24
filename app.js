@@ -1476,6 +1476,17 @@ function updateChatSendState() {
   if (send) send.disabled = !$('chat-draft')?.value.trim() || state.chat?.locked || state.chat?.unavailable;
 }
 
+// A failed FIRST load with nothing on screen says so instead of claiming the conversation is
+// empty; the poll keeps retrying behind the visible control. Two error branches used to
+// carry this same block verbatim.
+function renderChatLoadFailed(chat) {
+  chat.loadFailed = true;
+  const host = $('chat-messages');
+  if (host) host.innerHTML = `<div class="chat-empty"><p>${escapeHtml(t('app.error_generic'))}</p><button class="chat-starters-btn" id="chat-load-retry" type="button">${escapeHtml(t('app.check_later'))}</button></div>`;
+  const retry = $('chat-load-retry');
+  if (retry) retry.onclick = () => loadChatMessages();
+}
+
 // Fetches the message history. Poll failures and transient errors leave whatever is on
 // screen alone; the typed states (locked/unavailable) only render for their typed errors.
 async function loadChatMessages() {
@@ -1553,28 +1564,12 @@ async function loadChatMessages() {
       // There is no Premium gate on the shared conversation: the only terminal state is one
       // the server no longer offers (an unmatch, a block, a deleted counterpart).
       if (error.error === 'CONVERSATION_UNAVAILABLE' || error.status === 404) { chat.unavailable = true; renderChatUnavailable(); return; }
-      if (!chat.messages.length) {
-        // A failed FIRST load with nothing on screen says so instead of claiming the
-        // conversation is empty; the poll keeps retrying behind the visible control.
-        chat.loadFailed = true;
-        const host = $('chat-messages');
-        if (host) host.innerHTML = `<div class="chat-empty"><p>${escapeHtml(t('app.error_generic'))}</p><button class="chat-starters-btn" id="chat-load-retry" type="button">${escapeHtml(t('app.check_later'))}</button></div>`;
-        const retry = $('chat-load-retry');
-        if (retry) retry.onclick = () => loadChatMessages();
-      }
+      if (!chat.messages.length) renderChatLoadFailed(chat);
       return;
     }
     if (error.error === 'PREMIUM_REQUIRED') { chat.locked = true; renderChatLocked(); }
     else if (error.error === 'CONVERSATION_UNAVAILABLE') { chat.unavailable = true; renderChatUnavailable(); }
-    else if (!chat.messages.length) {
-      // A failed FIRST load with nothing on screen says so instead of claiming the
-      // conversation is empty; the poll keeps retrying behind the visible control.
-      chat.loadFailed = true;
-      const host = $('chat-messages');
-      if (host) host.innerHTML = `<div class="chat-empty"><p>${escapeHtml(t('app.error_generic'))}</p><button class="chat-starters-btn" id="chat-load-retry" type="button">${escapeHtml(t('app.check_later'))}</button></div>`;
-      const retry = $('chat-load-retry');
-      if (retry) retry.onclick = () => loadChatMessages();
-    }
+    else if (!chat.messages.length) renderChatLoadFailed(chat);
     // RATE_LIMITED and network failures with content on screen: keep it; the poll retries.
   }
 }
@@ -2326,27 +2321,44 @@ function confirmAction(action, match) {
   });
 }
 
-function openReportSheet(match) {
-  const reasons = ['harassment', 'spam', 'scam', 'fake_profile', 'inappropriate_content', 'underage', 'other'];
+// Reporting is one sheet. The shared community layer has its own five-token vocabulary and
+// a shorter note limit, so the caller supplies the reasons, the limit, the call to make and
+// what to clean up afterwards — the markup and the flow are identical either way.
+function openReportSheetFor({ reasons, maxLength, submit, after, onError }) {
   openSheet(t('app.report'), `
     <div class="field"><label for="report-reason">${escapeHtml(t('app.report_reason'))}</label>
-      <select id="report-reason">${reasons.map((r) => `<option value="${r}">${escapeHtml(t(`app.reason_${r}`))}</option>`).join('')}</select></div>
+      <select id="report-reason">${reasons.map(([value, key]) => `<option value="${escapeHtml(value)}">${escapeHtml(t(key))}</option>`).join('')}</select></div>
     <div class="field"><label for="report-details">${escapeHtml(t('app.report_details'))}</label>
-      <textarea id="report-details" maxlength="1000"></textarea></div>
+      <textarea id="report-details" maxlength="${maxLength}"></textarea></div>
     <button class="save-btn" id="report-send" type="button">${escapeHtml(t('app.report_send'))}</button>
     <p class="filter-note">${escapeHtml(t('app.report_note'))}</p>
   `, () => {
     $('report-send').onclick = async () => {
       try {
-        await api(API.relationship, { body: { action: 'report', targetId: match.id, reason: $('report-reason').value, details: $('report-details').value } });
+        await submit($('report-reason').value, $('report-details').value);
         closeSheet();
         showToast(t('app.report_done'));
-        // Reported = blocked = decided: the person leaves the deck as well as the match list.
-        const deckIndex = state.profiles.findIndex((p) => p.id === match.id);
-        if (deckIndex >= 0) { state.profiles.splice(deckIndex, 1); renderDiscover(); }
-        await loadMatches();
-      } catch (error) { showToast(errorText(error)); }
+        await after();
+      } catch (error) { onError(error); }
     };
+  });
+}
+
+const TELEGRAM_REPORT_REASONS = ['harassment', 'spam', 'scam', 'fake_profile', 'inappropriate_content', 'underage', 'other']
+  .map((reason) => [reason, `app.reason_${reason}`]);
+
+function openReportSheet(match) {
+  openReportSheetFor({
+    reasons: TELEGRAM_REPORT_REASONS,
+    maxLength: 1000,
+    submit: (reason, details) => api(API.relationship, { body: { action: 'report', targetId: match.id, reason, details } }),
+    after: async () => {
+      // Reported = blocked = decided: the person leaves the deck as well as the match list.
+      const deckIndex = state.profiles.findIndex((p) => p.id === match.id);
+      if (deckIndex >= 0) { state.profiles.splice(deckIndex, 1); renderDiscover(); }
+      await loadMatches();
+    },
+    onError: (error) => showToast(errorText(error)),
   });
 }
 
@@ -2356,32 +2368,24 @@ function openReportSheet(match) {
 const SOCIAL_REPORT_REASONS = [['fake', 'app.reason_fake_profile'], ['harassment', 'app.reason_harassment'], ['inappropriate', 'app.reason_inappropriate_content'], ['underage', 'app.reason_underage'], ['other', 'app.reason_other']];
 
 function openSharedReportSheet(target) {
-  openSheet(t('app.report'), `
-    <div class="field"><label for="report-reason">${escapeHtml(t('app.report_reason'))}</label>
-      <select id="report-reason">${SOCIAL_REPORT_REASONS.map(([value, key]) => `<option value="${escapeHtml(value)}">${escapeHtml(t(key))}</option>`).join('')}</select></div>
-    <div class="field"><label for="report-details">${escapeHtml(t('app.report_details'))}</label>
-      <textarea id="report-details" maxlength="300"></textarea></div>
-    <button class="save-btn" id="report-send" type="button">${escapeHtml(t('app.report_send'))}</button>
-    <p class="filter-note">${escapeHtml(t('app.report_note'))}</p>
-  `, () => {
-    $('report-send').onclick = async () => {
-      try {
-        await social('report', { method: 'POST', body: { target: target.sharedId || target.id, reason: $('report-reason').value, note: $('report-details').value } });
-        closeSheet();
-        showToast(t('app.report_done'));
-        // Reporting also blocks them server-side, so the card and the row leave the screen
-        // exactly as they do on the Telegram side.
-        const deckIndex = state.profiles.findIndex((p) => p.isShared && p.id === (target.sharedId || target.id));
-        if (deckIndex >= 0) {
-          state.profiles.splice(deckIndex, 1);
-          if (state.stats) state.stats.available = state.profiles.length;
-          renderDiscover();
-        }
-        state.social.matches = state.social.matches.filter((m) => m.id !== target.matchId);
-        renderSocialMatches();
-        await loadSocialMatches();
-      } catch { showToast(st('shared_offline')); }
-    };
+  openReportSheetFor({
+    reasons: SOCIAL_REPORT_REASONS,
+    maxLength: 300,
+    submit: (reason, note) => social('report', { method: 'POST', body: { target: target.sharedId || target.id, reason, note } }),
+    after: async () => {
+      // Reporting also blocks them server-side, so the card and the row leave the screen
+      // exactly as they do on the Telegram side.
+      const deckIndex = state.profiles.findIndex((p) => p.isShared && p.id === (target.sharedId || target.id));
+      if (deckIndex >= 0) {
+        state.profiles.splice(deckIndex, 1);
+        if (state.stats) state.stats.available = state.profiles.length;
+        renderDiscover();
+      }
+      state.social.matches = state.social.matches.filter((m) => m.id !== target.matchId);
+      renderSocialMatches();
+      await loadSocialMatches();
+    },
+    onError: () => showToast(st('shared_offline')),
   });
 }
 
@@ -2433,86 +2437,72 @@ async function exportMyData() {
 // profile — the user turns "Show my profile in Discover" back on themselves.
 // ---------------------------------------------------------------------------
 
-function renderRestriction() {
-  const restricted = state.processingRestricted === true;
-  const notice = $('restriction-notice');
+// Restriction (GDPR Art. 18) and objection (Art. 21) are the same mechanic under two legal
+// bases, so they share one implementation: pause, explain and confirm first; withdraw with
+// no ceremony; reload from the server rather than assuming, because both change
+// discoverability. Only the state flag, the DOM ids, the API action and the copy differ.
+const PROCESSING_KINDS = {
+  restrict: {
+    flag: 'processingRestricted', noticeId: 'restriction-notice', buttonId: 'restrict-btn',
+    actionOn: 'restrict', actionOff: 'unrestrict',
+    keys: { badge: 'app.restricted_badge', notice: 'app.restricted_notice',
+      actionOn: 'app.restrict_action', actionOff: 'app.unrestrict_action',
+      title: 'app.restrict_title', explain: 'app.restrict_explain', note: 'app.restrict_note',
+      confirm: 'app.restrict_confirm', doneOn: 'app.restrict_done', doneOff: 'app.unrestrict_done' },
+  },
+  object: {
+    flag: 'processingObjection', noticeId: 'objection-notice', buttonId: 'object-btn',
+    actionOn: 'object', actionOff: 'unobject',
+    keys: { badge: 'app.objection_badge', notice: 'app.objection_notice',
+      actionOn: 'app.object_action', actionOff: 'app.unobject_action',
+      title: 'app.objection_title', explain: 'app.objection_explain', note: 'app.objection_note',
+      confirm: 'app.objection_confirm', doneOn: 'app.objection_done', doneOff: 'app.unobject_done' },
+  },
+};
+
+function renderProcessing(kind) {
+  const spec = PROCESSING_KINDS[kind];
+  const on = state[spec.flag] === true;
+  const notice = $(spec.noticeId);
   if (notice) {
-    notice.innerHTML = restricted
-      ? `<div class="restricted-notice"><b>${escapeHtml(t('app.restricted_badge'))}</b>${escapeHtml(t('app.restricted_notice'))}</div>`
+    notice.innerHTML = on
+      ? `<div class="restricted-notice"><b>${escapeHtml(t(spec.keys.badge))}</b>${escapeHtml(t(spec.keys.notice))}</div>`
       : '';
   }
-  setText('restrict-btn', restricted ? t('app.unrestrict_action') : t('app.restrict_action'));
+  setText(spec.buttonId, t(on ? spec.keys.actionOff : spec.keys.actionOn));
 }
 
-async function applyRestriction(restricted) {
+async function applyProcessing(kind, on) {
+  const spec = PROCESSING_KINDS[kind];
   try {
-    await api(API.account, { body: { action: restricted ? 'restrict' : 'unrestrict' } });
+    await api(API.account, { body: { action: on ? spec.actionOn : spec.actionOff } });
     closeSheet();
-    // Reloaded rather than assumed: the server decides the state, and lifting also changes
-    // discoverability, which the profile form has to show correctly.
     await loadAccount();
     await loadDiscover();
-    showToast(t(restricted ? 'app.restrict_done' : 'app.unrestrict_done'));
+    showToast(t(on ? spec.keys.doneOn : spec.keys.doneOff));
   } catch (error) {
     showToast(errorText(error));
   }
 }
 
-function openRestrict() {
-  // Resuming restores a normal account and needs no ceremony; pausing stops the product
+function openProcessing(kind) {
+  const spec = PROCESSING_KINDS[kind];
+  // Withdrawing restores a normal account and needs no ceremony; pausing stops the product
   // working, so it is explained and confirmed first.
-  if (state.processingRestricted === true) { applyRestriction(false); return; }
-  openSheet(t('app.restrict_title'), `
-    <p class="filter-note" style="font-size:13px;margin-bottom:12px">${escapeHtml(t('app.restrict_explain'))}</p>
-    <p class="filter-note" style="font-size:13px;margin-bottom:12px">${escapeHtml(t('app.restrict_note'))}</p>
-    <button class="save-btn" id="restrict-go" type="button">${escapeHtml(t('app.restrict_confirm'))}</button>
+  if (state[spec.flag] === true) { applyProcessing(kind, false); return; }
+  const goId = `processing-go-${kind}`;
+  openSheet(t(spec.keys.title), `
+    <p class="filter-note" style="font-size:13px;margin-bottom:12px">${escapeHtml(t(spec.keys.explain))}</p>
+    <p class="filter-note" style="font-size:13px;margin-bottom:12px">${escapeHtml(t(spec.keys.note))}</p>
+    <button class="save-btn" id="${goId}" type="button">${escapeHtml(t(spec.keys.confirm))}</button>
     <button class="ghost-btn" data-sheet-close>${escapeHtml(t('app.cancel'))}</button>
-  `, () => { $('restrict-go').onclick = () => applyRestriction(true); });
+  `, () => { $(goId).onclick = () => applyProcessing(kind, true); });
 }
 
-// Objection to processing (GDPR Art. 21)
-// A recorded legal state, distinct from restriction: the user objects to the processing of
-// their data for discovery and matching, and Bezy stops immediately. Withdrawing the
-// objection does not republish the profile — the user turns "Show my profile in Discover"
-// back on themselves.
-// ---------------------------------------------------------------------------
-
-function renderObjection() {
-  const objected = state.processingObjection === true;
-  const notice = $('objection-notice');
-  if (notice) {
-    notice.innerHTML = objected
-      ? `<div class="restricted-notice"><b>${escapeHtml(t('app.objection_badge'))}</b>${escapeHtml(t('app.objection_notice'))}</div>`
-      : '';
-  }
-  setText('object-btn', objected ? t('app.unobject_action') : t('app.object_action'));
-}
-
-async function applyObjection(objected) {
-  try {
-    await api(API.account, { body: { action: objected ? 'object' : 'unobject' } });
-    closeSheet();
-    // Reloaded rather than assumed: the server decides the state, and objecting also changes
-    // discoverability, which the profile form has to show correctly.
-    await loadAccount();
-    await loadDiscover();
-    showToast(t(objected ? 'app.objection_done' : 'app.unobject_done'));
-  } catch (error) {
-    showToast(errorText(error));
-  }
-}
-
-function openObjection() {
-  // Withdrawing restores a normal account and needs no ceremony; objecting stops the product
-  // working, so it is explained and confirmed first.
-  if (state.processingObjection === true) { applyObjection(false); return; }
-  openSheet(t('app.objection_title'), `
-    <p class="filter-note" style="font-size:13px;margin-bottom:12px">${escapeHtml(t('app.objection_explain'))}</p>
-    <p class="filter-note" style="font-size:13px;margin-bottom:12px">${escapeHtml(t('app.objection_note'))}</p>
-    <button class="save-btn" id="objection-go" type="button">${escapeHtml(t('app.objection_confirm'))}</button>
-    <button class="ghost-btn" data-sheet-close>${escapeHtml(t('app.cancel'))}</button>
-  `, () => { $('objection-go').onclick = () => applyObjection(true); });
-}
+const renderRestriction = () => renderProcessing('restrict');
+const renderObjection = () => renderProcessing('object');
+const openRestrict = () => openProcessing('restrict');
+const openObjection = () => openProcessing('object');
 
 // ---------------------------------------------------------------------------
 // Home-screen installation — the official Telegram Mini Apps capability only.
@@ -2859,8 +2849,6 @@ function bindEvents() {
   if ($('filterBtn')) $('filterBtn').onclick = openFilters;
   if ($('blocked-list-btn')) $('blocked-list-btn').onclick = openBlockedList;
   if ($('export-data-btn')) $('export-data-btn').onclick = exportMyData;
-  if ($('restrict-btn')) $('restrict-btn').onclick = openRestrict;
-  if ($('object-btn')) $('object-btn').onclick = openObjection;
   if ($('data-controls-btn')) $('data-controls-btn').onclick = openDataControls;
   if ($('support-history-btn')) $('support-history-btn').onclick = openSupportHistory;
   if ($('delete-account-btn')) $('delete-account-btn').onclick = openDeleteAccount;
