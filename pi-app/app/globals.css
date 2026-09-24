@@ -1,6 +1,15 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* Explicit scan roots: the App Studio build environment must not depend on
+   Tailwind's automatic content detection, which missed every component file
+   in the hosted build and stripped all utility styles from the app. */
+@source '../app';
+@source '../components';
+@source '../contexts';
+@source '../hooks';
+@source '../lib';
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
