@@ -3,12 +3,12 @@
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
 import { Avatar, EmptyState } from "@/components/bezy/pieces";
-import { IconChat, IconHeartFilled, cx } from "@/components/bezy/ui";
+import { IconChat, IconChevron, IconHeartFilled, IconLock, cx } from "@/components/bezy/ui";
 import { relativeTime } from "@/lib/bezy/data";
 
 export function MatchesScreen() {
-  const { matches, getSeed, messagesFor, unreadFor } = useBezy();
-  const { openThread } = useNav();
+  const { matches, getSeed, messagesFor, unreadFor, likesReceived, isPremiumActive } = useBezy();
+  const { openThread, openLikes } = useNav();
 
   const newMatches = matches.filter((m) => (messagesFor(m.id) ?? []).length === 0);
   const conversations = matches
@@ -29,6 +29,34 @@ export function MatchesScreen() {
             : `${matches.length} mutual ${matches.length === 1 ? "match" : "matches"}`}
         </p>
       </header>
+
+      {/* Always visible, even with no matches — the point is that someone is already
+          waiting, and that is exactly when a member has nothing else on this screen. */}
+      <button
+        onClick={openLikes}
+        className="bz-press mx-5 mb-4 flex items-center gap-3 rounded-2xl border border-bz-line bg-bz-plum-soft p-3.5 text-left"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/70 text-bz-plum">
+          {isPremiumActive ? (
+            <IconHeartFilled className="h-5 w-5" />
+          ) : (
+            <IconLock className="h-5 w-5" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-sm font-semibold text-bz-plum">
+            {likesReceived.length > 0
+              ? `${likesReceived.length} ${likesReceived.length === 1 ? "person likes" : "people like"} you`
+              : "Likes you"}
+          </p>
+          <p className="text-xs leading-relaxed text-bz-plum/90">
+            {isPremiumActive
+              ? "See everyone waiting on your decision."
+              : "Premium shows you who they are."}
+          </p>
+        </div>
+        <IconChevron className="h-4 w-4 shrink-0 text-bz-plum" />
+      </button>
 
       {matches.length === 0 ? (
         <EmptyState icon={<IconHeartFilled className="h-7 w-7" />} title="No matches yet">

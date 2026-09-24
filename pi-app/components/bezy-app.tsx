@@ -15,6 +15,7 @@ import { ProfileEdit } from "@/components/bezy/profile-edit";
 import { SettingsScreen } from "@/components/bezy/settings-screen";
 import { ModerationScreen } from "@/components/bezy/moderation-screen";
 import { PremiumScreen } from "@/components/bezy/premium-screen";
+import { LikesScreen } from "@/components/bezy/likes-screen";
 import { profileComplete } from "@/lib/bezy/data";
 
 export function BezyApp() {
@@ -53,6 +54,7 @@ function Shell() {
       <SettingsScreen />
       <ModerationScreen />
       <PremiumScreen />
+      <LikesScreen />
       <ReportSheet />
 
       <ToastHost />

@@ -121,8 +121,8 @@ export function ProfileScreen() {
           </div>
           <p className="mt-2 text-xs leading-relaxed text-bz-plum/90">
             {isPremiumActive
-              ? `Active until ${premiumExpiryLabel(premium.expiresAt)}. See who liked you, filters, and more.`
-              : "See who liked you, advanced filters, extra Super Likes and more visibility — paid once in Pi."}
+              ? `Active until ${premiumExpiryLabel(premium.expiresAt)}. See everyone who liked you.`
+              : "See who already liked you and match by liking back — paid once in Pi."}
           </p>
         </button>
 

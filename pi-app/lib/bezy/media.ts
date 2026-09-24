@@ -164,6 +164,19 @@ export async function fetchSocialDiscovery(): Promise<Candidate[]> {
   return people;
 }
 
+/** Everyone who already liked this account and hasn't been decided on yet (Premium). */
+export async function fetchSocialLikes(): Promise<Candidate[]> {
+  const response = await socialRequest("likes");
+  const body = (await response.json()) as { likes?: unknown };
+  const raw = Array.isArray(body.likes) ? body.likes : [];
+  const people: Candidate[] = [];
+  for (const item of raw) {
+    const person = sanitizeSharedPerson(item);
+    if (person) people.push(person);
+  }
+  return people;
+}
+
 export async function sendSocialDecision(
   target: string,
   decision: "like" | "pass",

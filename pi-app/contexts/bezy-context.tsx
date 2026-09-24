@@ -15,6 +15,7 @@ import { configurePhotoAccount, clearAccountPhotos } from "@/lib/bezy/photos";
 import {
   blockSocial,
   fetchSocialDiscovery,
+  fetchSocialLikes,
   fetchSocialMatches,
   fetchSocialMessages,
   markSocialRead,
@@ -111,6 +112,12 @@ interface BezyContextValue {
   discovery: SharedPerson[];
   discoveryLoading: boolean;
   socialTrouble: boolean;
+
+  // premium: everyone waiting on a like-back
+  likesReceived: SharedPerson[];
+  likesLoading: boolean;
+  refreshLikes: () => Promise<void>;
+
   getSeed: (id: string) => SeedProfile | undefined;
   refreshDiscovery: () => Promise<void>;
   refreshSocial: () => Promise<void>;
@@ -203,6 +210,8 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   const [serverDiscovery, setServerDiscovery] = useState<SharedPerson[]>([]);
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [socialTrouble, setSocialTrouble] = useState(false);
+  const [likesReceived, setLikesReceived] = useState<SharedPerson[]>([]);
+  const [likesLoading, setLikesLoading] = useState(false);
   const threadSynced = useRef<Set<string>>(new Set());
 
   // Authoritative refs so writers always serialize the latest snapshot.
@@ -465,6 +474,25 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /**
+   * Everyone who already liked this account and is still waiting on a decision. Loaded for
+   * every member, not just Premium: the count is what the Matches screen teases, and only
+   * the identities behind it are Premium.
+   */
+  async function refreshLikes(): Promise<void> {
+    if (!socialReadyRef.current) return;
+    setLikesLoading(true);
+    try {
+      const list = await fetchSocialLikes();
+      setLikesReceived(list);
+      mergePeople(list);
+    } catch {
+      // Keep the last known count; the open screen offers its own retry.
+    } finally {
+      setLikesLoading(false);
+    }
+  }
+
   async function refreshDiscovery(): Promise<void> {
     if (!socialReadyRef.current) return;
     setDiscoveryLoading(true);
@@ -556,7 +584,7 @@ export function BezyProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshSocial(): Promise<void> {
-    await Promise.all([refreshDiscovery(), refreshMatches()]);
+    await Promise.all([refreshDiscovery(), refreshMatches(), refreshLikes()]);
   }
 
   async function refreshThread(matchId: string): Promise<void> {
@@ -961,6 +989,9 @@ export function BezyProvider({ children }: { children: ReactNode }) {
     discovery,
     discoveryLoading,
     socialTrouble,
+    likesReceived,
+    likesLoading,
+    refreshLikes,
     // Real people first; the (empty) local seed pool stays as the last resort.
     getSeed: (id) => people[id] ?? seedMap.get(id),
     refreshDiscovery,

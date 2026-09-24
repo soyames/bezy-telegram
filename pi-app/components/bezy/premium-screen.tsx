@@ -9,16 +9,14 @@ import { Button, IconCheck, IconInfo, IconStar, Pill, cx } from "@/components/be
 import { PREMIUM_DAYS, premiumExpiryLabel } from "@/lib/bezy/data";
 import { PRODUCT_CONFIG } from "@/lib/product-config";
 
+// Only what the code actually delivers today. Extra Super Likes, filter upgrades and a
+// discover ranking boost are not built, so they are not sold — add each line here only
+// once its feature ships.
 const BENEFITS = [
   "See everyone who already liked you",
-  "Advanced discovery filters",
-  "Extra Super Likes each week",
-  "Increased visibility in Discover",
+  "Like them back and match instantly",
+  "Nobody is told that you looked at their profile",
 ];
-
-// Shared discovery, likes and entitlement verification are not connected in this
-// exported build. Do not accept real Pi for benefits that cannot yet be delivered.
-const PURCHASES_ENABLED = false;
 
 export function PremiumScreen() {
   const { premiumOpen, closePremium } = useNav();
@@ -35,7 +33,7 @@ export function PremiumScreen() {
   const amount = product?.price_in_pi;
 
   async function handlePurchase() {
-    if (!PURCHASES_ENABLED || !product || !sdk) {
+    if (!product || !sdk) {
       setError("Premium isn't available to purchase right now. Please try again shortly.");
       return;
     }
@@ -130,13 +128,11 @@ export function PremiumScreen() {
         <div className="mt-5">
           <Button
             onClick={handlePurchase}
-            disabled={!PURCHASES_ENABLED || !product || purchasing}
+            disabled={!product || purchasing}
             block
-            className={cx((!PURCHASES_ENABLED || !product) && "opacity-60")}
+            className={cx(!product && "opacity-60")}
           >
-            {!PURCHASES_ENABLED
-              ? "Premium unavailable until real matching is ready"
-              : purchasing
+            {purchasing
               ? "Confirming payment…"
               : active
                 ? `Renew · ${amount ?? "…"} Pi for ${PREMIUM_DAYS} more days`
@@ -144,7 +140,6 @@ export function PremiumScreen() {
                   ? `Upgrade to Premium · ${amount} Pi`
                   : "Premium unavailable"}
           </Button>
-          {!PURCHASES_ENABLED && <p className="mt-2 text-xs text-bz-muted">We are connecting real profiles and messages before enabling purchases.</p>}
         </div>
 
         <div className="mt-4 flex items-start gap-3 rounded-2xl bg-bz-panel-2 p-4 text-xs leading-relaxed text-bz-muted">

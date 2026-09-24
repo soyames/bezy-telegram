@@ -33,6 +33,9 @@ interface NavValue {
   premiumOpen: boolean;
   openPremium: () => void;
   closePremium: () => void;
+  likesOpen: boolean;
+  openLikes: () => void;
+  closeLikes: () => void;
 }
 
 const NavContext = createContext<NavValue | null>(null);
@@ -52,6 +55,7 @@ export function NavProvider({ children }: { children: ReactNode }) {
   const [moderationOpen, setModerationOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [premiumOpen, setPremiumOpen] = useState(false);
+  const [likesOpen, setLikesOpen] = useState(false);
 
   const value: NavValue = {
     tab,
@@ -77,6 +81,9 @@ export function NavProvider({ children }: { children: ReactNode }) {
     premiumOpen,
     openPremium: () => setPremiumOpen(true),
     closePremium: () => setPremiumOpen(false),
+    likesOpen,
+    openLikes: () => setLikesOpen(true),
+    closeLikes: () => setLikesOpen(false),
   };
 
   return <NavContext.Provider value={value}>{children}</NavContext.Provider>;

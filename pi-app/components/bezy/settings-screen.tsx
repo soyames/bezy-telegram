@@ -60,7 +60,7 @@ export function SettingsScreen() {
               <p className="mt-0.5 text-xs leading-relaxed text-bz-muted">
                 {isPremiumActive
                   ? `Active until ${premiumExpiryLabel(premium.expiresAt)} · manage renewal`
-                  : "Unlock who liked you, filters, extra Super Likes and more"}
+                  : "Unlock who liked you and match by liking back"}
               </p>
             </div>
             {isPremiumActive ? <Pill tone="plum">Active</Pill> : null}
