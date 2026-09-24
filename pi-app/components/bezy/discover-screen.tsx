@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { PersonPhoto } from "@/components/bezy/pieces";
+import { PersonCaption, PersonPhoto } from "@/components/bezy/pieces";
 import {
   Button,
   IconHeartFilled,
@@ -121,14 +121,8 @@ export function DiscoverScreen() {
             />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-5 pt-14">
               <div className="flex items-center gap-2">
-                <h2 className="font-display text-2xl font-bold text-white">
-                  {person.name} <span className="text-white/85">{person.age}</span>
-                </h2>
+                <PersonCaption name={person.name} age={person.age} area={person.area} />
               </div>
-              <p className="mt-0.5 flex items-center gap-1.5 text-sm text-white/85">
-                <IconPin className="h-4 w-4" />
-                {person.area}
-              </p>
             </div>
           </button>
 

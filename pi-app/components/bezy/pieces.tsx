@@ -8,7 +8,16 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { BezyMark, cx, IconCheck, IconChevron, IconClose, Pill, Spinner } from "@/components/bezy/ui";
+import {
+  BezyMark,
+  cx,
+  IconCheck,
+  IconChevron,
+  IconClose,
+  IconPin,
+  Pill,
+  Spinner,
+} from "@/components/bezy/ui";
 import { getPhotoUrl, loadPhotoUrl, subscribePhotos, viewedPhotoUrl } from "@/lib/bezy/photos";
 import { initialsOf, type PhotoRef } from "@/lib/bezy/data";
 import { useBezy } from "@/contexts/bezy-context";
@@ -292,6 +301,40 @@ export function PersonPhoto({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={url} alt={name} className="h-full w-full object-cover" />
     </div>
+  );
+}
+
+/**
+ * The caption over a photo: name, age and where they are. Discover and the member's own
+ * profile drew it identically, white on the photo; the detail page drew the same thing dark
+ * on the page, which is what `tone` selects.
+ */
+export function PersonCaption({
+  name,
+  age,
+  area,
+  tone = "photo",
+}: {
+  name: string;
+  age?: number;
+  area?: string;
+  tone?: "photo" | "page";
+}) {
+  const strong = tone === "photo" ? "text-white" : "text-bz-ink";
+  const soft = tone === "photo" ? "text-white/85" : "text-bz-muted";
+  return (
+    <>
+      <h2 className={cx("font-display text-2xl font-bold", strong)}>
+        {name}
+        {age ? <span className={soft}> {age}</span> : null}
+      </h2>
+      {area ? (
+        <p className={cx("mt-0.5 flex items-center gap-1.5 text-sm", soft)}>
+          <IconPin className="h-4 w-4" />
+          {area}
+        </p>
+      ) : null}
+    </>
   );
 }
 

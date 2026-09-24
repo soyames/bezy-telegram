@@ -2,7 +2,7 @@
 
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { PhotoArt, UpsellCard } from "@/components/bezy/pieces";
+import { PersonCaption, PhotoArt, UpsellCard } from "@/components/bezy/pieces";
 import {
   IconChevron,
   IconEdit,
@@ -10,7 +10,6 @@ import {
   IconGavel,
   IconHeartFilled,
   IconLock,
-  IconPin,
   IconShield,
   IconStar,
   Pill,
@@ -44,13 +43,7 @@ export function ProfileScreen() {
             className="aspect-[5/6] w-full"
           />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-5 pt-14">
-            <h2 className="font-display text-2xl font-bold text-white">
-              {profile.displayName} <span className="text-white/85">{profile.age}</span>
-            </h2>
-            <p className="mt-0.5 flex items-center gap-1.5 text-sm text-white/85">
-              <IconPin className="h-4 w-4" />
-              {profile.area}
-            </p>
+            <PersonCaption name={profile.displayName} age={profile.age} area={profile.area} />
           </div>
           <button
             onClick={openEdit}

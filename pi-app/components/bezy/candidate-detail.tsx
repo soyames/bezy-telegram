@@ -2,13 +2,12 @@
 
 import { useBezy } from "@/contexts/bezy-context";
 import { useNav } from "@/components/bezy/nav";
-import { ConfirmButton, Overlay, OverlayHeader, PersonPhoto } from "@/components/bezy/pieces";
+import { ConfirmButton, Overlay, OverlayHeader, PersonCaption, PersonPhoto } from "@/components/bezy/pieces";
 import {
   Button,
   IconBan,
   IconFlag,
   IconHeartFilled,
-  IconPin,
   IconSpark,
   IconX,
   Pill,
@@ -65,13 +64,7 @@ export function CandidateDetail() {
         ) : null}
         <div className="space-y-5 p-5">
           <div>
-            <h2 className="font-display text-2xl font-bold text-bz-ink">
-              {seed.name} <span className="text-bz-muted">{seed.age}</span>
-            </h2>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-bz-muted">
-              <IconPin className="h-4 w-4" />
-              {seed.area}
-            </p>
+            <PersonCaption tone="page" name={seed.name} age={seed.age} area={seed.area} />
             <div className="mt-3 flex flex-wrap gap-2">
               <Pill tone="rose">{lookingForLabel(seed.lookingFor)}</Pill>
               <Pill tone="plum">{genderLabel(seed.gender)}</Pill>
