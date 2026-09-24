@@ -250,42 +250,6 @@ export function Button({
   );
 }
 
-export function IconButton({
-  className,
-  children,
-  label,
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
-  return (
-    <button
-      aria-label={label}
-      className={cx(
-        "bz-press inline-flex h-10 w-10 items-center justify-center rounded-full text-bz-muted hover:text-bz-ink",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
-/* ---------- containers ---------- */
-
-export function Card({
-  className,
-  children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className={cx("rounded-3xl border border-bz-line bg-bz-panel", className)}>
-      {children}
-    </div>
-  );
-}
-
 export function Eyebrow({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <p
@@ -413,24 +377,3 @@ export function Spinner({ className }: { className?: string }) {
   );
 }
 
-export function EmptyState({
-  icon,
-  title,
-  children,
-}: {
-  icon?: ReactNode;
-  title: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
-      {icon ? (
-        <div className="mb-1 flex h-14 w-14 items-center justify-center rounded-full bg-bz-rose-soft text-bz-rose">
-          {icon}
-        </div>
-      ) : null}
-      <p className="font-display text-lg font-semibold text-bz-ink">{title}</p>
-      {children ? <p className="max-w-xs text-sm leading-relaxed text-bz-muted">{children}</p> : null}
-    </div>
-  );
-}
