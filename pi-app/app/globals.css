@@ -13,29 +13,33 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Warm, approachable dating palette */
-  --bz-cream: oklch(0.99 0.009 60);
-  --bz-panel: oklch(1 0 0);
-  --bz-panel-2: oklch(0.975 0.012 40);
-  --bz-line: oklch(0.9 0.012 40);
-  --bz-line-soft: oklch(0.94 0.01 40);
-  --bz-ink: oklch(0.26 0.03 22);
-  --bz-muted: oklch(0.52 0.03 25);
-  --bz-faint: oklch(0.66 0.025 30);
+  /* One product, two frontends: these are the Telegram mini app's own values, so a member
+     moving between Pi and Telegram sees the same app. Telegram's source of truth is
+     bg #f8f7fb, card #fff, text #17151c, muted #77727f, line #e9e5ec, accent #7c3aed,
+     accent2 #ec4899, soft #f1ebff. Where a colour is small text on its own soft tint
+     (like, danger) it is darkened a step to stay readable on the light background. */
+  --bz-cream: #f8f7fb;
+  --bz-panel: #ffffff;
+  --bz-panel-2: #f4f1f9;
+  --bz-line: #e9e5ec;
+  --bz-line-soft: #f1edf7;
+  --bz-ink: #17151c;
+  --bz-muted: #77727f;
+  --bz-faint: #9d97a5;
 
-  --bz-rose: oklch(0.63 0.2 13);
-  --bz-rose-deep: oklch(0.55 0.21 12);
-  --bz-rose-soft: oklch(0.95 0.035 15);
-  --bz-peach: oklch(0.78 0.14 46);
-  --bz-peach-soft: oklch(0.95 0.045 55);
-  --bz-plum: oklch(0.5 0.13 340);
-  --bz-plum-soft: oklch(0.95 0.03 335);
-  --bz-like: oklch(0.68 0.15 150);
-  --bz-like-soft: oklch(0.95 0.05 150);
-  --bz-gold: oklch(0.8 0.13 82);
-  --bz-danger: oklch(0.58 0.21 25);
-  --bz-danger-soft: oklch(0.95 0.04 25);
-  --bz-on-rose: oklch(0.99 0.01 20);
+  --bz-rose: #7c3aed;
+  --bz-rose-deep: #6d28d9;
+  --bz-rose-soft: #f1ebff;
+  --bz-peach: #ec4899;
+  --bz-peach-soft: #fdeef6;
+  --bz-plum: #9333ea;
+  --bz-plum-soft: #f7f0ff;
+  --bz-like: #15803d;
+  --bz-like-soft: #eafaf0;
+  --bz-gold: #d97706;
+  --bz-danger: #dc2626;
+  --bz-danger-soft: #fdecec;
+  --bz-on-rose: #ffffff;
   /* Dark-purple brand surface the Bezy wordmark's own artwork sits on, so its built-in
      background blends into the card instead of clashing with an unrelated tile color. */
   --bz-brand-surface: oklch(0.19 0.045 302);
@@ -132,15 +136,16 @@
   }
   .bz-app-bg {
     background:
-      radial-gradient(120% 80% at 100% 0%, oklch(0.95 0.045 30 / 0.6), transparent 55%),
-      radial-gradient(120% 80% at 0% 0%, oklch(0.95 0.035 340 / 0.5), transparent 55%),
+      radial-gradient(120% 80% at 100% 0%, rgb(124 58 237 / 0.10), transparent 55%),
+      radial-gradient(120% 80% at 0% 0%, rgb(236 72 153 / 0.09), transparent 55%),
       var(--bz-cream);
   }
   .bz-hero-grad {
     background: linear-gradient(135deg, var(--bz-rose) 0%, var(--bz-plum) 55%, var(--bz-peach) 120%);
   }
+  /* Telegram's own primary action gradient (its .like / .save-btn). */
   .bz-rose-grad {
-    background: linear-gradient(135deg, var(--bz-rose) 0%, var(--bz-rose-deep) 100%);
+    background: linear-gradient(135deg, var(--bz-rose) 0%, var(--bz-peach) 100%);
   }
   .bz-nums {
     font-variant-numeric: tabular-nums;

@@ -18,14 +18,19 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 // bundled module assets instead of public/ paths. The artwork itself is the supplied
 // export artwork, unchanged.
 import bezyLogo from "@/lib/bezy/assets/bezy-logo.png";
+import bezyLockup from "@/lib/bezy/assets/bezy-logo-lockup.png";
 import bezyIcon from "@/lib/bezy/assets/bezy-icon.png";
 
-/** Official Bezy logo artwork — used in the header and the onboarding welcome screen. */
+/**
+ * Official Bezy logo — used in the header and the onboarding welcome screen. This is the
+ * tightly cropped lockup the Telegram mini app also shows, not the padded square: on the
+ * square canvas the artwork only fills about 58%, so it rendered noticeably small.
+ */
 export function BezyLogo({ className }: { className?: string }) {
   return (
     <span className={cx("relative block shrink-0 overflow-hidden", className)}>
       <Image
-        src={bezyLogo}
+        src={bezyLockup}
         alt="Bezy"
         fill
         sizes="160px"
