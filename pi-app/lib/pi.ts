@@ -50,7 +50,13 @@ export interface PiBackendError extends Error {
   data: unknown;
 }
 
-const AUTH_SCOPES = ["username", "payments"];
+/**
+ * Every Pi.authenticate call in the app must ask for exactly these. Pi narrows the session
+ * to the scopes of the most recent call, so one authenticate with a shorter list silently
+ * removes the scope the others depend on — which is how a checkout ended up failing with
+ * "cannot create a payment without payments scope" after an ordinary API call.
+ */
+export const AUTH_SCOPES = ["username", "payments"];
 const REQUEST_TIMEOUT_MS = 10_000;
 const AUTH_BASE_PATH = "/pi/auth/v1";
 const USER_STATE_BASE_PATH = "/pi/user-state/v1";

@@ -12,6 +12,7 @@ import {
   type ReportReason,
   type SharedPerson,
 } from "@/lib/bezy/data";
+import { AUTH_SCOPES } from "@/lib/pi";
 
 // The backend holds private Vercel Blob objects. Authentication stays on Pi;
 // each Vercel request is bound to a Pi token verified again by /v2/me.
@@ -31,7 +32,9 @@ async function token(): Promise<string> {
   if (!tokenPromise) {
     tokenPromise = (async () => {
       if (!window.Pi) throw new Error("Open Bezy inside Pi Browser to use photos.");
-      const result = await window.Pi.authenticate(["username"], () => {});
+      // The app's full scope list, shared with lib/pi.ts. Asking for less here would narrow
+      // the Pi session for every other caller and take the payments scope with it.
+      const result = await window.Pi.authenticate(AUTH_SCOPES, () => {});
       return result.accessToken;
     })().catch((error) => { tokenPromise = null; throw error; });
   }
